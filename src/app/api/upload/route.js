@@ -16,6 +16,7 @@ export async function POST(req) {
   const title = formData.get("title") || "بدون عنوان";
   const description = formData.get("description") || "";
   const privacyStatus = formData.get("privacyStatus") || "private";
+  const publishAt = formData.get("publishAt") || null;
 
   if (!file) {
     return NextResponse.json({ error: "فایل ویدیو ارسال نشده" }, { status: 400 });
@@ -37,9 +38,14 @@ export async function POST(req) {
           title,
           description,
         },
-        status: {
-          privacyStatus,
-        },
+        status: publishAt
+          ? {
+              privacyStatus: "private", // یوتیوب برای زمان‌بندی الزام می‌کنه private باشه
+              publishAt: new Date(publishAt).toISOString(),
+            }
+          : {
+              privacyStatus,
+            },
       },
       media: {
         body: stream,

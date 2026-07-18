@@ -8,6 +8,7 @@ export default function Home() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [privacyStatus, setPrivacyStatus] = useState("private");
+  const [publishAt, setPublishAt] = useState("");
   const [file, setFile] = useState(null);
   const [status, setStatus] = useState("");
   const [uploading, setUploading] = useState(false);
@@ -29,6 +30,9 @@ export default function Home() {
     formData.append("title", title);
     formData.append("description", description);
     formData.append("privacyStatus", privacyStatus);
+    if (publishAt) {
+      formData.append("publishAt", publishAt);
+    }
 
     const xhr = new XMLHttpRequest();
 
@@ -102,6 +106,21 @@ export default function Home() {
               <option value="unlisted">لینک‌دار (Unlisted)</option>
               <option value="public">عمومی (Public)</option>
             </select>
+
+            <div style={{ textAlign: "right" }}>
+              <label style={{ fontSize: "0.9rem" }}>
+                زمان‌بندی انتشار (اختیاری):
+              </label>
+              <input
+                type="datetime-local"
+                value={publishAt}
+                onChange={(e) => setPublishAt(e.target.value)}
+                style={{ width: "100%", marginTop: "0.3rem" }}
+              />
+              <p style={{ fontSize: "0.75rem", color: "#666" }}>
+                اگه پر کنی، ویدیو به‌صورت خصوصی آپلود می‌شه و خودکار در این تاریخ/ساعت عمومی می‌شه.
+              </p>
+            </div>
 
             <input
               type="file"
