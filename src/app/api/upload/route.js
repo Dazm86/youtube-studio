@@ -15,6 +15,7 @@ export async function POST(req) {
   const file = formData.get("video");
   const title = formData.get("title") || "بدون عنوان";
   const description = formData.get("description") || "";
+  const privacyStatus = formData.get("privacyStatus") || "private";
 
   if (!file) {
     return NextResponse.json({ error: "فایل ویدیو ارسال نشده" }, { status: 400 });
@@ -37,7 +38,7 @@ export async function POST(req) {
           description,
         },
         status: {
-          privacyStatus: "private", // برای تست؛ بعداً می‌تونیم public کنیم
+          privacyStatus,
         },
       },
       media: {
