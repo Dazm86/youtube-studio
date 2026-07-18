@@ -14,6 +14,54 @@ export default function Home() {
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
 
+  // بخش برش ویدیو
+  const [startTime, setStartTime] = useState("0");
+  const [duration, setDuration] = useState("");
+  const [trimming, setTrimming] = useState(false);
+  const [trimStatus, setTrimStatus] = useState("");
+
+  async function handleTrim() {
+    if (!file) {
+      setTrimStatus("اول یک فایل ویدیو انتخاب کنید.");
+      return;
+    }
+    if (!duration) {
+      setTrimStatus("مدت زمان برش را وارد کنید.");
+      return;
+    }
+
+    setTrimming(true);
+    setTrimStatus("در حال برش ویدیو...");
+
+    const formData = new FormData();
+    formData.append("video", file);
+    formData.append("startTime", startTime);
+    formData.append("duration", duration);
+
+    try {
+      const res = await fetch("/api/trim", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const errData = await res.json();
+        setTrimStatus(`❌ خطا: ${errData.error}`);
+        setTrimming(false);
+        return;
+      }
+
+      const blob = await res.blob();
+      const trimmedFile = new File([blob], "trimmed.mp4", { type: "video/mp4" });
+      setFile(trimmedFile);
+      setTrimStatus("✅ برش انجام شد. ویدیو آماده‌ی آپلود است.");
+    } catch (err) {
+      setTrimStatus(`❌ خطا: ${err.message}`);
+    }
+
+    setTrimming(false);
+  }
+
   function handleUpload(e) {
     e.preventDefault();
     if (!file) {
@@ -83,6 +131,51 @@ export default function Home() {
             خروج
           </button>
 
+          <input
+            type="file"
+            accept="video/*"
+            onChange={(e) => setFile(e.target.files[0])}
+            style={{ marginBottom: "1rem" }}
+          />
+
+          <div
+            style={{
+              border: "1px solid #ccc",
+              borderRadius: "8px",
+              padding: "1rem",
+              marginBottom: "1.5rem",
+              textAlign: "right",
+            }}
+          >
+            <h3 style={{ marginTop: 0 }}>✂️ برش ویدیو (اختیاری)</h3>
+            <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.5rem" }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: "0.85rem" }}>شروع (ثانیه)</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={startTime}
+                  onChange={(e) => setStartTime(e.target.value)}
+                  style={{ width: "100%" }}
+                />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: "0.85rem" }}>مدت (ثانیه)</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={duration}
+                  onChange={(e) => setDuration(e.target.value)}
+                  style={{ width: "100%" }}
+                />
+              </div>
+            </div>
+            <button type="button" onClick={handleTrim} disabled={trimming}>
+              {trimming ? "در حال برش..." : "برش بزن"}
+            </button>
+            {trimStatus && <p style={{ fontSize: "0.85rem" }}>{trimStatus}</p>}
+          </div>
+
           <form onSubmit={handleUpload} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
             <input
               type="text"
@@ -121,13 +214,6 @@ export default function Home() {
                 اگه پر کنی، ویدیو به‌صورت خصوصی آپلود می‌شه و خودکار در این تاریخ/ساعت عمومی می‌شه.
               </p>
             </div>
-
-            <input
-              type="file"
-              accept="video/*"
-              onChange={(e) => setFile(e.target.files[0])}
-              required
-            />
 
             <button type="submit" disabled={uploading}>
               {uploading ? `در حال آپلود... ${progress}%` : "آپلود در یوتیوب"}
