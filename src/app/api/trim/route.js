@@ -38,6 +38,7 @@ export async function POST(req) {
       ffmpeg(inputPath)
         .setStartTime(startTime)
         .setDuration(duration)
+        .outputOptions(["-c", "copy"])
         .output(outputPath)
         .on("end", resolve)
         .on("error", reject)
