@@ -1,4 +1,3 @@
-cat > src/app/page.js << 'EOF'
 "use client";
 
 import { useState, useRef } from "react";
@@ -322,4 +321,3 @@ export default function Home() {
     </main>
   );
 }
-EOF
