@@ -39,6 +39,7 @@ export default function Home() {
 
   const [generatingVideo, setGeneratingVideo] = useState(false);
   const [videoGenStatus, setVideoGenStatus] = useState("");
+  const [generatedVideoUrl, setGeneratedVideoUrl] = useState(null);
 
   async function handleGenerateVoice() {
     if (!script.trim()) {
@@ -157,7 +158,11 @@ export default function Home() {
         "-vf",
         "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,format=yuv420p",
         "-c:v", "libx264",
+        "-preset", "medium",
+        "-crf", "20",
+        "-b:v", "2500k",
         "-c:a", "aac",
+        "-b:a", "128k",
         "-shortest",
         "output.mp4",
       ]);
@@ -167,6 +172,7 @@ export default function Home() {
       const videoFile = new File([videoBlob], "generated.mp4", { type: "video/mp4" });
 
       setFile(videoFile);
+      setGeneratedVideoUrl(URL.createObjectURL(videoBlob));
       setVideoGenStatus("ویدیو ساخته شد! پایین صفحه آماده‌ی آپلود به یوتیوبه.");
     } catch (err) {
       setVideoGenStatus("خطا: " + err.message);
@@ -338,6 +344,26 @@ export default function Home() {
               {generatingVideo ? "در حال ساخت ویدیو..." : "🎬 ساخت خودکار ویدیو (صدا + عکس)"}
             </button>
             {videoGenStatus && <p style={{ fontSize: "0.85rem" }}>{videoGenStatus}</p>}
+            {generatedVideoUrl && (
+              <div style={{ marginTop: "0.5rem" }}>
+                <video
+                  controls
+                  src={generatedVideoUrl}
+                  style={{ width: "100%", borderRadius: "6px" }}
+                />
+                <a
+                  href={generatedVideoUrl}
+                  download="generated.mp4"
+                  style={{
+                    display: "inline-block",
+                    marginTop: "0.5rem",
+                    fontSize: "0.85rem",
+                  }}
+                >
+                  ⬇️ دانلود مستقیم فایل خام (قبل از آپلود در یوتیوب)
+                </a>
+              </div>
+            )}
           </div>
 
           <input
