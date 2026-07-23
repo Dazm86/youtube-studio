@@ -38,13 +38,13 @@ export async function POST(req) {
     return NextResponse.json({ error: "وارد نشده‌اید" }, { status: 401 });
   }
 
-  const { text } = await req.json();
+  const { text, keyword } = await req.json();
 
-  if (!text) {
+  if (!text && !keyword) {
     return NextResponse.json({ error: "متنی ارسال نشده" }, { status: 400 });
   }
 
-  const query = extractKeywords(text) || "nature";
+  const query = (keyword && keyword.trim()) || extractKeywords(text) || "nature";
 
   try {
     const res = await fetch(

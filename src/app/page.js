@@ -31,6 +31,7 @@ export default function Home() {
   }
 
   const [script, setScript] = useState("");
+  const [imageKeyword, setImageKeyword] = useState("");
   const [generatingVoice, setGeneratingVoice] = useState(false);
   const [voiceStatus, setVoiceStatus] = useState("");
   const [audioUrl, setAudioUrl] = useState(null);
@@ -117,7 +118,7 @@ export default function Home() {
       const imgRes = await fetch("/api/images", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: script }),
+        body: JSON.stringify({ text: script, keyword: imageKeyword }),
       });
       const imgData = await imgRes.json();
       if (!imgRes.ok) {
@@ -311,6 +312,13 @@ export default function Home() {
               value={script}
               onChange={(e) => setScript(e.target.value)}
               rows={5}
+              style={{ width: "100%", marginBottom: "0.5rem" }}
+            />
+            <input
+              type="text"
+              placeholder="کلیدواژه‌ی جستجوی عکس (اختیاری - خالی بذاری خودکار حدس می‌زنه)"
+              value={imageKeyword}
+              onChange={(e) => setImageKeyword(e.target.value)}
               style={{ width: "100%", marginBottom: "0.5rem" }}
             />
             <button type="button" onClick={handleGenerateVoice} disabled={generatingVoice}>
