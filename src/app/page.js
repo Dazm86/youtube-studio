@@ -34,6 +34,10 @@ export default function Home() {
   const [generatingVoice, setGeneratingVoice] = useState(false);
   const [voiceStatus, setVoiceStatus] = useState("");
   const [audioUrl, setAudioUrl] = useState(null);
+  const [audioBlob, setAudioBlob] = useState(null);
+
+  const [generatingVideo, setGeneratingVideo] = useState(false);
+  const [videoGenStatus, setVideoGenStatus] = useState("");
 
   async function handleGenerateVoice() {
     if (!script.trim()) {
@@ -61,6 +65,7 @@ export default function Home() {
 
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
+      setAudioBlob(blob);
       setAudioUrl(url);
       setVoiceStatus("صدا با موفقیت ساخته شد");
     } catch (err) {
@@ -68,6 +73,105 @@ export default function Home() {
     }
 
     setGeneratingVoice(false);
+  }
+
+  function getAudioDuration(blobUrl) {
+    return new Promise((resolve, reject) => {
+      const audioEl = new Audio();
+      audioEl.src = blobUrl;
+      audioEl.addEventListener("loadedmetadata", () => resolve(audioEl.duration));
+      audioEl.addEventListener("error", () => reject(new Error("خطا در خواندن فایل صدا")));
+    });
+  }
+
+  async function handleGenerateVideo() {
+    if (!script.trim()) {
+      setVideoGenStatus("اول متن رو بنویس");
+      return;
+    }
+
+    setGeneratingVideo(true);
+
+    try {
+      let blob = audioBlob;
+      let url = audioUrl;
+
+      if (!blob) {
+        setVideoGenStatus("در حال ساخت صدا...");
+        const res = await fetch("/api/tts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: script, voice: "en-US-GuyNeural" }),
+        });
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.error);
+        }
+        blob = await res.blob();
+        url = URL.createObjectURL(blob);
+        setAudioBlob(blob);
+        setAudioUrl(url);
+      }
+
+      setVideoGenStatus("در حال گرفتن عکس مرتبط با موضوع...");
+      const imgRes = await fetch("/api/images", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: script }),
+      });
+      const imgData = await imgRes.json();
+      if (!imgRes.ok) {
+        throw new Error(imgData.error);
+      }
+      const images = imgData.images;
+
+      setVideoGenStatus("در حال آماده‌سازی موتور ویدیو (فقط بار اول کمی طول می‌کشه)...");
+      await loadFFmpeg();
+      const ffmpeg = getFfmpeg();
+
+      const duration = await getAudioDuration(url);
+      const perImage = duration / images.length;
+
+      setVideoGenStatus("در حال دانلود عکس‌ها...");
+      for (let i = 0; i < images.length; i++) {
+        const data = await fetchFile(images[i]);
+        await ffmpeg.writeFile(`img${i}.jpg`, data);
+      }
+
+      await ffmpeg.writeFile("narration.mp3", await fetchFile(blob));
+
+      let listContent = "";
+      for (let i = 0; i < images.length; i++) {
+        listContent += `file 'img${i}.jpg'\nduration ${perImage.toFixed(2)}\n`;
+      }
+      listContent += `file 'img${images.length - 1}.jpg'\n`;
+      await ffmpeg.writeFile("list.txt", listContent);
+
+      setVideoGenStatus("در حال ساخت ویدیو نهایی (ممکنه چند دقیقه طول بکشه)...");
+      await ffmpeg.exec([
+        "-f", "concat",
+        "-safe", "0",
+        "-i", "list.txt",
+        "-i", "narration.mp3",
+        "-vf",
+        "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,format=yuv420p",
+        "-c:v", "libx264",
+        "-c:a", "aac",
+        "-shortest",
+        "output.mp4",
+      ]);
+
+      const out = await ffmpeg.readFile("output.mp4");
+      const videoBlob = new Blob([out.buffer], { type: "video/mp4" });
+      const videoFile = new File([videoBlob], "generated.mp4", { type: "video/mp4" });
+
+      setFile(videoFile);
+      setVideoGenStatus("ویدیو ساخته شد! پایین صفحه آماده‌ی آپلود به یوتیوبه.");
+    } catch (err) {
+      setVideoGenStatus("خطا: " + err.message);
+    }
+
+    setGeneratingVideo(false);
   }
 
   async function loadFFmpeg() {
@@ -216,6 +320,16 @@ export default function Home() {
             {audioUrl && (
               <audio controls src={audioUrl} style={{ width: "100%", marginTop: "0.5rem" }} />
             )}
+
+            <button
+              type="button"
+              onClick={handleGenerateVideo}
+              disabled={generatingVideo}
+              style={{ marginTop: "0.75rem", fontWeight: "bold" }}
+            >
+              {generatingVideo ? "در حال ساخت ویدیو..." : "🎬 ساخت خودکار ویدیو (صدا + عکس)"}
+            </button>
+            {videoGenStatus && <p style={{ fontSize: "0.85rem" }}>{videoGenStatus}</p>}
           </div>
 
           <input
