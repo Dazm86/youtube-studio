@@ -37,12 +37,12 @@ export default function Home() {
 
   async function handleGenerateVoice() {
     if (!script.trim()) {
-      setVoiceStatus("first write a script");
+      setVoiceStatus("اول متن رو بنویس");
       return;
     }
 
     setGeneratingVoice(true);
-    setVoiceStatus("generating voice...");
+    setVoiceStatus("در حال ساخت صدا...");
     setAudioUrl(null);
 
     try {
@@ -54,7 +54,7 @@ export default function Home() {
 
       if (!res.ok) {
         const errData = await res.json();
-        setVoiceStatus("error: " + errData.error);
+        setVoiceStatus("خطا: " + errData.error);
         setGeneratingVoice(false);
         return;
       }
@@ -62,9 +62,9 @@ export default function Home() {
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       setAudioUrl(url);
-      setVoiceStatus("voice generated successfully");
+      setVoiceStatus("صدا با موفقیت ساخته شد");
     } catch (err) {
-      setVoiceStatus("error: " + err.message);
+      setVoiceStatus("خطا: " + err.message);
     }
 
     setGeneratingVoice(false);
@@ -72,7 +72,7 @@ export default function Home() {
 
   async function loadFFmpeg() {
     if (ffmpegLoaded) return;
-    setTrimStatus("loading trim engine (first time only)...");
+    setTrimStatus("در حال بارگذاری موتور برش (فقط بار اول)...");
     const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
     const ffmpeg = getFfmpeg();
     await ffmpeg.load({
@@ -84,18 +84,18 @@ export default function Home() {
 
   async function handleTrim() {
     if (!file) {
-      setTrimStatus("select a video file first");
+      setTrimStatus("اول یک فایل ویدیو انتخاب کن");
       return;
     }
     if (!duration) {
-      setTrimStatus("enter the trim duration");
+      setTrimStatus("مدت زمان برش رو وارد کن");
       return;
     }
 
     setTrimming(true);
     try {
       await loadFFmpeg();
-      setTrimStatus("trimming video...");
+      setTrimStatus("در حال برش ویدیو...");
 
       const ffmpeg = getFfmpeg();
       const inputName = "input.mp4";
@@ -116,9 +116,9 @@ export default function Home() {
       const trimmedFile = new File([trimmedBlob], "trimmed.mp4", { type: "video/mp4" });
 
       setFile(trimmedFile);
-      setTrimStatus("trim complete, video ready to upload");
+      setTrimStatus("برش تموم شد، ویدیو آماده‌ی آپلوده");
     } catch (err) {
-      setTrimStatus("error: " + err.message);
+      setTrimStatus("خطا: " + err.message);
     }
     setTrimming(false);
   }
@@ -126,13 +126,13 @@ export default function Home() {
   function handleUpload(e) {
     e.preventDefault();
     if (!file) {
-      setStatus("please select a video file");
+      setStatus("لطفاً یک فایل ویدیو انتخاب کن");
       return;
     }
 
     setUploading(true);
     setProgress(0);
-    setStatus("uploading...");
+    setStatus("در حال آپلود...");
 
     const formData = new FormData();
     formData.append("video", file);
@@ -157,18 +157,18 @@ export default function Home() {
       try {
         const data = JSON.parse(xhr.responseText);
         if (data.success) {
-          setStatus("upload successful! Video ID: " + data.videoId);
+          setStatus("آپلود موفق! شناسه ویدیو: " + data.videoId);
         } else {
-          setStatus("error: " + data.error);
+          setStatus("خطا: " + data.error);
         }
       } catch {
-        setStatus("unknown server error");
+        setStatus("خطای ناشناخته سرور");
       }
     };
 
     xhr.onerror = () => {
       setUploading(false);
-      setStatus("connection error");
+      setStatus("خطای اتصال");
     };
 
     xhr.open("POST", "/api/upload");
@@ -177,11 +177,11 @@ export default function Home() {
 
   return (
     <main style={{ padding: "2rem", textAlign: "center", maxWidth: "500px", margin: "0 auto" }}>
-      <h1>YouTube Studio</h1>
+      <h1>استودیوی یوتیوب</h1>
 
       {session ? (
         <div>
-          <p>Hello {session.user.name}</p>
+          <p>سلام {session.user.name}</p>
           <img
             src={session.user.image}
             alt="profile"
@@ -189,7 +189,7 @@ export default function Home() {
           />
           <br />
           <button onClick={() => signOut()} style={{ marginBottom: "2rem" }}>
-            Sign out
+            خروج
           </button>
 
           <div
@@ -201,16 +201,16 @@ export default function Home() {
               textAlign: "left",
             }}
           >
-            <h3 style={{ marginTop: 0 }}>Auto Video Generator (Beta)</h3>
+            <h3 style={{ marginTop: 0 }}>ساخت خودکار ویدیو (بتا)</h3>
             <textarea
-              placeholder="Write your video script here (English)..."
+              placeholder="متن ویدیو رو اینجا بنویس (به انگلیسی)..."
               value={script}
               onChange={(e) => setScript(e.target.value)}
               rows={5}
               style={{ width: "100%", marginBottom: "0.5rem" }}
             />
             <button type="button" onClick={handleGenerateVoice} disabled={generatingVoice}>
-              {generatingVoice ? "Generating voice..." : "Generate Voice from Text"}
+              {generatingVoice ? "در حال ساخت صدا..." : "ساخت صدا از متن"}
             </button>
             {voiceStatus && <p style={{ fontSize: "0.85rem" }}>{voiceStatus}</p>}
             {audioUrl && (
@@ -234,10 +234,10 @@ export default function Home() {
               textAlign: "left",
             }}
           >
-            <h3 style={{ marginTop: 0 }}>Trim Video (optional - runs in browser)</h3>
+            <h3 style={{ marginTop: 0 }}>برش ویدیو (اختیاری - داخل مرورگر انجام می‌شه)</h3>
             <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.5rem" }}>
               <div style={{ flex: 1 }}>
-                <label style={{ fontSize: "0.85rem" }}>Start (seconds)</label>
+                <label style={{ fontSize: "0.85rem" }}>شروع (ثانیه)</label>
                 <input
                   type="number"
                   min="0"
@@ -247,7 +247,7 @@ export default function Home() {
                 />
               </div>
               <div style={{ flex: 1 }}>
-                <label style={{ fontSize: "0.85rem" }}>Duration (seconds)</label>
+                <label style={{ fontSize: "0.85rem" }}>مدت (ثانیه)</label>
                 <input
                   type="number"
                   min="1"
@@ -258,7 +258,7 @@ export default function Home() {
               </div>
             </div>
             <button type="button" onClick={handleTrim} disabled={trimming}>
-              {trimming ? "Trimming..." : "Trim Video"}
+              {trimming ? "در حال برش..." : "برش بزن"}
             </button>
             {trimStatus && <p style={{ fontSize: "0.85rem" }}>{trimStatus}</p>}
           </div>
@@ -266,13 +266,13 @@ export default function Home() {
           <form onSubmit={handleUpload} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
             <input
               type="text"
-              placeholder="Video title"
+              placeholder="عنوان ویدیو"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               required
             />
             <textarea
-              placeholder="Description"
+              placeholder="توضیحات"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={4}
@@ -282,14 +282,14 @@ export default function Home() {
               value={privacyStatus}
               onChange={(e) => setPrivacyStatus(e.target.value)}
             >
-              <option value="private">Private</option>
-              <option value="unlisted">Unlisted</option>
-              <option value="public">Public</option>
+              <option value="private">خصوصی</option>
+              <option value="unlisted">لیست نشده</option>
+              <option value="public">عمومی</option>
             </select>
 
             <div style={{ textAlign: "left" }}>
               <label style={{ fontSize: "0.9rem" }}>
-                Scheduled publish time (optional):
+                زمان‌بندی انتشار (اختیاری):
               </label>
               <input
                 type="datetime-local"
@@ -298,12 +298,12 @@ export default function Home() {
                 style={{ width: "100%", marginTop: "0.3rem" }}
               />
               <p style={{ fontSize: "0.75rem", color: "#666" }}>
-                If set, the video will be uploaded as private and automatically go public at this date/time.
+                اگه پر کنی، ویدیو به‌صورت خصوصی آپلود می‌شه و خودکار در این تاریخ/ساعت عمومی می‌شه.
               </p>
             </div>
 
             <button type="submit" disabled={uploading}>
-              {uploading ? "Uploading... " + progress + "%" : "Upload to YouTube"}
+              {uploading ? "در حال آپلود... " + progress + "%" : "آپلود در یوتیوب"}
             </button>
 
             {uploading && (
@@ -323,7 +323,7 @@ export default function Home() {
           {status && <p style={{ marginTop: "1rem" }}>{status}</p>}
         </div>
       ) : (
-        <button onClick={() => signIn("google")}>Sign in with Google</button>
+        <button onClick={() => signIn("google")}>ورود با گوگل</button>
       )}
     </main>
   );
