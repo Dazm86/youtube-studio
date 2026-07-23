@@ -20,8 +20,15 @@ export default function Home() {
   const [duration, setDuration] = useState("");
   const [trimming, setTrimming] = useState(false);
   const [trimStatus, setTrimStatus] = useState("");
-  const ffmpegRef = useRef(new FFmpeg());
+  const ffmpegRef = useRef(null);
   const [ffmpegLoaded, setFfmpegLoaded] = useState(false);
+
+  function getFfmpeg() {
+    if (!ffmpegRef.current) {
+      ffmpegRef.current = new FFmpeg();
+    }
+    return ffmpegRef.current;
+  }
 
   const [script, setScript] = useState("");
   const [generatingVoice, setGeneratingVoice] = useState(false);
@@ -67,7 +74,7 @@ export default function Home() {
     if (ffmpegLoaded) return;
     setTrimStatus("loading trim engine (first time only)...");
     const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
-    const ffmpeg = ffmpegRef.current;
+    const ffmpeg = getFfmpeg();
     await ffmpeg.load({
       coreURL: await toBlobURL(baseURL + "/ffmpeg-core.js", "text/javascript"),
       wasmURL: await toBlobURL(baseURL + "/ffmpeg-core.wasm", "application/wasm"),
@@ -90,7 +97,7 @@ export default function Home() {
       await loadFFmpeg();
       setTrimStatus("trimming video...");
 
-      const ffmpeg = ffmpegRef.current;
+      const ffmpeg = getFfmpeg();
       const inputName = "input.mp4";
       const outputName = "output.mp4";
 
