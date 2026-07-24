@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "../auth/authOptions";
 import { google } from "googleapis";
 import { Readable } from "stream";
+import { buildMayaThumbnail } from "../../../lib/mayaThumbnail";
 
 export async function POST(req) {
   const session = await getServerSession(authOptions);
@@ -17,6 +18,8 @@ export async function POST(req) {
   const description = formData.get("description") || "";
   const privacyStatus = formData.get("privacyStatus") || "private";
   const publishAt = formData.get("publishAt") || null;
+  const script = formData.get("script") || "";
+  const bgImageUrl = formData.get("bgImageUrl") || "";
 
   if (!file) {
     return NextResponse.json({ error: "فایل ویدیو ارسال نشده" }, { status: 400 });
@@ -52,7 +55,25 @@ export async function POST(req) {
       },
     });
 
-    return NextResponse.json({ success: true, videoId: response.data.id });
+    const videoId = response.data.id;
+    let thumbnailStatus = "skipped";
+
+    try {
+      const thumbBuffer = await buildMayaThumbnail({ title, script, bgImageUrl });
+      await youtube.thumbnails.set({
+        videoId,
+        media: {
+          mimeType: "image/png",
+          body: Readable.from(thumbBuffer),
+        },
+      });
+      thumbnailStatus = "ok";
+    } catch (thumbErr) {
+      console.error("thumbnail error:", thumbErr.message);
+      thumbnailStatus = "failed: " + thumbErr.message;
+    }
+
+    return NextResponse.json({ success: true, videoId, thumbnailStatus });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: err.message }, { status: 500 });

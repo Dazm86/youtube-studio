@@ -1,3 +1,6 @@
+mkdir -p src/app/api/images
+
+cat > src/app/page.js << 'PAGEEOF'
 "use client";
 
 import { useState, useRef } from "react";
@@ -31,7 +34,6 @@ export default function Home() {
   }
 
   const [script, setScript] = useState("");
-  const [imageKeyword, setImageKeyword] = useState("");
   const [generatingVoice, setGeneratingVoice] = useState(false);
   const [voiceStatus, setVoiceStatus] = useState("");
   const [audioUrl, setAudioUrl] = useState(null);
@@ -39,8 +41,6 @@ export default function Home() {
 
   const [generatingVideo, setGeneratingVideo] = useState(false);
   const [videoGenStatus, setVideoGenStatus] = useState("");
-  const [generatedVideoUrl, setGeneratedVideoUrl] = useState(null);
-  const [videoBgImageUrl, setVideoBgImageUrl] = useState("");
 
   async function handleGenerateVoice() {
     if (!script.trim()) {
@@ -120,14 +120,13 @@ export default function Home() {
       const imgRes = await fetch("/api/images", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: script, keyword: imageKeyword }),
+        body: JSON.stringify({ text: script }),
       });
       const imgData = await imgRes.json();
       if (!imgRes.ok) {
         throw new Error(imgData.error);
       }
       const images = imgData.images;
-      setVideoBgImageUrl(images[0] || "");
 
       setVideoGenStatus("در حال آماده‌سازی موتور ویدیو (فقط بار اول کمی طول می‌کشه)...");
       await loadFFmpeg();
@@ -160,11 +159,7 @@ export default function Home() {
         "-vf",
         "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,format=yuv420p",
         "-c:v", "libx264",
-        "-preset", "medium",
-        "-crf", "20",
-        "-b:v", "2500k",
         "-c:a", "aac",
-        "-b:a", "128k",
         "-shortest",
         "output.mp4",
       ]);
@@ -174,7 +169,6 @@ export default function Home() {
       const videoFile = new File([videoBlob], "generated.mp4", { type: "video/mp4" });
 
       setFile(videoFile);
-      setGeneratedVideoUrl(URL.createObjectURL(videoBlob));
       setVideoGenStatus("ویدیو ساخته شد! پایین صفحه آماده‌ی آپلود به یوتیوبه.");
     } catch (err) {
       setVideoGenStatus("خطا: " + err.message);
@@ -252,8 +246,6 @@ export default function Home() {
     formData.append("title", title);
     formData.append("description", description);
     formData.append("privacyStatus", privacyStatus);
-    formData.append("script", script);
-    formData.append("bgImageUrl", videoBgImageUrl);
     if (publishAt) {
       formData.append("publishAt", publishAt);
     }
@@ -272,13 +264,7 @@ export default function Home() {
       try {
         const data = JSON.parse(xhr.responseText);
         if (data.success) {
-          const thumbNote =
-            data.thumbnailStatus === "ok"
-              ? " (تامبنیل مایا هم ست شد ✅)"
-              : data.thumbnailStatus && data.thumbnailStatus.startsWith("failed")
-              ? " (تامبنیل ست نشد ⚠️ — احتمالاً کانال نیاز به تأیید شماره تلفن داره)"
-              : "";
-          setStatus("آپلود موفق! شناسه ویدیو: " + data.videoId + thumbNote);
+          setStatus("آپلود موفق! شناسه ویدیو: " + data.videoId);
         } else {
           setStatus("خطا: " + data.error);
         }
@@ -330,13 +316,6 @@ export default function Home() {
               rows={5}
               style={{ width: "100%", marginBottom: "0.5rem" }}
             />
-            <input
-              type="text"
-              placeholder="کلیدواژه‌ی جستجوی عکس (اختیاری - خالی بذاری خودکار حدس می‌زنه)"
-              value={imageKeyword}
-              onChange={(e) => setImageKeyword(e.target.value)}
-              style={{ width: "100%", marginBottom: "0.5rem" }}
-            />
             <button type="button" onClick={handleGenerateVoice} disabled={generatingVoice}>
               {generatingVoice ? "در حال ساخت صدا..." : "ساخت صدا از متن"}
             </button>
@@ -354,26 +333,6 @@ export default function Home() {
               {generatingVideo ? "در حال ساخت ویدیو..." : "🎬 ساخت خودکار ویدیو (صدا + عکس)"}
             </button>
             {videoGenStatus && <p style={{ fontSize: "0.85rem" }}>{videoGenStatus}</p>}
-            {generatedVideoUrl && (
-              <div style={{ marginTop: "0.5rem" }}>
-                <video
-                  controls
-                  src={generatedVideoUrl}
-                  style={{ width: "100%", borderRadius: "6px" }}
-                />
-                <a
-                  href={generatedVideoUrl}
-                  download="generated.mp4"
-                  style={{
-                    display: "inline-block",
-                    marginTop: "0.5rem",
-                    fontSize: "0.85rem",
-                  }}
-                >
-                  ⬇️ دانلود مستقیم فایل خام (قبل از آپلود در یوتیوب)
-                </a>
-              </div>
-            )}
           </div>
 
           <input
@@ -486,3 +445,86 @@ export default function Home() {
     </main>
   );
 }
+PAGEEOF
+
+cat > src/app/api/images/route.js << 'IMGEOF'
+import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "../auth/authOptions";
+
+const STOPWORDS = new Set([
+  "the", "a", "an", "and", "or", "but", "is", "are", "was", "were", "be",
+  "been", "being", "to", "of", "in", "on", "at", "for", "with", "by", "from",
+  "as", "that", "this", "these", "those", "it", "its", "i", "you", "he",
+  "she", "we", "they", "them", "his", "her", "our", "your", "their", "not",
+  "no", "so", "if", "then", "than", "too", "very", "can", "will", "just",
+  "about", "into", "over", "after", "before", "up", "down", "out", "off",
+  "again", "there", "here", "what", "when", "where", "why", "how", "all",
+  "any", "both", "each", "few", "more", "most", "other", "some", "such",
+  "only", "own", "same", "also",
+]);
+
+function extractKeywords(text, count = 4) {
+  const words = (text || "")
+    .toLowerCase()
+    .replace(/[^a-z\s]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 2 && !STOPWORDS.has(w));
+
+  const freq = {};
+  for (const w of words) freq[w] = (freq[w] || 0) + 1;
+
+  return Object.entries(freq)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, count)
+    .map(([w]) => w)
+    .join(" ");
+}
+
+export async function POST(req) {
+  const session = await getServerSession(authOptions);
+
+  if (!session) {
+    return NextResponse.json({ error: "وارد نشده‌اید" }, { status: 401 });
+  }
+
+  const { text } = await req.json();
+
+  if (!text) {
+    return NextResponse.json({ error: "متنی ارسال نشده" }, { status: 400 });
+  }
+
+  const query = extractKeywords(text) || "nature";
+
+  try {
+    const res = await fetch(
+      `https://api.pexels.com/v1/search?query=${encodeURIComponent(
+        query
+      )}&per_page=6&orientation=landscape`,
+      { headers: { Authorization: process.env.PEXELS_API_KEY } }
+    );
+    const data = await res.json();
+
+    if (!res.ok) {
+      return NextResponse.json(
+        { error: data.error || "خطا در دریافت عکس از Pexels" },
+        { status: 500 }
+      );
+    }
+
+    const images = (data.photos || []).map((p) => p.src.large);
+
+    if (images.length === 0) {
+      return NextResponse.json(
+        { error: "عکسی برای این موضوع پیدا نشد، متن دیگه‌ای امتحان کن" },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json({ query, images });
+  } catch (err) {
+    console.error(err);
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
+IMGEOF

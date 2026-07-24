@@ -1,3 +1,4 @@
+cat > src/app/page.js << 'PAGEEOF'
 "use client";
 
 import { useState, useRef } from "react";
@@ -40,7 +41,6 @@ export default function Home() {
   const [generatingVideo, setGeneratingVideo] = useState(false);
   const [videoGenStatus, setVideoGenStatus] = useState("");
   const [generatedVideoUrl, setGeneratedVideoUrl] = useState(null);
-  const [videoBgImageUrl, setVideoBgImageUrl] = useState("");
 
   async function handleGenerateVoice() {
     if (!script.trim()) {
@@ -127,7 +127,6 @@ export default function Home() {
         throw new Error(imgData.error);
       }
       const images = imgData.images;
-      setVideoBgImageUrl(images[0] || "");
 
       setVideoGenStatus("در حال آماده‌سازی موتور ویدیو (فقط بار اول کمی طول می‌کشه)...");
       await loadFFmpeg();
@@ -252,8 +251,6 @@ export default function Home() {
     formData.append("title", title);
     formData.append("description", description);
     formData.append("privacyStatus", privacyStatus);
-    formData.append("script", script);
-    formData.append("bgImageUrl", videoBgImageUrl);
     if (publishAt) {
       formData.append("publishAt", publishAt);
     }
@@ -272,13 +269,7 @@ export default function Home() {
       try {
         const data = JSON.parse(xhr.responseText);
         if (data.success) {
-          const thumbNote =
-            data.thumbnailStatus === "ok"
-              ? " (تامبنیل مایا هم ست شد ✅)"
-              : data.thumbnailStatus && data.thumbnailStatus.startsWith("failed")
-              ? " (تامبنیل ست نشد ⚠️ — احتمالاً کانال نیاز به تأیید شماره تلفن داره)"
-              : "";
-          setStatus("آپلود موفق! شناسه ویدیو: " + data.videoId + thumbNote);
+          setStatus("آپلود موفق! شناسه ویدیو: " + data.videoId);
         } else {
           setStatus("خطا: " + data.error);
         }
@@ -486,3 +477,4 @@ export default function Home() {
     </main>
   );
 }
+PAGEEOF
