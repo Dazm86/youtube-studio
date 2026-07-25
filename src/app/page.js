@@ -56,7 +56,7 @@ export default function Home() {
       const res = await fetch("/api/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: script, voice: "en-US-GuyNeural" }),
+        body: JSON.stringify({ text: script, voice: "en-US-JennyNeural" }),
       });
 
       if (!res.ok) {
@@ -104,7 +104,7 @@ export default function Home() {
         const res = await fetch("/api/tts", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: script, voice: "en-US-GuyNeural" }),
+          body: JSON.stringify({ text: script, voice: "en-US-JennyNeural" }),
         });
         if (!res.ok) {
           const errData = await res.json();

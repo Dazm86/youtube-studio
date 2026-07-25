@@ -19,7 +19,7 @@ export async function POST(req) {
   try {
     const tts = new MsEdgeTTS();
     await tts.setMetadata(
-      voice || "en-US-GuyNeural",
+      voice || "en-US-JennyNeural",
       OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3
     );
 
