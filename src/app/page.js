@@ -160,7 +160,7 @@ export default function Home() {
       });
       const imgData = await imgRes.json();
       if (!imgRes.ok) {
-        throw new Error(imgData.error);
+        throw new Error(imgData.error || "خطا در دریافت عکس از سرور");
       }
       const images = imgData.images;
       setVideoBgImageUrl(images[0] || "");
@@ -223,7 +223,7 @@ export default function Home() {
         finalLabel = prevLabel;
       }
 
-      args.push("-filter_complex", filter);
+      args.push("-filter_complex", filter.replace(/;$/, ""));
       args.push("-map", `[${finalLabel}]`);
       args.push("-map", `${N}:a`);
       args.push("-c:v", "libx264", "-preset", "medium", "-crf", "20", "-b:v", "2500k");
@@ -244,7 +244,18 @@ export default function Home() {
       setGeneratedVideoUrl(URL.createObjectURL(videoBlob));
       setVideoGenStatus("ویدیو ساخته شد! پایین صفحه آماده‌ی آپلود به یوتیوبه.");
     } catch (err) {
-      setVideoGenStatus("خطا: " + err.message);
+      console.error("video generation error:", err);
+      const msg =
+        (err && err.message) ||
+        (typeof err === "string" ? err : "") ||
+        (() => {
+          try {
+            return JSON.stringify(err);
+          } catch {
+            return String(err);
+          }
+        })();
+      setVideoGenStatus("خطا: " + (msg || "خطای نامشخص (جزئیات توی کنسول مرورگره)"));
     }
 
     setGeneratingVideo(false);
