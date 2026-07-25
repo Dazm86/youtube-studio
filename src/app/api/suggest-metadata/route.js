@@ -57,7 +57,7 @@ export async function POST(req) {
     return NextResponse.json({ error: "متنی ارسال نشده" }, { status: 400 });
   }
 
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!process.env.GROQ_API_KEY) {
     return NextResponse.json(heuristicMetadata(script));
   }
 
@@ -77,16 +77,14 @@ Rules:
 - tags: 10-15 short relevant keywords/phrases for YouTube SEO (lowercase, no # symbol)`;
 
   try {
-    const aiRes = await fetch("https://api.anthropic.com/v1/messages", {
+    const aiRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-api-key": process.env.ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
+        Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
       },
       body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 500,
+        model: "llama-3.3-70b-versatile",
         messages: [{ role: "user", content: prompt }],
       }),
     });
@@ -94,11 +92,11 @@ Rules:
     const aiData = await aiRes.json();
 
     if (!aiRes.ok) {
-      console.error("Anthropic API error:", aiData);
+      console.error("Groq API error:", aiData);
       return NextResponse.json(heuristicMetadata(script));
     }
 
-    const rawText = (aiData.content || []).map((b) => b.text || "").join("");
+    const rawText = aiData?.choices?.[0]?.message?.content || "";
     const cleaned = rawText.replace(/```json|```/g, "").trim();
 
     let parsed;
