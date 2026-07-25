@@ -20,6 +20,11 @@ export async function POST(req) {
   const publishAt = formData.get("publishAt") || null;
   const script = formData.get("script") || "";
   const bgImageUrl = formData.get("bgImageUrl") || "";
+  const tagsRaw = formData.get("tags") || "";
+  const tags = tagsRaw
+    .split(",")
+    .map((t) => t.trim())
+    .filter(Boolean);
 
   if (!file) {
     return NextResponse.json({ error: "فایل ویدیو ارسال نشده" }, { status: 400 });
@@ -40,6 +45,7 @@ export async function POST(req) {
         snippet: {
           title,
           description,
+          tags,
         },
         status: publishAt
           ? {
