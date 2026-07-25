@@ -1,19 +1,13 @@
+cat > src/app/page.js << 'EOF_PAGE_JS'
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import { useSession, signIn, signOut } from "next-auth/react";
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { fetchFile, toBlobURL } from "@ffmpeg/util";
 
 export default function Home() {
   const { data: session } = useSession();
-
-  useEffect(() => {
-    if (session?.error === "RefreshAccessTokenError") {
-      signOut({ redirect: false });
-    }
-  }, [session]);
-
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [privacyStatus, setPrivacyStatus] = useState("private");
@@ -99,14 +93,11 @@ export default function Home() {
     const totalWords = wordCounts.reduce((a, b) => a + b, 0) || 1;
 
     const buckets = new Array(imageCount).fill(0);
-    const bucketText = new Array(imageCount).fill("");
     let acc = 0;
     let bucketIndex = 0;
     for (let i = 0; i < sentences.length; i++) {
       acc += wordCounts[i];
       buckets[bucketIndex] += wordCounts[i];
-      bucketText[bucketIndex] +=
-        (bucketText[bucketIndex] ? " " : "") + sentences[i];
       const shareSoFar = acc / totalWords;
       if (
         shareSoFar >= (bucketIndex + 1) / imageCount &&
@@ -121,34 +112,7 @@ export default function Home() {
     const shareSum = shares.reduce((a, b) => a + b, 0);
     shares = shares.map((s) => s / shareSum);
 
-    return {
-      durations: shares.map((s) => totalDuration * s),
-      captions: bucketText,
-    };
-  }
-
-  function escapeDrawtext(text) {
-    return text
-      .replace(/'/g, "\u2019")
-      .replace(/:/g, "\\:")
-      .replace(/%/g, "\\%");
-  }
-
-  function wrapCaption(text, maxCharsPerLine) {
-    const words = text.split(/\s+/).filter(Boolean);
-    const lines = [];
-    let current = "";
-    for (const w of words) {
-      const candidate = current ? current + " " + w : w;
-      if (candidate.length > maxCharsPerLine && current) {
-        lines.push(current);
-        current = w;
-      } else {
-        current = candidate;
-      }
-    }
-    if (current) lines.push(current);
-    return lines.join("\\n");
+    return shares.map((s) => totalDuration * s);
   }
 
   function getAudioDuration(blobUrl) {
@@ -207,11 +171,7 @@ export default function Home() {
       const ffmpeg = getFfmpeg();
 
       const duration = await getAudioDuration(url);
-      const { durations: perImageDurations, captions } = distributeDurations(
-        script,
-        images.length,
-        duration
-      );
+      const perImageDurations = distributeDurations(script, images.length, duration);
 
       setVideoGenStatus("در حال دانلود عکس‌ها...");
       for (let i = 0; i < images.length; i++) {
@@ -220,7 +180,6 @@ export default function Home() {
       }
 
       await ffmpeg.writeFile("narration.mp3", await fetchFile(blob));
-      await ffmpeg.writeFile("font.ttf", await fetchFile("/fonts/DejaVuSans-Bold.ttf"));
 
       // --- Ken Burns (zoompan) + crossfade (xfade) between images ---
       const N = images.length;
@@ -238,31 +197,15 @@ export default function Home() {
         );
       }
       args.push("-i", "narration.mp3");
-      const musicIdx = N + 1;
-      args.push(
-        "-f", "lavfi",
-        "-i",
-        `aevalsrc=0.05*sin(2*PI*110*t)+0.035*sin(2*PI*164.81*t)+0.025*sin(2*PI*220*t):s=44100:d=${duration.toFixed(
-          2
-        )}`
-      );
 
       let filter = "";
       for (let i = 0; i < N; i++) {
-        const captionText = wrapCaption(
-          escapeDrawtext(captions[i] || ""),
-          38
-        );
         filter +=
           `[${i}:v]scale=1600:900:force_original_aspect_ratio=increase,` +
           `crop=1600:900,` +
           `zoompan=z='min(zoom+0.0012,1.25)':d=1:` +
           `x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1280x720:fps=25,` +
-          `format=yuv420p,setsar=1,` +
-          `drawtext=fontfile=font.ttf:text='${captionText}':fontsize=44:` +
-          `fontcolor=white:borderw=3:bordercolor=black@0.8:box=1:` +
-          `boxcolor=black@0.35:boxborderw=18:x=(w-text_w)/2:y=h-th-70:` +
-          `line_spacing=10[v${i}];`;
+          `format=yuv420p,setsar=1[v${i}];`;
       }
 
       let finalLabel = "v0";
@@ -281,13 +224,9 @@ export default function Home() {
         finalLabel = prevLabel;
       }
 
-      const audioMixFilter = `[${N}:a][${musicIdx}:a]amix=inputs=2:duration=first:normalize=0[aout]`;
-      args.push(
-        "-filter_complex",
-        filter.replace(/;$/, "") + ";" + audioMixFilter
-      );
+      args.push("-filter_complex", filter.replace(/;$/, ""));
       args.push("-map", `[${finalLabel}]`);
-      args.push("-map", "[aout]");
+      args.push("-map", `${N}:a`);
       args.push("-c:v", "libx264", "-preset", "medium", "-crf", "20", "-b:v", "2500k");
       args.push("-c:a", "aac", "-b:a", "128k");
       args.push("-shortest");
@@ -626,3 +565,4 @@ export default function Home() {
     </main>
   );
 }
+EOF_PAGE_JS

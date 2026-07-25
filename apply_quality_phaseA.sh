@@ -1,19 +1,13 @@
+cat > src/app/page.js << 'EOF_SRC_APP_PAGE_JS'
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import { useSession, signIn, signOut } from "next-auth/react";
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { fetchFile, toBlobURL } from "@ffmpeg/util";
 
 export default function Home() {
   const { data: session } = useSession();
-
-  useEffect(() => {
-    if (session?.error === "RefreshAccessTokenError") {
-      signOut({ redirect: false });
-    }
-  }, [session]);
-
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [privacyStatus, setPrivacyStatus] = useState("private");
@@ -99,14 +93,11 @@ export default function Home() {
     const totalWords = wordCounts.reduce((a, b) => a + b, 0) || 1;
 
     const buckets = new Array(imageCount).fill(0);
-    const bucketText = new Array(imageCount).fill("");
     let acc = 0;
     let bucketIndex = 0;
     for (let i = 0; i < sentences.length; i++) {
       acc += wordCounts[i];
       buckets[bucketIndex] += wordCounts[i];
-      bucketText[bucketIndex] +=
-        (bucketText[bucketIndex] ? " " : "") + sentences[i];
       const shareSoFar = acc / totalWords;
       if (
         shareSoFar >= (bucketIndex + 1) / imageCount &&
@@ -121,34 +112,7 @@ export default function Home() {
     const shareSum = shares.reduce((a, b) => a + b, 0);
     shares = shares.map((s) => s / shareSum);
 
-    return {
-      durations: shares.map((s) => totalDuration * s),
-      captions: bucketText,
-    };
-  }
-
-  function escapeDrawtext(text) {
-    return text
-      .replace(/'/g, "\u2019")
-      .replace(/:/g, "\\:")
-      .replace(/%/g, "\\%");
-  }
-
-  function wrapCaption(text, maxCharsPerLine) {
-    const words = text.split(/\s+/).filter(Boolean);
-    const lines = [];
-    let current = "";
-    for (const w of words) {
-      const candidate = current ? current + " " + w : w;
-      if (candidate.length > maxCharsPerLine && current) {
-        lines.push(current);
-        current = w;
-      } else {
-        current = candidate;
-      }
-    }
-    if (current) lines.push(current);
-    return lines.join("\\n");
+    return shares.map((s) => totalDuration * s);
   }
 
   function getAudioDuration(blobUrl) {
@@ -197,7 +161,7 @@ export default function Home() {
       });
       const imgData = await imgRes.json();
       if (!imgRes.ok) {
-        throw new Error(imgData.error || "خطا در دریافت عکس از سرور");
+        throw new Error(imgData.error);
       }
       const images = imgData.images;
       setVideoBgImageUrl(images[0] || "");
@@ -207,11 +171,7 @@ export default function Home() {
       const ffmpeg = getFfmpeg();
 
       const duration = await getAudioDuration(url);
-      const { durations: perImageDurations, captions } = distributeDurations(
-        script,
-        images.length,
-        duration
-      );
+      const perImageDurations = distributeDurations(script, images.length, duration);
 
       setVideoGenStatus("در حال دانلود عکس‌ها...");
       for (let i = 0; i < images.length; i++) {
@@ -220,83 +180,31 @@ export default function Home() {
       }
 
       await ffmpeg.writeFile("narration.mp3", await fetchFile(blob));
-      await ffmpeg.writeFile("font.ttf", await fetchFile("/fonts/DejaVuSans-Bold.ttf"));
 
-      // --- Ken Burns (zoompan) + crossfade (xfade) between images ---
-      const N = images.length;
-      const FADE = Math.min(0.5, Math.min(...perImageDurations) / 3);
-      const compensation = (FADE * (N - 1)) / N;
-      const clipDurations = perImageDurations.map((d) => d + compensation);
-
-      const args = [];
-      for (let i = 0; i < N; i++) {
-        args.push(
-          "-loop", "1",
-          "-framerate", "25",
-          "-t", clipDurations[i].toFixed(2),
-          "-i", `img${i}.jpg`
-        );
+      let listContent = "";
+      for (let i = 0; i < images.length; i++) {
+        listContent += `file 'img${i}.jpg'\nduration ${perImageDurations[i].toFixed(2)}\n`;
       }
-      args.push("-i", "narration.mp3");
-      const musicIdx = N + 1;
-      args.push(
-        "-f", "lavfi",
-        "-i",
-        `aevalsrc=0.05*sin(2*PI*110*t)+0.035*sin(2*PI*164.81*t)+0.025*sin(2*PI*220*t):s=44100:d=${duration.toFixed(
-          2
-        )}`
-      );
+      listContent += `file 'img${images.length - 1}.jpg'\n`;
+      await ffmpeg.writeFile("list.txt", listContent);
 
-      let filter = "";
-      for (let i = 0; i < N; i++) {
-        const captionText = wrapCaption(
-          escapeDrawtext(captions[i] || ""),
-          38
-        );
-        filter +=
-          `[${i}:v]scale=1600:900:force_original_aspect_ratio=increase,` +
-          `crop=1600:900,` +
-          `zoompan=z='min(zoom+0.0012,1.25)':d=1:` +
-          `x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1280x720:fps=25,` +
-          `format=yuv420p,setsar=1,` +
-          `drawtext=fontfile=font.ttf:text='${captionText}':fontsize=44:` +
-          `fontcolor=white:borderw=3:bordercolor=black@0.8:box=1:` +
-          `boxcolor=black@0.35:boxborderw=18:x=(w-text_w)/2:y=h-th-70:` +
-          `line_spacing=10[v${i}];`;
-      }
-
-      let finalLabel = "v0";
-      if (N > 1) {
-        let cumulative = clipDurations[0];
-        let prevLabel = "v0";
-        for (let i = 1; i < N; i++) {
-          const offset = cumulative - FADE;
-          const outLabel = `x${i}`;
-          filter += `[${prevLabel}][v${i}]xfade=transition=fade:duration=${FADE.toFixed(
-            2
-          )}:offset=${offset.toFixed(2)}[${outLabel}];`;
-          cumulative = cumulative + clipDurations[i] - FADE;
-          prevLabel = outLabel;
-        }
-        finalLabel = prevLabel;
-      }
-
-      const audioMixFilter = `[${N}:a][${musicIdx}:a]amix=inputs=2:duration=first:normalize=0[aout]`;
-      args.push(
-        "-filter_complex",
-        filter.replace(/;$/, "") + ";" + audioMixFilter
-      );
-      args.push("-map", `[${finalLabel}]`);
-      args.push("-map", "[aout]");
-      args.push("-c:v", "libx264", "-preset", "medium", "-crf", "20", "-b:v", "2500k");
-      args.push("-c:a", "aac", "-b:a", "128k");
-      args.push("-shortest");
-      args.push("output.mp4");
-
-      setVideoGenStatus(
-        "در حال ساخت ویدیو نهایی با افکت زوم و ترانزیشن (ممکنه چند دقیقه طول بکشه)..."
-      );
-      await ffmpeg.exec(args);
+      setVideoGenStatus("در حال ساخت ویدیو نهایی (ممکنه چند دقیقه طول بکشه)...");
+      await ffmpeg.exec([
+        "-f", "concat",
+        "-safe", "0",
+        "-i", "list.txt",
+        "-i", "narration.mp3",
+        "-vf",
+        "scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,format=yuv420p",
+        "-c:v", "libx264",
+        "-preset", "medium",
+        "-crf", "20",
+        "-b:v", "2500k",
+        "-c:a", "aac",
+        "-b:a", "128k",
+        "-shortest",
+        "output.mp4",
+      ]);
 
       const out = await ffmpeg.readFile("output.mp4");
       const videoBlob = new Blob([out.buffer], { type: "video/mp4" });
@@ -306,18 +214,7 @@ export default function Home() {
       setGeneratedVideoUrl(URL.createObjectURL(videoBlob));
       setVideoGenStatus("ویدیو ساخته شد! پایین صفحه آماده‌ی آپلود به یوتیوبه.");
     } catch (err) {
-      console.error("video generation error:", err);
-      const msg =
-        (err && err.message) ||
-        (typeof err === "string" ? err : "") ||
-        (() => {
-          try {
-            return JSON.stringify(err);
-          } catch {
-            return String(err);
-          }
-        })();
-      setVideoGenStatus("خطا: " + (msg || "خطای نامشخص (جزئیات توی کنسول مرورگره)"));
+      setVideoGenStatus("خطا: " + err.message);
     }
 
     setGeneratingVideo(false);
@@ -626,3 +523,87 @@ export default function Home() {
     </main>
   );
 }
+EOF_SRC_APP_PAGE_JS
+
+cat > src/app/api/images/route.js << 'EOF_SRC_APP_API_IMAGES_ROUTE_JS'
+import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "../auth/authOptions";
+
+const STOPWORDS = new Set([
+  "the", "a", "an", "and", "or", "but", "is", "are", "was", "were", "be",
+  "been", "being", "to", "of", "in", "on", "at", "for", "with", "by", "from",
+  "as", "that", "this", "these", "those", "it", "its", "i", "you", "he",
+  "she", "we", "they", "them", "his", "her", "our", "your", "their", "not",
+  "no", "so", "if", "then", "than", "too", "very", "can", "will", "just",
+  "about", "into", "over", "after", "before", "up", "down", "out", "off",
+  "again", "there", "here", "what", "when", "where", "why", "how", "all",
+  "any", "both", "each", "few", "more", "most", "other", "some", "such",
+  "only", "own", "same", "also",
+]);
+
+function extractKeywords(text, count = 4) {
+  const words = (text || "")
+    .toLowerCase()
+    .replace(/[^a-z\s]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 2 && !STOPWORDS.has(w));
+
+  const freq = {};
+  for (const w of words) freq[w] = (freq[w] || 0) + 1;
+
+  return Object.entries(freq)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, count)
+    .map(([w]) => w)
+    .join(" ");
+}
+
+export async function POST(req) {
+  const session = await getServerSession(authOptions);
+
+  if (!session) {
+    return NextResponse.json({ error: "وارد نشده‌اید" }, { status: 401 });
+  }
+
+  const { text, keyword } = await req.json();
+
+  if (!text && !keyword) {
+    return NextResponse.json({ error: "متنی ارسال نشده" }, { status: 400 });
+  }
+
+  const query = (keyword && keyword.trim()) || extractKeywords(text) || "nature";
+
+  try {
+    const res = await fetch(
+      `https://api.pexels.com/v1/search?query=${encodeURIComponent(
+        query
+      )}&per_page=6&orientation=landscape`,
+      { headers: { Authorization: process.env.PEXELS_API_KEY } }
+    );
+    const data = await res.json();
+
+    if (!res.ok) {
+      return NextResponse.json(
+        { error: data.error || "خطا در دریافت عکس از Pexels" },
+        { status: 500 }
+      );
+    }
+
+    const images = (data.photos || []).map((p) => p.src.large2x);
+
+    if (images.length === 0) {
+      return NextResponse.json(
+        { error: "عکسی برای این موضوع پیدا نشد، متن دیگه‌ای امتحان کن" },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json({ query, images });
+  } catch (err) {
+    console.error(err);
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
+EOF_SRC_APP_API_IMAGES_ROUTE_JS
+

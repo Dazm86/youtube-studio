@@ -1,19 +1,13 @@
+cat > src/app/page.js << 'EOF_SRC_APP_PAGE_JS'
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import { useSession, signIn, signOut } from "next-auth/react";
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { fetchFile, toBlobURL } from "@ffmpeg/util";
 
 export default function Home() {
   const { data: session } = useSession();
-
-  useEffect(() => {
-    if (session?.error === "RefreshAccessTokenError") {
-      signOut({ redirect: false });
-    }
-  }, [session]);
-
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [privacyStatus, setPrivacyStatus] = useState("private");
@@ -85,72 +79,6 @@ export default function Home() {
     setGeneratingVoice(false);
   }
 
-  function splitSentences(text) {
-    return (text.match(/[^.!?]+[.!?]*/g) || [text])
-      .map((s) => s.trim())
-      .filter(Boolean);
-  }
-
-  function distributeDurations(script, imageCount, totalDuration) {
-    const sentences = splitSentences(script);
-    const wordCounts = sentences.map(
-      (s) => s.split(/\s+/).filter(Boolean).length || 1
-    );
-    const totalWords = wordCounts.reduce((a, b) => a + b, 0) || 1;
-
-    const buckets = new Array(imageCount).fill(0);
-    const bucketText = new Array(imageCount).fill("");
-    let acc = 0;
-    let bucketIndex = 0;
-    for (let i = 0; i < sentences.length; i++) {
-      acc += wordCounts[i];
-      buckets[bucketIndex] += wordCounts[i];
-      bucketText[bucketIndex] +=
-        (bucketText[bucketIndex] ? " " : "") + sentences[i];
-      const shareSoFar = acc / totalWords;
-      if (
-        shareSoFar >= (bucketIndex + 1) / imageCount &&
-        bucketIndex < imageCount - 1
-      ) {
-        bucketIndex++;
-      }
-    }
-
-    const minShare = 0.4 / imageCount;
-    let shares = buckets.map((w) => Math.max(w / totalWords, minShare));
-    const shareSum = shares.reduce((a, b) => a + b, 0);
-    shares = shares.map((s) => s / shareSum);
-
-    return {
-      durations: shares.map((s) => totalDuration * s),
-      captions: bucketText,
-    };
-  }
-
-  function escapeDrawtext(text) {
-    return text
-      .replace(/'/g, "\u2019")
-      .replace(/:/g, "\\:")
-      .replace(/%/g, "\\%");
-  }
-
-  function wrapCaption(text, maxCharsPerLine) {
-    const words = text.split(/\s+/).filter(Boolean);
-    const lines = [];
-    let current = "";
-    for (const w of words) {
-      const candidate = current ? current + " " + w : w;
-      if (candidate.length > maxCharsPerLine && current) {
-        lines.push(current);
-        current = w;
-      } else {
-        current = candidate;
-      }
-    }
-    if (current) lines.push(current);
-    return lines.join("\\n");
-  }
-
   function getAudioDuration(blobUrl) {
     return new Promise((resolve, reject) => {
       const audioEl = new Audio();
@@ -197,7 +125,7 @@ export default function Home() {
       });
       const imgData = await imgRes.json();
       if (!imgRes.ok) {
-        throw new Error(imgData.error || "خطا در دریافت عکس از سرور");
+        throw new Error(imgData.error);
       }
       const images = imgData.images;
       setVideoBgImageUrl(images[0] || "");
@@ -207,11 +135,7 @@ export default function Home() {
       const ffmpeg = getFfmpeg();
 
       const duration = await getAudioDuration(url);
-      const { durations: perImageDurations, captions } = distributeDurations(
-        script,
-        images.length,
-        duration
-      );
+      const perImage = duration / images.length;
 
       setVideoGenStatus("در حال دانلود عکس‌ها...");
       for (let i = 0; i < images.length; i++) {
@@ -220,83 +144,31 @@ export default function Home() {
       }
 
       await ffmpeg.writeFile("narration.mp3", await fetchFile(blob));
-      await ffmpeg.writeFile("font.ttf", await fetchFile("/fonts/DejaVuSans-Bold.ttf"));
 
-      // --- Ken Burns (zoompan) + crossfade (xfade) between images ---
-      const N = images.length;
-      const FADE = Math.min(0.5, Math.min(...perImageDurations) / 3);
-      const compensation = (FADE * (N - 1)) / N;
-      const clipDurations = perImageDurations.map((d) => d + compensation);
-
-      const args = [];
-      for (let i = 0; i < N; i++) {
-        args.push(
-          "-loop", "1",
-          "-framerate", "25",
-          "-t", clipDurations[i].toFixed(2),
-          "-i", `img${i}.jpg`
-        );
+      let listContent = "";
+      for (let i = 0; i < images.length; i++) {
+        listContent += `file 'img${i}.jpg'\nduration ${perImage.toFixed(2)}\n`;
       }
-      args.push("-i", "narration.mp3");
-      const musicIdx = N + 1;
-      args.push(
-        "-f", "lavfi",
-        "-i",
-        `aevalsrc=0.05*sin(2*PI*110*t)+0.035*sin(2*PI*164.81*t)+0.025*sin(2*PI*220*t):s=44100:d=${duration.toFixed(
-          2
-        )}`
-      );
+      listContent += `file 'img${images.length - 1}.jpg'\n`;
+      await ffmpeg.writeFile("list.txt", listContent);
 
-      let filter = "";
-      for (let i = 0; i < N; i++) {
-        const captionText = wrapCaption(
-          escapeDrawtext(captions[i] || ""),
-          38
-        );
-        filter +=
-          `[${i}:v]scale=1600:900:force_original_aspect_ratio=increase,` +
-          `crop=1600:900,` +
-          `zoompan=z='min(zoom+0.0012,1.25)':d=1:` +
-          `x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1280x720:fps=25,` +
-          `format=yuv420p,setsar=1,` +
-          `drawtext=fontfile=font.ttf:text='${captionText}':fontsize=44:` +
-          `fontcolor=white:borderw=3:bordercolor=black@0.8:box=1:` +
-          `boxcolor=black@0.35:boxborderw=18:x=(w-text_w)/2:y=h-th-70:` +
-          `line_spacing=10[v${i}];`;
-      }
-
-      let finalLabel = "v0";
-      if (N > 1) {
-        let cumulative = clipDurations[0];
-        let prevLabel = "v0";
-        for (let i = 1; i < N; i++) {
-          const offset = cumulative - FADE;
-          const outLabel = `x${i}`;
-          filter += `[${prevLabel}][v${i}]xfade=transition=fade:duration=${FADE.toFixed(
-            2
-          )}:offset=${offset.toFixed(2)}[${outLabel}];`;
-          cumulative = cumulative + clipDurations[i] - FADE;
-          prevLabel = outLabel;
-        }
-        finalLabel = prevLabel;
-      }
-
-      const audioMixFilter = `[${N}:a][${musicIdx}:a]amix=inputs=2:duration=first:normalize=0[aout]`;
-      args.push(
-        "-filter_complex",
-        filter.replace(/;$/, "") + ";" + audioMixFilter
-      );
-      args.push("-map", `[${finalLabel}]`);
-      args.push("-map", "[aout]");
-      args.push("-c:v", "libx264", "-preset", "medium", "-crf", "20", "-b:v", "2500k");
-      args.push("-c:a", "aac", "-b:a", "128k");
-      args.push("-shortest");
-      args.push("output.mp4");
-
-      setVideoGenStatus(
-        "در حال ساخت ویدیو نهایی با افکت زوم و ترانزیشن (ممکنه چند دقیقه طول بکشه)..."
-      );
-      await ffmpeg.exec(args);
+      setVideoGenStatus("در حال ساخت ویدیو نهایی (ممکنه چند دقیقه طول بکشه)...");
+      await ffmpeg.exec([
+        "-f", "concat",
+        "-safe", "0",
+        "-i", "list.txt",
+        "-i", "narration.mp3",
+        "-vf",
+        "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,format=yuv420p",
+        "-c:v", "libx264",
+        "-preset", "medium",
+        "-crf", "20",
+        "-b:v", "2500k",
+        "-c:a", "aac",
+        "-b:a", "128k",
+        "-shortest",
+        "output.mp4",
+      ]);
 
       const out = await ffmpeg.readFile("output.mp4");
       const videoBlob = new Blob([out.buffer], { type: "video/mp4" });
@@ -306,18 +178,7 @@ export default function Home() {
       setGeneratedVideoUrl(URL.createObjectURL(videoBlob));
       setVideoGenStatus("ویدیو ساخته شد! پایین صفحه آماده‌ی آپلود به یوتیوبه.");
     } catch (err) {
-      console.error("video generation error:", err);
-      const msg =
-        (err && err.message) ||
-        (typeof err === "string" ? err : "") ||
-        (() => {
-          try {
-            return JSON.stringify(err);
-          } catch {
-            return String(err);
-          }
-        })();
-      setVideoGenStatus("خطا: " + (msg || "خطای نامشخص (جزئیات توی کنسول مرورگره)"));
+      setVideoGenStatus("خطا: " + err.message);
     }
 
     setGeneratingVideo(false);
@@ -626,3 +487,52 @@ export default function Home() {
     </main>
   );
 }
+EOF_SRC_APP_PAGE_JS
+
+cat > src/app/api/tts/route.js << 'EOF_SRC_APP_API_TTS_ROUTE_JS'
+import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "../auth/authOptions";
+import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
+
+export async function POST(req) {
+  const session = await getServerSession(authOptions);
+
+  if (!session) {
+    return NextResponse.json({ error: "وارد نشده‌اید" }, { status: 401 });
+  }
+
+  const { text, voice } = await req.json();
+
+  if (!text) {
+    return NextResponse.json({ error: "متنی ارسال نشده" }, { status: 400 });
+  }
+
+  try {
+    const tts = new MsEdgeTTS();
+    await tts.setMetadata(
+      voice || "en-US-JennyNeural",
+      OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3
+    );
+
+    const { audioStream } = await tts.toStream(text);
+
+    const chunks = [];
+    for await (const chunk of audioStream) {
+      chunks.push(chunk);
+    }
+    const audioBuffer = Buffer.concat(chunks);
+
+    return new NextResponse(audioBuffer, {
+      headers: {
+        "Content-Type": "audio/mpeg",
+        "Content-Disposition": "attachment; filename=narration.mp3",
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
+EOF_SRC_APP_API_TTS_ROUTE_JS
+
