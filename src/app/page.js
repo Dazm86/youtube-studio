@@ -48,6 +48,7 @@ export default function Home() {
   const [videoGenStatus, setVideoGenStatus] = useState("");
   const [generatedVideoUrl, setGeneratedVideoUrl] = useState(null);
   const [videoBgImageUrl, setVideoBgImageUrl] = useState("");
+  const [useVideoClips, setUseVideoClips] = useState(false);
 
   async function handleGenerateVoice() {
     if (!script.trim()) {
@@ -189,18 +190,27 @@ export default function Home() {
         setAudioUrl(url);
       }
 
-      setVideoGenStatus("در حال گرفتن عکس مرتبط با موضوع...");
-      const imgRes = await fetch("/api/images", {
+      setVideoGenStatus(
+        useVideoClips
+          ? "در حال گرفتن کلیپ ویدیویی مرتبط با موضوع..."
+          : "در حال گرفتن عکس مرتبط با موضوع..."
+      );
+      const mediaRes = await fetch(useVideoClips ? "/api/clips" : "/api/images", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: script, keyword: imageKeyword }),
       });
-      const imgData = await imgRes.json();
-      if (!imgRes.ok) {
-        throw new Error(imgData.error || "خطا در دریافت عکس از سرور");
+      const mediaData = await mediaRes.json();
+      if (!mediaRes.ok) {
+        throw new Error(
+          mediaData.error ||
+            (useVideoClips
+              ? "خطا در دریافت کلیپ از سرور"
+              : "خطا در دریافت عکس از سرور")
+        );
       }
-      const images = imgData.images;
-      setVideoBgImageUrl(images[0] || "");
+      const mediaItems = useVideoClips ? mediaData.clips : mediaData.images;
+      setVideoBgImageUrl(mediaItems[0] || "");
 
       setVideoGenStatus("در حال آماده‌سازی موتور ویدیو (فقط بار اول کمی طول می‌کشه)...");
       await loadFFmpeg();
@@ -209,33 +219,44 @@ export default function Home() {
       const duration = await getAudioDuration(url);
       const { durations: perImageDurations, captions } = distributeDurations(
         script,
-        images.length,
+        mediaItems.length,
         duration
       );
 
-      setVideoGenStatus("در حال دانلود عکس‌ها...");
-      for (let i = 0; i < images.length; i++) {
-        const data = await fetchFile(images[i]);
-        await ffmpeg.writeFile(`img${i}.jpg`, data);
+      setVideoGenStatus(
+        useVideoClips ? "در حال دانلود کلیپ‌ها..." : "در حال دانلود عکس‌ها..."
+      );
+      const mediaExt = useVideoClips ? "mp4" : "jpg";
+      for (let i = 0; i < mediaItems.length; i++) {
+        const data = await fetchFile(mediaItems[i]);
+        await ffmpeg.writeFile(`media${i}.${mediaExt}`, data);
       }
 
       await ffmpeg.writeFile("narration.mp3", await fetchFile(blob));
       await ffmpeg.writeFile("font.ttf", await fetchFile("/fonts/DejaVuSans-Bold.ttf"));
 
-      // --- Ken Burns (zoompan) + crossfade (xfade) between images ---
-      const N = images.length;
+      // --- Ken Burns (zoompan, images only) + crossfade (xfade) between clips ---
+      const N = mediaItems.length;
       const FADE = Math.min(0.5, Math.min(...perImageDurations) / 3);
       const compensation = (FADE * (N - 1)) / N;
       const clipDurations = perImageDurations.map((d) => d + compensation);
 
       const args = [];
       for (let i = 0; i < N; i++) {
-        args.push(
-          "-loop", "1",
-          "-framerate", "25",
-          "-t", clipDurations[i].toFixed(2),
-          "-i", `img${i}.jpg`
-        );
+        if (useVideoClips) {
+          args.push(
+            "-stream_loop", "-1",
+            "-t", clipDurations[i].toFixed(2),
+            "-i", `media${i}.mp4`
+          );
+        } else {
+          args.push(
+            "-loop", "1",
+            "-framerate", "25",
+            "-t", clipDurations[i].toFixed(2),
+            "-i", `media${i}.jpg`
+          );
+        }
       }
       args.push("-i", "narration.mp3");
       const musicIdx = N + 1;
@@ -253,11 +274,14 @@ export default function Home() {
           escapeDrawtext(captions[i] || ""),
           38
         );
+        const visualChain = useVideoClips
+          ? `scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,fps=25`
+          : `scale=1600:900:force_original_aspect_ratio=increase,` +
+            `crop=1600:900,` +
+            `zoompan=z='min(zoom+0.0012,1.25)':d=1:` +
+            `x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1280x720:fps=25`;
         filter +=
-          `[${i}:v]scale=1600:900:force_original_aspect_ratio=increase,` +
-          `crop=1600:900,` +
-          `zoompan=z='min(zoom+0.0012,1.25)':d=1:` +
-          `x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1280x720:fps=25,` +
+          `[${i}:v]${visualChain},` +
           `format=yuv420p,setsar=1,` +
           `drawtext=fontfile=font.ttf:text='${captionText}':fontsize=44:` +
           `fontcolor=white:borderw=3:bordercolor=black@0.8:box=1:` +
@@ -294,7 +318,9 @@ export default function Home() {
       args.push("output.mp4");
 
       setVideoGenStatus(
-        "در حال ساخت ویدیو نهایی با افکت زوم و ترانزیشن (ممکنه چند دقیقه طول بکشه)..."
+        useVideoClips
+          ? "در حال ساخت ویدیو نهایی با کلیپ‌های ویدیویی (ممکنه چند دقیقه طول بکشه)..."
+          : "در حال ساخت ویدیو نهایی با افکت زوم و ترانزیشن (ممکنه چند دقیقه طول بکشه)..."
       );
       await ffmpeg.exec(args);
 
@@ -477,6 +503,22 @@ export default function Home() {
               onChange={(e) => setImageKeyword(e.target.value)}
               style={{ width: "100%", marginBottom: "0.5rem" }}
             />
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.4rem",
+                fontSize: "0.85rem",
+                marginBottom: "0.5rem",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={useVideoClips}
+                onChange={(e) => setUseVideoClips(e.target.checked)}
+              />
+              استفاده از کلیپ ویدیویی به‌جای عکس ثابت (حجم دانلود بیشتر، حس زنده‌تر)
+            </label>
             <button type="button" onClick={handleGenerateVoice} disabled={generatingVoice}>
               {generatingVoice ? "در حال ساخت صدا..." : "ساخت صدا از متن"}
             </button>
@@ -491,7 +533,11 @@ export default function Home() {
               disabled={generatingVideo}
               style={{ marginTop: "0.75rem", fontWeight: "bold" }}
             >
-              {generatingVideo ? "در حال ساخت ویدیو..." : "🎬 ساخت خودکار ویدیو (صدا + عکس)"}
+              {generatingVideo
+                ? "در حال ساخت ویدیو..."
+                : useVideoClips
+                ? "🎬 ساخت خودکار ویدیو (صدا + کلیپ)"
+                : "🎬 ساخت خودکار ویدیو (صدا + عکس)"}
             </button>
             {videoGenStatus && <p style={{ fontSize: "0.85rem" }}>{videoGenStatus}</p>}
             {generatedVideoUrl && (
