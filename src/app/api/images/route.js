@@ -38,7 +38,9 @@ export async function POST(req) {
     return NextResponse.json({ error: "وارد نشده‌اید" }, { status: 401 });
   }
 
-  const { text, keyword } = await req.json();
+  const { text, keyword, count, orientation } = await req.json();
+  const perPage = Math.min(Math.max(parseInt(count) || 6, 1), 40);
+  const safeOrientation = orientation === "portrait" ? "portrait" : "landscape";
 
   if (!text && !keyword) {
     return NextResponse.json({ error: "متنی ارسال نشده" }, { status: 400 });
@@ -50,7 +52,7 @@ export async function POST(req) {
     const res = await fetch(
       `https://api.pexels.com/v1/search?query=${encodeURIComponent(
         query
-      )}&per_page=6&orientation=landscape`,
+      )}&per_page=${perPage}&orientation=${safeOrientation}`,
       { headers: { Authorization: process.env.PEXELS_API_KEY } }
     );
     const data = await res.json();

@@ -1,3 +1,4 @@
+cat > src/app/page.js << 'EOF_SRC_APP_PAGE_JS'
 "use client";
 
 import { useState, useRef, useEffect } from "react";
@@ -814,3 +815,283 @@ export default function Home() {
     </main>
   );
 }
+EOF_SRC_APP_PAGE_JS
+
+cat > src/app/api/generate-script/route.js << 'EOF_SRC_APP_API_GENERATE-SCRIPT_ROUTE_JS'
+import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "../auth/authOptions";
+
+export async function POST(req) {
+  const session = await getServerSession(authOptions);
+  if (!session) {
+    return NextResponse.json({ error: "وارد نشده‌اید" }, { status: 401 });
+  }
+
+  if (!process.env.GROQ_API_KEY) {
+    return NextResponse.json(
+      {
+        error:
+          "کلید Groq تنظیم نشده. اول GROQ_API_KEY رو توی Render اضافه کن (همون کاری که برای پیشنهاد عنوان/تگ انجام دادی).",
+      },
+      { status: 400 }
+    );
+  }
+
+  const { topic, mode } = await req.json();
+  const isShort = mode === "short";
+
+  const topicInstruction =
+    topic && topic.trim()
+      ? `The topic/theme for this video is: "${topic.trim()}"`
+      : `Pick a fresh, specific mindfulness or motivational theme yourself (avoid generic or overused topics like just "gratitude" or "believe in yourself" on their own — find a specific angle or story-like framing).`;
+
+  const lengthInstruction = isShort
+    ? `Write a spoken narration script for a short video (about 30-60 seconds when read aloud, roughly 90-130 words).`
+    : `Write a spoken narration script for a long-form video (about 7-8 minutes when read aloud, roughly 950-1150 words). Structure it with a clear hook/intro, 2-4 developed points or a short story with examples, and a closing takeaway. Vary sentence rhythm so it doesn't feel repetitive over the longer length.`;
+
+  const prompt = `You are the scriptwriter for Maya, the host of a YouTube channel called "The Mindful Path". Maya is warm, cheerful, and speaks directly to the viewer like a caring friend.
+
+${topicInstruction}
+
+${lengthInstruction}
+
+Requirements:
+- Plain spoken English text only. No titles, no headers, no stage directions, no markdown, no emojis.
+- Written in first person as Maya, speaking directly to "you".
+- Warm, sincere tone, plain everyday words, short sentences.
+- Has a clear beginning (hook), middle (the insight/lesson), and end (an encouraging, actionable takeaway).
+- Do not repeat the same idea twice.
+
+Respond with ONLY the narration text itself, nothing else.`;
+
+  try {
+    const aiRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "llama-3.3-70b-versatile",
+        messages: [{ role: "user", content: prompt }],
+        temperature: 1,
+        max_tokens: isShort ? 400 : 2500,
+      }),
+    });
+
+    const aiData = await aiRes.json();
+
+    if (!aiRes.ok) {
+      console.error("Groq API error:", aiData);
+      return NextResponse.json(
+        { error: "خطا در ارتباط با Groq" },
+        { status: 500 }
+      );
+    }
+
+    const script = (aiData?.choices?.[0]?.message?.content || "").trim();
+
+    if (!script) {
+      return NextResponse.json(
+        { error: "پاسخ خالی از هوش مصنوعی دریافت شد" },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({ script });
+  } catch (err) {
+    console.error(err);
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
+EOF_SRC_APP_API_GENERATE-SCRIPT_ROUTE_JS
+
+cat > src/app/api/images/route.js << 'EOF_SRC_APP_API_IMAGES_ROUTE_JS'
+import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "../auth/authOptions";
+
+const STOPWORDS = new Set([
+  "the", "a", "an", "and", "or", "but", "is", "are", "was", "were", "be",
+  "been", "being", "to", "of", "in", "on", "at", "for", "with", "by", "from",
+  "as", "that", "this", "these", "those", "it", "its", "i", "you", "he",
+  "she", "we", "they", "them", "his", "her", "our", "your", "their", "not",
+  "no", "so", "if", "then", "than", "too", "very", "can", "will", "just",
+  "about", "into", "over", "after", "before", "up", "down", "out", "off",
+  "again", "there", "here", "what", "when", "where", "why", "how", "all",
+  "any", "both", "each", "few", "more", "most", "other", "some", "such",
+  "only", "own", "same", "also",
+]);
+
+function extractKeywords(text, count = 4) {
+  const words = (text || "")
+    .toLowerCase()
+    .replace(/[^a-z\s]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 2 && !STOPWORDS.has(w));
+
+  const freq = {};
+  for (const w of words) freq[w] = (freq[w] || 0) + 1;
+
+  return Object.entries(freq)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, count)
+    .map(([w]) => w)
+    .join(" ");
+}
+
+export async function POST(req) {
+  const session = await getServerSession(authOptions);
+
+  if (!session) {
+    return NextResponse.json({ error: "وارد نشده‌اید" }, { status: 401 });
+  }
+
+  const { text, keyword, count, orientation } = await req.json();
+  const perPage = Math.min(Math.max(parseInt(count) || 6, 1), 40);
+  const safeOrientation = orientation === "portrait" ? "portrait" : "landscape";
+
+  if (!text && !keyword) {
+    return NextResponse.json({ error: "متنی ارسال نشده" }, { status: 400 });
+  }
+
+  const query = (keyword && keyword.trim()) || extractKeywords(text) || "nature";
+
+  try {
+    const res = await fetch(
+      `https://api.pexels.com/v1/search?query=${encodeURIComponent(
+        query
+      )}&per_page=${perPage}&orientation=${safeOrientation}`,
+      { headers: { Authorization: process.env.PEXELS_API_KEY } }
+    );
+    const data = await res.json();
+
+    if (!res.ok) {
+      return NextResponse.json(
+        { error: data.error || "خطا در دریافت عکس از Pexels" },
+        { status: 500 }
+      );
+    }
+
+    const images = (data.photos || []).map((p) => p.src.large2x);
+
+    if (images.length === 0) {
+      return NextResponse.json(
+        { error: "عکسی برای این موضوع پیدا نشد، متن دیگه‌ای امتحان کن" },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json({ query, images });
+  } catch (err) {
+    console.error(err);
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
+EOF_SRC_APP_API_IMAGES_ROUTE_JS
+
+cat > src/app/api/clips/route.js << 'EOF_SRC_APP_API_CLIPS_ROUTE_JS'
+import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "../auth/authOptions";
+
+const STOPWORDS = new Set([
+  "the", "a", "an", "and", "or", "but", "is", "are", "was", "were", "be",
+  "been", "being", "to", "of", "in", "on", "at", "for", "with", "by", "from",
+  "as", "that", "this", "these", "those", "it", "its", "i", "you", "he",
+  "she", "we", "they", "them", "his", "her", "our", "your", "their", "not",
+  "no", "so", "if", "then", "than", "too", "very", "can", "will", "just",
+  "about", "into", "over", "after", "before", "up", "down", "out", "off",
+  "again", "there", "here", "what", "when", "where", "why", "how", "all",
+  "any", "both", "each", "few", "more", "most", "other", "some", "such",
+  "only", "own", "same", "also",
+]);
+
+function extractKeywords(text, count = 4) {
+  const words = (text || "")
+    .toLowerCase()
+    .replace(/[^a-z\s]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 2 && !STOPWORDS.has(w));
+
+  const freq = {};
+  for (const w of words) freq[w] = (freq[w] || 0) + 1;
+
+  return Object.entries(freq)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, count)
+    .map(([w]) => w)
+    .join(" ");
+}
+
+// Pick the best mp4 file for our purposes: closest to the target long-edge
+// resolution, preferring options at or above that to avoid upscaling blur.
+// For portrait clips the long edge is height, not width.
+function pickVideoFile(videoFiles, isPortrait) {
+  const mp4s = (videoFiles || []).filter((f) => f.file_type === "video/mp4");
+  if (mp4s.length === 0) return null;
+
+  const longEdge = (f) => (isPortrait ? f.height : f.width);
+
+  const atLeastHD = mp4s
+    .filter((f) => longEdge(f) >= 1280)
+    .sort((a, b) => longEdge(a) - longEdge(b));
+  if (atLeastHD.length > 0) return atLeastHD[0];
+
+  return mp4s.sort((a, b) => longEdge(b) - longEdge(a))[0];
+}
+
+export async function POST(req) {
+  const session = await getServerSession(authOptions);
+
+  if (!session) {
+    return NextResponse.json({ error: "وارد نشده‌اید" }, { status: 401 });
+  }
+
+  const { text, keyword, count, orientation } = await req.json();
+  const perPage = Math.min(Math.max(parseInt(count) || 6, 1), 30);
+  const safeOrientation = orientation === "portrait" ? "portrait" : "landscape";
+
+  if (!text && !keyword) {
+    return NextResponse.json({ error: "متنی ارسال نشده" }, { status: 400 });
+  }
+
+  const query = (keyword && keyword.trim()) || extractKeywords(text) || "nature";
+
+  try {
+    const res = await fetch(
+      `https://api.pexels.com/videos/search?query=${encodeURIComponent(
+        query
+      )}&per_page=${perPage}&orientation=${safeOrientation}`,
+      { headers: { Authorization: process.env.PEXELS_API_KEY } }
+    );
+    const data = await res.json();
+
+    if (!res.ok) {
+      return NextResponse.json(
+        { error: data.error || "خطا در دریافت کلیپ از Pexels" },
+        { status: 500 }
+      );
+    }
+
+    const clips = (data.videos || [])
+      .map((v) => pickVideoFile(v.video_files, safeOrientation === "portrait"))
+      .filter(Boolean)
+      .map((f) => f.link);
+
+    if (clips.length === 0) {
+      return NextResponse.json(
+        { error: "کلیپی برای این موضوع پیدا نشد، متن دیگه‌ای امتحان کن" },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json({ query, clips });
+  } catch (err) {
+    console.error(err);
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
+EOF_SRC_APP_API_CLIPS_ROUTE_JS
+

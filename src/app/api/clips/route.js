@@ -31,18 +31,21 @@ function extractKeywords(text, count = 4) {
     .join(" ");
 }
 
-// Pick the best mp4 file for our purposes: closest to 1280px wide,
-// preferring options at or above that width to avoid upscaling blur.
-function pickVideoFile(videoFiles) {
+// Pick the best mp4 file for our purposes: closest to the target long-edge
+// resolution, preferring options at or above that to avoid upscaling blur.
+// For portrait clips the long edge is height, not width.
+function pickVideoFile(videoFiles, isPortrait) {
   const mp4s = (videoFiles || []).filter((f) => f.file_type === "video/mp4");
   if (mp4s.length === 0) return null;
 
+  const longEdge = (f) => (isPortrait ? f.height : f.width);
+
   const atLeastHD = mp4s
-    .filter((f) => f.width >= 1280)
-    .sort((a, b) => a.width - b.width);
+    .filter((f) => longEdge(f) >= 1280)
+    .sort((a, b) => longEdge(a) - longEdge(b));
   if (atLeastHD.length > 0) return atLeastHD[0];
 
-  return mp4s.sort((a, b) => b.width - a.width)[0];
+  return mp4s.sort((a, b) => longEdge(b) - longEdge(a))[0];
 }
 
 export async function POST(req) {
@@ -52,7 +55,9 @@ export async function POST(req) {
     return NextResponse.json({ error: "وارد نشده‌اید" }, { status: 401 });
   }
 
-  const { text, keyword } = await req.json();
+  const { text, keyword, count, orientation } = await req.json();
+  const perPage = Math.min(Math.max(parseInt(count) || 6, 1), 30);
+  const safeOrientation = orientation === "portrait" ? "portrait" : "landscape";
 
   if (!text && !keyword) {
     return NextResponse.json({ error: "متنی ارسال نشده" }, { status: 400 });
@@ -64,7 +69,7 @@ export async function POST(req) {
     const res = await fetch(
       `https://api.pexels.com/videos/search?query=${encodeURIComponent(
         query
-      )}&per_page=6&orientation=landscape`,
+      )}&per_page=${perPage}&orientation=${safeOrientation}`,
       { headers: { Authorization: process.env.PEXELS_API_KEY } }
     );
     const data = await res.json();
@@ -77,7 +82,7 @@ export async function POST(req) {
     }
 
     const clips = (data.videos || [])
-      .map((v) => pickVideoFile(v.video_files))
+      .map((v) => pickVideoFile(v.video_files, safeOrientation === "portrait"))
       .filter(Boolean)
       .map((f) => f.link);
 

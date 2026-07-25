@@ -18,18 +18,25 @@ export async function POST(req) {
     );
   }
 
-  const { topic } = await req.json();
+  const { topic, mode } = await req.json();
+  const isShort = mode === "short";
 
   const topicInstruction =
     topic && topic.trim()
       ? `The topic/theme for this video is: "${topic.trim()}"`
       : `Pick a fresh, specific mindfulness or motivational theme yourself (avoid generic or overused topics like just "gratitude" or "believe in yourself" on their own — find a specific angle or story-like framing).`;
 
+  const lengthInstruction = isShort
+    ? `Write a spoken narration script for a short video (about 30-60 seconds when read aloud, roughly 90-130 words).`
+    : `Write a spoken narration script for a long-form video (about 7-8 minutes when read aloud, roughly 950-1150 words). Structure it with a clear hook/intro, 2-4 developed points or a short story with examples, and a closing takeaway. Vary sentence rhythm so it doesn't feel repetitive over the longer length.`;
+
   const prompt = `You are the scriptwriter for Maya, the host of a YouTube channel called "The Mindful Path". Maya is warm, cheerful, and speaks directly to the viewer like a caring friend.
 
 ${topicInstruction}
 
-Write a spoken narration script for a short video (about 45-65 seconds when read aloud, roughly 130-170 words). Requirements:
+${lengthInstruction}
+
+Requirements:
 - Plain spoken English text only. No titles, no headers, no stage directions, no markdown, no emojis.
 - Written in first person as Maya, speaking directly to "you".
 - Warm, sincere tone, plain everyday words, short sentences.
@@ -49,6 +56,7 @@ Respond with ONLY the narration text itself, nothing else.`;
         model: "llama-3.3-70b-versatile",
         messages: [{ role: "user", content: prompt }],
         temperature: 1,
+        max_tokens: isShort ? 400 : 2500,
       }),
     });
 
