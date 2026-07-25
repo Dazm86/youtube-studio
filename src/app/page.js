@@ -203,6 +203,14 @@ export default function Home() {
         );
       }
       args.push("-i", "narration.mp3");
+      const musicIdx = N + 1;
+      args.push(
+        "-f", "lavfi",
+        "-i",
+        `aevalsrc=0.05*sin(2*PI*110*t)+0.035*sin(2*PI*164.81*t)+0.025*sin(2*PI*220*t):s=44100:d=${duration.toFixed(
+          2
+        )}`
+      );
 
       let filter = "";
       for (let i = 0; i < N; i++) {
@@ -230,9 +238,13 @@ export default function Home() {
         finalLabel = prevLabel;
       }
 
-      args.push("-filter_complex", filter.replace(/;$/, ""));
+      const audioMixFilter = `[${N}:a][${musicIdx}:a]amix=inputs=2:duration=first:normalize=0[aout]`;
+      args.push(
+        "-filter_complex",
+        filter.replace(/;$/, "") + ";" + audioMixFilter
+      );
       args.push("-map", `[${finalLabel}]`);
-      args.push("-map", `${N}:a`);
+      args.push("-map", "[aout]");
       args.push("-c:v", "libx264", "-preset", "medium", "-crf", "20", "-b:v", "2500k");
       args.push("-c:a", "aac", "-b:a", "128k");
       args.push("-shortest");
