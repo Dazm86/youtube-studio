@@ -78,6 +78,42 @@ export default function Home() {
     setGeneratingVoice(false);
   }
 
+  function splitSentences(text) {
+    return (text.match(/[^.!?]+[.!?]*/g) || [text])
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+
+  function distributeDurations(script, imageCount, totalDuration) {
+    const sentences = splitSentences(script);
+    const wordCounts = sentences.map(
+      (s) => s.split(/\s+/).filter(Boolean).length || 1
+    );
+    const totalWords = wordCounts.reduce((a, b) => a + b, 0) || 1;
+
+    const buckets = new Array(imageCount).fill(0);
+    let acc = 0;
+    let bucketIndex = 0;
+    for (let i = 0; i < sentences.length; i++) {
+      acc += wordCounts[i];
+      buckets[bucketIndex] += wordCounts[i];
+      const shareSoFar = acc / totalWords;
+      if (
+        shareSoFar >= (bucketIndex + 1) / imageCount &&
+        bucketIndex < imageCount - 1
+      ) {
+        bucketIndex++;
+      }
+    }
+
+    const minShare = 0.4 / imageCount;
+    let shares = buckets.map((w) => Math.max(w / totalWords, minShare));
+    const shareSum = shares.reduce((a, b) => a + b, 0);
+    shares = shares.map((s) => s / shareSum);
+
+    return shares.map((s) => totalDuration * s);
+  }
+
   function getAudioDuration(blobUrl) {
     return new Promise((resolve, reject) => {
       const audioEl = new Audio();
@@ -134,7 +170,7 @@ export default function Home() {
       const ffmpeg = getFfmpeg();
 
       const duration = await getAudioDuration(url);
-      const perImage = duration / images.length;
+      const perImageDurations = distributeDurations(script, images.length, duration);
 
       setVideoGenStatus("در حال دانلود عکس‌ها...");
       for (let i = 0; i < images.length; i++) {
@@ -146,7 +182,7 @@ export default function Home() {
 
       let listContent = "";
       for (let i = 0; i < images.length; i++) {
-        listContent += `file 'img${i}.jpg'\nduration ${perImage.toFixed(2)}\n`;
+        listContent += `file 'img${i}.jpg'\nduration ${perImageDurations[i].toFixed(2)}\n`;
       }
       listContent += `file 'img${images.length - 1}.jpg'\n`;
       await ffmpeg.writeFile("list.txt", listContent);
@@ -158,7 +194,7 @@ export default function Home() {
         "-i", "list.txt",
         "-i", "narration.mp3",
         "-vf",
-        "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,format=yuv420p",
+        "scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,format=yuv420p",
         "-c:v", "libx264",
         "-preset", "medium",
         "-crf", "20",

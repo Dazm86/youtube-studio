@@ -62,7 +62,7 @@ export async function POST(req) {
       );
     }
 
-    const images = (data.photos || []).map((p) => p.src.large);
+    const images = (data.photos || []).map((p) => p.src.large2x);
 
     if (images.length === 0) {
       return NextResponse.json(
