@@ -197,6 +197,15 @@ export default function Home() {
 
     setGeneratingVideo(true);
 
+    let wakeLock = null;
+    try {
+      if ("wakeLock" in navigator) {
+        wakeLock = await navigator.wakeLock.request("screen");
+      }
+    } catch {
+      // مهم نیست اگه پشتیبانی نشه یا رد بشه؛ ساخت ویدیو بدونش هم ادامه پیدا می‌کنه
+    }
+
     try {
       let blob = audioBlob;
       let url = audioUrl;
@@ -389,6 +398,14 @@ export default function Home() {
           }
         })();
       setVideoGenStatus("خطا: " + (msg || "خطای نامشخص (جزئیات توی کنسول مرورگره)"));
+    }
+
+    if (wakeLock) {
+      try {
+        await wakeLock.release();
+      } catch {
+        // مهم نیست
+      }
     }
 
     setGeneratingVideo(false);
