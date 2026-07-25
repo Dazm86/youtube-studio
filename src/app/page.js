@@ -180,30 +180,61 @@ export default function Home() {
 
       await ffmpeg.writeFile("narration.mp3", await fetchFile(blob));
 
-      let listContent = "";
-      for (let i = 0; i < images.length; i++) {
-        listContent += `file 'img${i}.jpg'\nduration ${perImageDurations[i].toFixed(2)}\n`;
-      }
-      listContent += `file 'img${images.length - 1}.jpg'\n`;
-      await ffmpeg.writeFile("list.txt", listContent);
+      // --- Ken Burns (zoompan) + crossfade (xfade) between images ---
+      const N = images.length;
+      const FADE = Math.min(0.5, Math.min(...perImageDurations) / 3);
+      const compensation = (FADE * (N - 1)) / N;
+      const clipDurations = perImageDurations.map((d) => d + compensation);
 
-      setVideoGenStatus("در حال ساخت ویدیو نهایی (ممکنه چند دقیقه طول بکشه)...");
-      await ffmpeg.exec([
-        "-f", "concat",
-        "-safe", "0",
-        "-i", "list.txt",
-        "-i", "narration.mp3",
-        "-vf",
-        "scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,format=yuv420p",
-        "-c:v", "libx264",
-        "-preset", "medium",
-        "-crf", "20",
-        "-b:v", "2500k",
-        "-c:a", "aac",
-        "-b:a", "128k",
-        "-shortest",
-        "output.mp4",
-      ]);
+      const args = [];
+      for (let i = 0; i < N; i++) {
+        args.push(
+          "-loop", "1",
+          "-framerate", "25",
+          "-t", clipDurations[i].toFixed(2),
+          "-i", `img${i}.jpg`
+        );
+      }
+      args.push("-i", "narration.mp3");
+
+      let filter = "";
+      for (let i = 0; i < N; i++) {
+        filter +=
+          `[${i}:v]scale=1600:900:force_original_aspect_ratio=increase,` +
+          `crop=1600:900,` +
+          `zoompan=z='min(zoom+0.0012,1.25)':d=1:` +
+          `x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1280x720:fps=25,` +
+          `format=yuv420p,setsar=1[v${i}];`;
+      }
+
+      let finalLabel = "v0";
+      if (N > 1) {
+        let cumulative = clipDurations[0];
+        let prevLabel = "v0";
+        for (let i = 1; i < N; i++) {
+          const offset = cumulative - FADE;
+          const outLabel = `x${i}`;
+          filter += `[${prevLabel}][v${i}]xfade=transition=fade:duration=${FADE.toFixed(
+            2
+          )}:offset=${offset.toFixed(2)}[${outLabel}];`;
+          cumulative = cumulative + clipDurations[i] - FADE;
+          prevLabel = outLabel;
+        }
+        finalLabel = prevLabel;
+      }
+
+      args.push("-filter_complex", filter);
+      args.push("-map", `[${finalLabel}]`);
+      args.push("-map", `${N}:a`);
+      args.push("-c:v", "libx264", "-preset", "medium", "-crf", "20", "-b:v", "2500k");
+      args.push("-c:a", "aac", "-b:a", "128k");
+      args.push("-shortest");
+      args.push("output.mp4");
+
+      setVideoGenStatus(
+        "در حال ساخت ویدیو نهایی با افکت زوم و ترانزیشن (ممکنه چند دقیقه طول بکشه)..."
+      );
+      await ffmpeg.exec(args);
 
       const out = await ffmpeg.readFile("output.mp4");
       const videoBlob = new Blob([out.buffer], { type: "video/mp4" });
