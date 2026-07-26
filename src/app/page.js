@@ -451,24 +451,35 @@ export default function Home() {
     if (typeof window !== "undefined" && window.crossOriginIsolated) {
       try {
         const mtBaseURL = "https://unpkg.com/@ffmpeg/core-mt@0.12.6/dist/umd";
-        await ffmpeg.load({
-          coreURL: await toBlobURL(mtBaseURL + "/ffmpeg-core.js", "text/javascript"),
-          wasmURL: await toBlobURL(mtBaseURL + "/ffmpeg-core.wasm", "application/wasm"),
-          workerURL: await toBlobURL(
-            mtBaseURL + "/ffmpeg-core.worker.js",
-            "text/javascript"
-          ),
-        });
+        const loadMT = async () => {
+          await ffmpeg.load({
+            coreURL: await toBlobURL(mtBaseURL + "/ffmpeg-core.js", "text/javascript"),
+            wasmURL: await toBlobURL(mtBaseURL + "/ffmpeg-core.wasm", "application/wasm"),
+            workerURL: await toBlobURL(
+              mtBaseURL + "/ffmpeg-core.worker.js",
+              "text/javascript"
+            ),
+          });
+        };
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(
+            () => reject(new Error("زمان بارگذاری چندهسته‌ای تموم شد")),
+            15000
+          )
+        );
+        await Promise.race([loadMT(), timeoutPromise]);
         setFfmpegLoaded(true);
         setFfmpegMultiThreaded(true);
         return;
       } catch (err) {
-        console.error("چندهسته‌ای لود نشد، برمی‌گردیم به تک‌هسته‌ای:", err);
+        console.error("چندهسته‌ای لود نشد یا زمان تموم شد، برمی‌گردیم به تک‌هسته‌ای:", err);
+        ffmpegRef.current = new FFmpeg();
       }
     }
 
+    const singleThreadFfmpeg = getFfmpeg();
     const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
-    await ffmpeg.load({
+    await singleThreadFfmpeg.load({
       coreURL: await toBlobURL(baseURL + "/ffmpeg-core.js", "text/javascript"),
       wasmURL: await toBlobURL(baseURL + "/ffmpeg-core.wasm", "application/wasm"),
     });
