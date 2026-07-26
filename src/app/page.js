@@ -51,6 +51,7 @@ export default function Home() {
 
   const [generatingVideo, setGeneratingVideo] = useState(false);
   const [videoGenStatus, setVideoGenStatus] = useState("");
+  const [videoGenProgress, setVideoGenProgress] = useState(0);
   const [generatedVideoUrl, setGeneratedVideoUrl] = useState(null);
   const [videoBgImageUrl, setVideoBgImageUrl] = useState("");
   const [useVideoClips, setUseVideoClips] = useState(false);
@@ -197,6 +198,7 @@ export default function Home() {
     }
 
     setGeneratingVideo(true);
+    setVideoGenProgress(0);
 
     let wakeLock = null;
     try {
@@ -212,7 +214,8 @@ export default function Home() {
       let url = audioUrl;
 
       if (!blob) {
-        setVideoGenStatus("در حال ساخت صدا...");
+        setVideoGenStatus("مرحله ۱ از ۵: در حال ساخت صدا...");
+        setVideoGenProgress(5);
         const res = await fetch("/api/tts", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -227,6 +230,7 @@ export default function Home() {
         setAudioBlob(blob);
         setAudioUrl(url);
       }
+      setVideoGenProgress(15);
 
       const isShort = videoMode === "short";
       const W = isShort ? 720 : 1280;
@@ -240,8 +244,8 @@ export default function Home() {
 
       setVideoGenStatus(
         useVideoClips
-          ? "در حال گرفتن کلیپ ویدیویی مرتبط با موضوع..."
-          : "در حال گرفتن عکس مرتبط با موضوع..."
+          ? "مرحله ۲ از ۵: در حال گرفتن کلیپ ویدیویی مرتبط با موضوع..."
+          : "مرحله ۲ از ۵: در حال گرفتن عکس مرتبط با موضوع..."
       );
       const mediaRes = await fetch(useVideoClips ? "/api/clips" : "/api/images", {
         method: "POST",
@@ -264,9 +268,13 @@ export default function Home() {
       }
       const mediaItems = useVideoClips ? mediaData.clips : mediaData.images;
       setVideoBgImageUrl(mediaItems[0] || "");
+      setVideoGenProgress(20);
 
-      setVideoGenStatus("در حال آماده‌سازی موتور ویدیو (فقط بار اول کمی طول می‌کشه)...");
+      setVideoGenStatus(
+        "مرحله ۳ از ۵: در حال آماده‌سازی موتور ویدیو (فقط بار اول کمی طول می‌کشه)..."
+      );
       await loadFFmpeg(setVideoGenStatus);
+      setVideoGenProgress(35);
       const ffmpeg = getFfmpeg();
 
       const duration = await getAudioDuration(url);
@@ -277,16 +285,20 @@ export default function Home() {
       );
 
       setVideoGenStatus(
-        useVideoClips ? "در حال دانلود کلیپ‌ها..." : "در حال دانلود عکس‌ها..."
+        useVideoClips
+          ? "مرحله ۴ از ۵: در حال دانلود کلیپ‌ها..."
+          : "مرحله ۴ از ۵: در حال دانلود عکس‌ها..."
       );
       const mediaExt = useVideoClips ? "mp4" : "jpg";
       for (let i = 0; i < mediaItems.length; i++) {
         const data = await fetchFile(mediaItems[i]);
         await ffmpeg.writeFile(`media${i}.${mediaExt}`, data);
+        setVideoGenProgress(35 + Math.round(((i + 1) / mediaItems.length) * 15));
       }
 
       await ffmpeg.writeFile("narration.mp3", await fetchFile(blob));
       await ffmpeg.writeFile("font.ttf", await fetchFile("/fonts/DejaVuSans-Bold.ttf"));
+      setVideoGenProgress(50);
 
       // --- Ken Burns (zoompan, images only) + crossfade (xfade) between clips ---
       const N = mediaItems.length;
@@ -373,11 +385,24 @@ export default function Home() {
       args.push("output.mp4");
 
       setVideoGenStatus(
-        useVideoClips
-          ? "در حال ساخت ویدیو نهایی با کلیپ‌های ویدیویی (ممکنه چند دقیقه طول بکشه)..."
-          : "در حال ساخت ویدیو نهایی با افکت زوم و ترانزیشن (ممکنه چند دقیقه طول بکشه)..."
+        "مرحله ۵ از ۵: " +
+          (useVideoClips
+            ? "در حال ساخت ویدیو نهایی با کلیپ‌های ویدیویی (ممکنه چند دقیقه طول بکشه)..."
+            : "در حال ساخت ویدیو نهایی با افکت زوم و ترانزیشن (ممکنه چند دقیقه طول بکشه)...")
       );
-      await ffmpeg.exec(args);
+      const onExecProgress = ({ progress: p }) => {
+        const pct = Math.max(0, Math.min(1, p));
+        setVideoGenProgress(50 + Math.round(pct * 50));
+        setVideoGenStatus(`مرحله ۵ از ۵: در حال رندر نهایی... ${Math.round(pct * 100)}%`);
+      };
+      ffmpeg.on("progress", onExecProgress);
+      try {
+        await ffmpeg.exec(args);
+      } finally {
+        if (typeof ffmpeg.off === "function") {
+          ffmpeg.off("progress", onExecProgress);
+        }
+      }
 
       const out = await ffmpeg.readFile("output.mp4");
       const videoBlob = new Blob([out.buffer], { type: "video/mp4" });
@@ -385,6 +410,7 @@ export default function Home() {
 
       setFile(videoFile);
       setGeneratedVideoUrl(URL.createObjectURL(videoBlob));
+      setVideoGenProgress(100);
       setVideoGenStatus("ویدیو ساخته شد! پایین صفحه آماده‌ی آپلود به یوتیوبه.");
     } catch (err) {
       console.error("video generation error:", err);
@@ -716,6 +742,18 @@ export default function Home() {
                 : "🎬 ساخت خودکار ویدیو (صدا + عکس)"}
             </button>
             {videoGenStatus && <p style={{ fontSize: "0.85rem" }}>{videoGenStatus}</p>}
+            {generatingVideo && (
+              <div style={{ width: "100%", background: "#eee", borderRadius: "8px", overflow: "hidden" }}>
+                <div
+                  style={{
+                    width: videoGenProgress + "%",
+                    background: "#2196F3",
+                    height: "10px",
+                    transition: "width 0.2s",
+                  }}
+                />
+              </div>
+            )}
             {ffmpegLoaded && (
               <p style={{ fontSize: "0.75rem", opacity: 0.7 }}>
                 {ffmpegMultiThreaded
