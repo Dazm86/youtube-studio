@@ -266,7 +266,7 @@ export default function Home() {
       setVideoBgImageUrl(mediaItems[0] || "");
 
       setVideoGenStatus("در حال آماده‌سازی موتور ویدیو (فقط بار اول کمی طول می‌کشه)...");
-      await loadFFmpeg();
+      await loadFFmpeg(setVideoGenStatus);
       const ffmpeg = getFfmpeg();
 
       const duration = await getAudioDuration(url);
@@ -443,13 +443,15 @@ export default function Home() {
     setSuggestingMeta(false);
   }
 
-  async function loadFFmpeg() {
+  async function loadFFmpeg(onStatus) {
+    const report = onStatus || setTrimStatus;
     if (ffmpegLoaded) return;
-    setTrimStatus("در حال بارگذاری موتور برش (فقط بار اول)...");
+    report("در حال بررسی امکان پردازش چندهسته‌ای...");
     const ffmpeg = getFfmpeg();
 
     if (typeof window !== "undefined" && window.crossOriginIsolated) {
       try {
+        report("در حال بارگذاری موتور چندهسته‌ای (حداکثر ۱۵ ثانیه)...");
         const mtBaseURL = "https://unpkg.com/@ffmpeg/core-mt@0.12.6/dist/umd";
         const loadMT = async () => {
           await ffmpeg.load({
@@ -470,11 +472,15 @@ export default function Home() {
         await Promise.race([loadMT(), timeoutPromise]);
         setFfmpegLoaded(true);
         setFfmpegMultiThreaded(true);
+        report("موتور چندهسته‌ای آماده شد ⚡");
         return;
       } catch (err) {
         console.error("چندهسته‌ای لود نشد یا زمان تموم شد، برمی‌گردیم به تک‌هسته‌ای:", err);
         ffmpegRef.current = new FFmpeg();
+        report("چندهسته‌ای در دسترس نبود؛ در حال بارگذاری موتور تک‌هسته‌ای...");
       }
+    } else {
+      report("در حال بارگذاری موتور تک‌هسته‌ای...");
     }
 
     const singleThreadFfmpeg = getFfmpeg();
@@ -484,6 +490,7 @@ export default function Home() {
       wasmURL: await toBlobURL(baseURL + "/ffmpeg-core.wasm", "application/wasm"),
     });
     setFfmpegLoaded(true);
+    report("موتور آماده شد ✅");
   }
 
   async function handleTrim() {
