@@ -1,3 +1,4 @@
+cat > src/app/page.js << 'EOF_SRC_APP_PAGE_JS'
 "use client";
 
 import { useState, useRef, useEffect } from "react";
@@ -859,3 +860,26 @@ export default function Home() {
     </main>
   );
 }
+EOF_SRC_APP_PAGE_JS
+
+cat > next.config.ts << 'EOF_NEXT_CONFIG_TS'
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  serverExternalPackages: ["@ffmpeg-installer/ffmpeg", "fluent-ffmpeg"],
+  async headers() {
+    return [
+      {
+        source: "/(.*)",
+        headers: [
+          { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+          { key: "Cross-Origin-Embedder-Policy", value: "credentialless" },
+        ],
+      },
+    ];
+  },
+};
+
+export default nextConfig;
+EOF_NEXT_CONFIG_TS
+

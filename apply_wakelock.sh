@@ -1,3 +1,4 @@
+cat > src/app/page.js << 'EOF_PAGE_JS'
 "use client";
 
 import { useState, useRef, useEffect } from "react";
@@ -29,7 +30,6 @@ export default function Home() {
   const [trimStatus, setTrimStatus] = useState("");
   const ffmpegRef = useRef(null);
   const [ffmpegLoaded, setFfmpegLoaded] = useState(false);
-  const [ffmpegMultiThreaded, setFfmpegMultiThreaded] = useState(false);
 
   function getFfmpeg() {
     if (!ffmpegRef.current) {
@@ -367,7 +367,7 @@ export default function Home() {
       );
       args.push("-map", `[${finalLabel}]`);
       args.push("-map", "[aout]");
-      args.push("-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-b:v", "2500k");
+      args.push("-c:v", "libx264", "-preset", "medium", "-crf", "20", "-b:v", "2500k");
       args.push("-c:a", "aac", "-b:a", "128k");
       args.push("-shortest");
       args.push("output.mp4");
@@ -446,28 +446,8 @@ export default function Home() {
   async function loadFFmpeg() {
     if (ffmpegLoaded) return;
     setTrimStatus("در حال بارگذاری موتور برش (فقط بار اول)...");
-    const ffmpeg = getFfmpeg();
-
-    if (typeof window !== "undefined" && window.crossOriginIsolated) {
-      try {
-        const mtBaseURL = "https://unpkg.com/@ffmpeg/core-mt@0.12.6/dist/umd";
-        await ffmpeg.load({
-          coreURL: await toBlobURL(mtBaseURL + "/ffmpeg-core.js", "text/javascript"),
-          wasmURL: await toBlobURL(mtBaseURL + "/ffmpeg-core.wasm", "application/wasm"),
-          workerURL: await toBlobURL(
-            mtBaseURL + "/ffmpeg-core.worker.js",
-            "text/javascript"
-          ),
-        });
-        setFfmpegLoaded(true);
-        setFfmpegMultiThreaded(true);
-        return;
-      } catch (err) {
-        console.error("چندهسته‌ای لود نشد، برمی‌گردیم به تک‌هسته‌ای:", err);
-      }
-    }
-
     const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
+    const ffmpeg = getFfmpeg();
     await ffmpeg.load({
       coreURL: await toBlobURL(baseURL + "/ffmpeg-core.js", "text/javascript"),
       wasmURL: await toBlobURL(baseURL + "/ffmpeg-core.wasm", "application/wasm"),
@@ -698,13 +678,6 @@ export default function Home() {
                 : "🎬 ساخت خودکار ویدیو (صدا + عکس)"}
             </button>
             {videoGenStatus && <p style={{ fontSize: "0.85rem" }}>{videoGenStatus}</p>}
-            {ffmpegLoaded && (
-              <p style={{ fontSize: "0.75rem", opacity: 0.7 }}>
-                {ffmpegMultiThreaded
-                  ? "⚡ حالت چندهسته‌ای فعاله"
-                  : "حالت تک‌هسته‌ای (چندهسته‌ای در دسترس نبود)"}
-              </p>
-            )}
             {generatedVideoUrl && (
               <div style={{ marginTop: "0.5rem" }}>
                 <video
@@ -859,3 +832,4 @@ export default function Home() {
     </main>
   );
 }
+EOF_PAGE_JS
