@@ -510,7 +510,7 @@ export default function Home() {
     }
 
     const singleThreadFfmpeg = getFfmpeg();
-    const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
+    const baseURL = "/ffmpeg-core";
     await singleThreadFfmpeg.load({
       coreURL: await toBlobURL(baseURL + "/ffmpeg-core.js", "text/javascript"),
       wasmURL: await toBlobURL(baseURL + "/ffmpeg-core.wasm", "application/wasm"),
