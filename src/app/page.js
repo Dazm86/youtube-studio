@@ -366,7 +366,7 @@ export default function Home() {
       );
       args.push("-map", `[${finalLabel}]`);
       args.push("-map", "[aout]");
-      args.push("-c:v", "libx264", "-preset", "medium", "-crf", "20", "-b:v", "2500k");
+      args.push("-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-b:v", "2500k");
       args.push("-c:a", "aac", "-b:a", "128k");
       args.push("-shortest");
       args.push("output.mp4");
