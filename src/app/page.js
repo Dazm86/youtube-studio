@@ -510,13 +510,39 @@ export default function Home() {
     }
 
     const singleThreadFfmpeg = getFfmpeg();
-    const baseURL = "/ffmpeg-core";
-    await singleThreadFfmpeg.load({
-      coreURL: await toBlobURL(baseURL + "/ffmpeg-core.js", "text/javascript"),
-      wasmURL: await toBlobURL(baseURL + "/ffmpeg-core.wasm", "application/wasm"),
+    try {
+      report("در حال بارگذاری موتور تک‌هسته‌ای، محلی (حداکثر ۲۰ ثانیه)...");
+      const localBaseURL = "/ffmpeg-core";
+      const loadLocal = async () => {
+        await singleThreadFfmpeg.load({
+          coreURL: await toBlobURL(localBaseURL + "/ffmpeg-core.js", "text/javascript"),
+          wasmURL: await toBlobURL(localBaseURL + "/ffmpeg-core.wasm", "application/wasm"),
+        });
+      };
+      const localTimeout = new Promise((_, reject) =>
+        setTimeout(
+          () => reject(new Error("زمان بارگذاری محلی تموم شد")),
+          20000
+        )
+      );
+      await Promise.race([loadLocal(), localTimeout]);
+      setFfmpegLoaded(true);
+      report("موتور آماده شد ✅");
+      return;
+    } catch (err) {
+      console.error("بارگذاری محلی شکست خورد یا زمانش تموم شد، امتحان سرور قبلی:", err);
+      ffmpegRef.current = new FFmpeg();
+      report("بارگذاری محلی ناموفق بود؛ در حال امتحان سرور قبلی (unpkg)...");
+    }
+
+    const fallbackFfmpeg = getFfmpeg();
+    const unpkgBaseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
+    await fallbackFfmpeg.load({
+      coreURL: await toBlobURL(unpkgBaseURL + "/ffmpeg-core.js", "text/javascript"),
+      wasmURL: await toBlobURL(unpkgBaseURL + "/ffmpeg-core.wasm", "application/wasm"),
     });
     setFfmpegLoaded(true);
-    report("موتور آماده شد ✅");
+    report("موتور آماده شد (از سرور قبلی) ✅");
   }
 
   async function handleTrim() {
