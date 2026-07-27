@@ -1,3 +1,4 @@
+cat > src/app/page.js << 'EOF_PAGE_JS'
 "use client";
 
 import { useState, useRef, useEffect } from "react";
@@ -29,6 +30,7 @@ export default function Home() {
   const [trimStatus, setTrimStatus] = useState("");
   const ffmpegRef = useRef(null);
   const [ffmpegLoaded, setFfmpegLoaded] = useState(false);
+  const [ffmpegMultiThreaded, setFfmpegMultiThreaded] = useState(false);
 
   function getFfmpeg() {
     if (!ffmpegRef.current) {
@@ -471,15 +473,77 @@ export default function Home() {
   async function loadFFmpeg(onStatus) {
     const report = onStatus || setTrimStatus;
     if (ffmpegLoaded) return;
-    report("در حال بارگذاری موتور ویدیو (فقط بار اول کمی طول می‌کشه)...");
+    report("در حال بررسی امکان پردازش چندهسته‌ای...");
     const ffmpeg = getFfmpeg();
-    const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
-    await ffmpeg.load({
-      coreURL: await toBlobURL(baseURL + "/ffmpeg-core.js", "text/javascript"),
-      wasmURL: await toBlobURL(baseURL + "/ffmpeg-core.wasm", "application/wasm"),
+
+    if (typeof window !== "undefined" && window.crossOriginIsolated) {
+      try {
+        report("در حال بارگذاری موتور چندهسته‌ای (حداکثر ۱۵ ثانیه)...");
+        const mtBaseURL = "https://unpkg.com/@ffmpeg/core-mt@0.12.6/dist/umd";
+        const loadMT = async () => {
+          await ffmpeg.load({
+            coreURL: await toBlobURL(mtBaseURL + "/ffmpeg-core.js", "text/javascript"),
+            wasmURL: await toBlobURL(mtBaseURL + "/ffmpeg-core.wasm", "application/wasm"),
+            workerURL: await toBlobURL(
+              mtBaseURL + "/ffmpeg-core.worker.js",
+              "text/javascript"
+            ),
+          });
+        };
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(
+            () => reject(new Error("زمان بارگذاری چندهسته‌ای تموم شد")),
+            15000
+          )
+        );
+        await Promise.race([loadMT(), timeoutPromise]);
+        setFfmpegLoaded(true);
+        setFfmpegMultiThreaded(true);
+        report("موتور چندهسته‌ای آماده شد ⚡");
+        return;
+      } catch (err) {
+        console.error("چندهسته‌ای لود نشد یا زمان تموم شد، برمی‌گردیم به تک‌هسته‌ای:", err);
+        ffmpegRef.current = new FFmpeg();
+        report("چندهسته‌ای در دسترس نبود؛ در حال بارگذاری موتور تک‌هسته‌ای...");
+      }
+    } else {
+      report("در حال بارگذاری موتور تک‌هسته‌ای...");
+    }
+
+    const singleThreadFfmpeg = getFfmpeg();
+    try {
+      report("در حال بارگذاری موتور تک‌هسته‌ای، محلی (حداکثر ۲۰ ثانیه)...");
+      const localBaseURL = "/ffmpeg-core";
+      const loadLocal = async () => {
+        await singleThreadFfmpeg.load({
+          coreURL: await toBlobURL(localBaseURL + "/ffmpeg-core.js", "text/javascript"),
+          wasmURL: await toBlobURL(localBaseURL + "/ffmpeg-core.wasm", "application/wasm"),
+        });
+      };
+      const localTimeout = new Promise((_, reject) =>
+        setTimeout(
+          () => reject(new Error("زمان بارگذاری محلی تموم شد")),
+          20000
+        )
+      );
+      await Promise.race([loadLocal(), localTimeout]);
+      setFfmpegLoaded(true);
+      report("موتور آماده شد ✅");
+      return;
+    } catch (err) {
+      console.error("بارگذاری محلی شکست خورد یا زمانش تموم شد، امتحان سرور قبلی:", err);
+      ffmpegRef.current = new FFmpeg();
+      report("بارگذاری محلی ناموفق بود؛ در حال امتحان سرور قبلی (unpkg)...");
+    }
+
+    const fallbackFfmpeg = getFfmpeg();
+    const unpkgBaseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
+    await fallbackFfmpeg.load({
+      coreURL: await toBlobURL(unpkgBaseURL + "/ffmpeg-core.js", "text/javascript"),
+      wasmURL: await toBlobURL(unpkgBaseURL + "/ffmpeg-core.wasm", "application/wasm"),
     });
     setFfmpegLoaded(true);
-    report("موتور آماده شد ✅");
+    report("موتور آماده شد (از سرور قبلی) ✅");
   }
 
   async function handleTrim() {
@@ -717,6 +781,13 @@ export default function Home() {
                 />
               </div>
             )}
+            {ffmpegLoaded && (
+              <p style={{ fontSize: "0.75rem", opacity: 0.7 }}>
+                {ffmpegMultiThreaded
+                  ? "⚡ حالت چندهسته‌ای فعاله"
+                  : "حالت تک‌هسته‌ای (چندهسته‌ای در دسترس نبود)"}
+              </p>
+            )}
             {generatedVideoUrl && (
               <div style={{ marginTop: "0.5rem" }}>
                 <video
@@ -871,3 +942,4 @@ export default function Home() {
     </main>
   );
 }
+EOF_PAGE_JS

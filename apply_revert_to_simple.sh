@@ -1,3 +1,4 @@
+cat > src/app/page.js << 'EOF_SRC_APP_PAGE_JS'
 "use client";
 
 import { useState, useRef, useEffect } from "react";
@@ -871,3 +872,15 @@ export default function Home() {
     </main>
   );
 }
+EOF_SRC_APP_PAGE_JS
+
+cat > next.config.ts << 'EOF_NEXT_CONFIG_TS'
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  serverExternalPackages: ["@ffmpeg-installer/ffmpeg", "fluent-ffmpeg"],
+};
+
+export default nextConfig;
+EOF_NEXT_CONFIG_TS
+
