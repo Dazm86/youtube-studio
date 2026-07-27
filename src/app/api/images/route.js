@@ -1,35 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "../auth/authOptions";
-
-const STOPWORDS = new Set([
-  "the", "a", "an", "and", "or", "but", "is", "are", "was", "were", "be",
-  "been", "being", "to", "of", "in", "on", "at", "for", "with", "by", "from",
-  "as", "that", "this", "these", "those", "it", "its", "i", "you", "he",
-  "she", "we", "they", "them", "his", "her", "our", "your", "their", "not",
-  "no", "so", "if", "then", "than", "too", "very", "can", "will", "just",
-  "about", "into", "over", "after", "before", "up", "down", "out", "off",
-  "again", "there", "here", "what", "when", "where", "why", "how", "all",
-  "any", "both", "each", "few", "more", "most", "other", "some", "such",
-  "only", "own", "same", "also",
-]);
-
-function extractKeywords(text, count = 4) {
-  const words = (text || "")
-    .toLowerCase()
-    .replace(/[^a-z\s]/g, " ")
-    .split(/\s+/)
-    .filter((w) => w.length > 2 && !STOPWORDS.has(w));
-
-  const freq = {};
-  for (const w of words) freq[w] = (freq[w] || 0) + 1;
-
-  return Object.entries(freq)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, count)
-    .map(([w]) => w)
-    .join(" ");
-}
+import { fetchImages } from "../../../lib/media";
 
 export async function POST(req) {
   const session = await getServerSession(authOptions);
@@ -39,41 +11,14 @@ export async function POST(req) {
   }
 
   const { text, keyword, count, orientation } = await req.json();
-  const perPage = Math.min(Math.max(parseInt(count) || 6, 1), 40);
-  const safeOrientation = orientation === "portrait" ? "portrait" : "landscape";
 
   if (!text && !keyword) {
     return NextResponse.json({ error: "متنی ارسال نشده" }, { status: 400 });
   }
 
-  const query = (keyword && keyword.trim()) || extractKeywords(text) || "nature";
-
   try {
-    const res = await fetch(
-      `https://api.pexels.com/v1/search?query=${encodeURIComponent(
-        query
-      )}&per_page=${perPage}&orientation=${safeOrientation}`,
-      { headers: { Authorization: process.env.PEXELS_API_KEY } }
-    );
-    const data = await res.json();
-
-    if (!res.ok) {
-      return NextResponse.json(
-        { error: data.error || "خطا در دریافت عکس از Pexels" },
-        { status: 500 }
-      );
-    }
-
-    const images = (data.photos || []).map((p) => p.src.large2x);
-
-    if (images.length === 0) {
-      return NextResponse.json(
-        { error: "عکسی برای این موضوع پیدا نشد، متن دیگه‌ای امتحان کن" },
-        { status: 404 }
-      );
-    }
-
-    return NextResponse.json({ query, images });
+    const result = await fetchImages({ text, keyword, count, orientation });
+    return NextResponse.json(result);
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: err.message }, { status: 500 });
