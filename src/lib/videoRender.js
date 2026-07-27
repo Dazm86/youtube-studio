@@ -88,9 +88,7 @@ export async function renderVideo({
     const outputPath = path.join(tmpDir, "output.mp4");
 
     const skipZoom = useVideoClips || !isShort;
-    const FADE = Math.min(0.5, Math.min(...perImageDurations) / 3);
-    const compensation = (FADE * (N - 1)) / N;
-    const clipDurations = perImageDurations.map((d) => d + compensation);
+    const clipDurations = perImageDurations;
 
     const args = [];
     for (let i = 0; i < N; i++) {
@@ -139,18 +137,9 @@ export async function renderVideo({
 
     let finalLabel = "v0";
     if (N > 1) {
-      let cumulative = clipDurations[0];
-      let prevLabel = "v0";
-      for (let i = 1; i < N; i++) {
-        const offset = cumulative - FADE;
-        const outLabel = `x${i}`;
-        filter += `[${prevLabel}][v${i}]xfade=transition=fade:duration=${FADE.toFixed(
-          2
-        )}:offset=${offset.toFixed(2)}[${outLabel}];`;
-        cumulative = cumulative + clipDurations[i] - FADE;
-        prevLabel = outLabel;
-      }
-      finalLabel = prevLabel;
+      const inputsList = Array.from({ length: N }, (_, i) => `[v${i}]`).join("");
+      filter += `${inputsList}concat=n=${N}:v=1:a=0[vout];`;
+      finalLabel = "vout";
     }
 
     const audioMixFilter = `[${N}:a][${musicIdx}:a]amix=inputs=2:duration=first:normalize=0[aout]`;
