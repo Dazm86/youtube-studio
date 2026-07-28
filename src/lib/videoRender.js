@@ -142,7 +142,7 @@ export async function renderVideo({
       finalLabel = "vout";
     }
 
-    const audioMixFilter = `[${N}:a][${musicIdx}:a]amix=inputs=2:duration=first:normalize=0[aout]`;
+    const audioMixFilter = `[${N}:a][${musicIdx}:a]amix=inputs=2:duration=first[premix];[premix]volume=2.0[aout]`;
     filter = filter.replace(/;$/, "") + ";" + audioMixFilter;
 
     args.push("-filter_complex", filter);
