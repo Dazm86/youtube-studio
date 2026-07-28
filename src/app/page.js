@@ -14,23 +14,6 @@ export default function Home() {
     }
   }, [session]);
 
-  useEffect(() => {
-    if (!generatingVideo) return;
-    const interval = setInterval(() => {
-      if (genStartRef.current) {
-        setElapsedSeconds(Math.floor((Date.now() - genStartRef.current) / 1000));
-      }
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [generatingVideo]);
-
-  function formatDuration(totalSeconds) {
-    const s = Math.max(0, Math.round(totalSeconds));
-    const m = Math.floor(s / 60);
-    const sec = s % 60;
-    return `${m}:${sec.toString().padStart(2, "0")}`;
-  }
-
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [privacyStatus, setPrivacyStatus] = useState("private");
@@ -73,6 +56,23 @@ export default function Home() {
   const [uploadedVideoId, setUploadedVideoId] = useState(null);
   const [videoBgImageUrl, setVideoBgImageUrl] = useState("");
   const [useVideoClips, setUseVideoClips] = useState(false);
+
+  useEffect(() => {
+    if (!generatingVideo) return;
+    const interval = setInterval(() => {
+      if (genStartRef.current) {
+        setElapsedSeconds(Math.floor((Date.now() - genStartRef.current) / 1000));
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [generatingVideo]);
+
+  function formatDuration(totalSeconds) {
+    const s = Math.max(0, Math.round(totalSeconds));
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    return `${m}:${sec.toString().padStart(2, "0")}`;
+  }
   const [tagsStr, setTagsStr] = useState("");
   const [suggestingMeta, setSuggestingMeta] = useState(false);
   const [suggestMetaStatus, setSuggestMetaStatus] = useState("");
