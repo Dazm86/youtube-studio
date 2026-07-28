@@ -14,6 +14,23 @@ export default function Home() {
     }
   }, [session]);
 
+  useEffect(() => {
+    if (!generatingVideo) return;
+    const interval = setInterval(() => {
+      if (genStartRef.current) {
+        setElapsedSeconds(Math.floor((Date.now() - genStartRef.current) / 1000));
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [generatingVideo]);
+
+  function formatDuration(totalSeconds) {
+    const s = Math.max(0, Math.round(totalSeconds));
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    return `${m}:${sec.toString().padStart(2, "0")}`;
+  }
+
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [privacyStatus, setPrivacyStatus] = useState("private");
@@ -51,6 +68,8 @@ export default function Home() {
   const [generatingVideo, setGeneratingVideo] = useState(false);
   const [videoGenStatus, setVideoGenStatus] = useState("");
   const [videoGenProgress, setVideoGenProgress] = useState(0);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const genStartRef = useRef(null);
   const [uploadedVideoId, setUploadedVideoId] = useState(null);
   const [videoBgImageUrl, setVideoBgImageUrl] = useState("");
   const [useVideoClips, setUseVideoClips] = useState(false);
@@ -128,6 +147,8 @@ export default function Home() {
     setVideoGenProgress(0);
     setUploadedVideoId(null);
     setVideoGenStatus("در حال شروع پردازش روی سرور...");
+    genStartRef.current = Date.now();
+    setElapsedSeconds(0);
 
     let wakeLock = null;
     try {
@@ -563,7 +584,21 @@ export default function Home() {
               ? "در حال پردازش روی سرور..."
               : "🚀 ساخت و آپلود خودکار (روی سرور)"}
           </button>
-          {videoGenStatus && <p style={{ fontSize: "0.85rem" }}>{videoGenStatus}</p>}
+          {videoGenStatus && (
+            <p style={{ fontSize: "0.85rem" }}>
+              {videoGenStatus}
+              {generatingVideo ? ` (${videoGenProgress}%)` : ""}
+            </p>
+          )}
+          {generatingVideo && (
+            <p style={{ fontSize: "0.8rem", color: "#666" }}>
+              ⏱️ زمان سپری‌شده: {formatDuration(elapsedSeconds)}
+              {videoGenProgress > 3 &&
+                ` — تخمین باقی‌مونده: ~${formatDuration(
+                  (elapsedSeconds / videoGenProgress) * (100 - videoGenProgress)
+                )}`}
+            </p>
+          )}
           {generatingVideo && (
             <div style={{ width: "100%", background: "#eee", borderRadius: "8px", overflow: "hidden" }}>
               <div
