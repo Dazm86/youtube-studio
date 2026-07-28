@@ -1,3 +1,117 @@
+mkdir -p src/lib
+
+cat > package.json << 'EOF_PACKAGE_JSON'
+{
+  "name": "youtube-studio",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
+    "pg": "^8.13.1",
+    "@ffmpeg/ffmpeg": "^0.12.15",
+    "@ffmpeg/util": "^0.12.2",
+    "googleapis": "^173.0.0",
+    "msedge-tts": "^2.0.7",
+    "next": "16.2.10",
+    "next-auth": "^4.24.14",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "sharp": "^0.33.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.10",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+EOF_PACKAGE_JSON
+
+cat > next.config.ts << 'EOF_NEXT_CONFIG_TS'
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  serverExternalPackages: ["@ffmpeg-installer/ffmpeg", "pg"],
+};
+
+export default nextConfig;
+EOF_NEXT_CONFIG_TS
+
+cat > src/lib/db.js << 'EOF_SRC_LIB_DB_JS'
+import { Pool } from "pg";
+
+let pool = null;
+let schemaReady = null;
+
+function getPool() {
+  if (!pool) {
+    if (!process.env.DATABASE_URL) {
+      throw new Error("DATABASE_URL تنظیم نشده");
+    }
+    pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false },
+    });
+  }
+  return pool;
+}
+
+async function ensureSchema() {
+  if (!schemaReady) {
+    schemaReady = getPool().query(`
+      CREATE TABLE IF NOT EXISTS videos (
+        id SERIAL PRIMARY KEY,
+        video_id TEXT NOT NULL,
+        title TEXT,
+        script TEXT,
+        video_mode TEXT,
+        use_video_clips BOOLEAN,
+        image_keyword TEXT,
+        views INTEGER,
+        subscribers_gained INTEGER,
+        likes INTEGER,
+        avg_view_duration_sec NUMERIC,
+        stats_updated_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ DEFAULT now()
+      );
+    `);
+  }
+  await schemaReady;
+}
+
+export async function recordVideo({
+  videoId,
+  title,
+  script,
+  videoMode,
+  useVideoClips,
+  imageKeyword,
+}) {
+  try {
+    await ensureSchema();
+    await getPool().query(
+      `INSERT INTO videos (video_id, title, script, video_mode, use_video_clips, image_keyword)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [videoId, title || "", script || "", videoMode || "", !!useVideoClips, imageKeyword || ""]
+    );
+  } catch (err) {
+    // ثبت آمار هیچ‌وقت نباید کل فرایند آپلود رو خراب کنه
+    console.error("recordVideo failed:", err.message);
+  }
+}
+EOF_SRC_LIB_DB_JS
+
+cat > src/app/api/generate-and-upload/route.js << 'EOF_SRC_APP_API_GENERATE-AND-UPLOAD_ROUTE_JS'
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "../auth/authOptions";
@@ -176,3 +290,5 @@ export async function POST(req) {
     },
   });
 }
+EOF_SRC_APP_API_GENERATE-AND-UPLOAD_ROUTE_JS
+
