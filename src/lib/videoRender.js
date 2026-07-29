@@ -10,7 +10,7 @@ const ffmpegPath = ffmpegInstaller.path;
 // چون رم سرور محدوده (پلن رایگان Render، ۵۱۲ مگابایت)، هیچ‌وقت بیشتر از این
 // تعداد عکس/کلیپ رو در یک اجرای FFmpeg همزمان باز نمی‌کنیم. ویدیوهای طولانی
 // (که ممکنه ۲۴ تا رسانه داشته باشن) به تکه‌های کوچیک تقسیم و جدا رندر می‌شن.
-const BATCH_SIZE = 3;
+const BATCH_SIZE = 1;
 
 // msedge-tts is requested at a fixed 48kbps CBR mono mp3, so duration can be
 // computed directly from the file size without needing ffprobe.
