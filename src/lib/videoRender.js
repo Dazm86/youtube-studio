@@ -4,12 +4,14 @@ import os from "os";
 import path from "path";
 import ffmpegInstaller from "@ffmpeg-installer/ffmpeg";
 import { distributeDurations, escapeDrawtext, wrapCaption } from "./scriptTiming";
+import { pickMayaPose } from "./mayaThumbnail";
 
 const ffmpegPath = ffmpegInstaller.path;
 
 // چون رم سرور محدوده (پلن رایگان Render، ۵۱۲ مگابایت)، هیچ‌وقت بیشتر از این
-// تعداد عکس/کلیپ رو در یک اجرای FFmpeg همزمان باز نمی‌کنیم. ویدیوهای طولانی
-// (که ممکنه ۲۴ تا رسانه داشته باشن) به تکه‌های کوچیک تقسیم و جدا رندر می‌شن.
+// تعداد عکس/کلیپ رو در یک اجرای FFmpeg همزمان باز نمی‌کنیم. با BATCH_SIZE=1،
+// هر عکس کاملاً جدا رندر می‌شه (بیشترین امنیت حافظه، حتی اگه بعداً فیلترهای
+// سنگین‌تری اضافه بشه)؛ در آخر همه‌ی تکه‌ها به‌هم می‌چسبن.
 const BATCH_SIZE = 1;
 
 // msedge-tts is requested at a fixed 48kbps CBR mono mp3, so duration can be
@@ -79,22 +81,47 @@ async function renderBatch({
     }
   }
 
+  // یک ورودیِ عکس مایا هم به ازای هر تکه‌ی محتوا اضافه می‌کنیم — پوزش بر اساس
+  // حس‌وحال همون بخش از متن انتخاب می‌شه (همون منطق تامبنیل خودکار).
+  const mayaDir = path.join(process.cwd(), "public", "maya");
+  for (let i = 0; i < n; i++) {
+    const pose = pickMayaPose(batchCaptions[i] || "");
+    const mayaPath = path.join(mayaDir, `${pose}.png`);
+    args.push("-loop", "1", "-framerate", "25", "-t", batchDurations[i].toFixed(2), "-i", mayaPath);
+  }
+  const mayaInputStart = n;
+
   let filter = "";
   for (let i = 0; i < n; i++) {
     const captionText = wrapCaption(escapeDrawtext(batchCaptions[i] || ""), W < H ? 22 : 38);
-    const visualChain = skipZoom
-      ? `scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},fps=25`
-      : `scale=900:1600:force_original_aspect_ratio=increase,` +
-        `crop=900:1600,` +
-        `zoompan=z='min(zoom+0.0012,1.25)':d=1:` +
-        `x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=720x1280:fps=25`;
+    const coverW = skipZoom ? W : 900;
+    const coverH = skipZoom ? H : 1600;
+    // به‌جای بریدن دو طرف عکس برای پر کردن قاب، یک پس‌زمینه‌ی محو از خودِ
+    // عکس می‌سازیم و خودِ عکس رو کامل (بدون افتادن چیزی) وسط می‌ذاریم.
     filter +=
-      `[${i}:v]${visualChain},` +
+      `[${i}:v]split=2[bg${i}][fg${i}];` +
+      `[bg${i}]scale=${coverW}:${coverH}:force_original_aspect_ratio=increase,` +
+      `crop=${coverW}:${coverH},gblur=sigma=20[bgblur${i}];` +
+      `[fg${i}]scale=${coverW}:${coverH}:force_original_aspect_ratio=decrease[fgs${i}];` +
+      `[bgblur${i}][fgs${i}]overlay=(W-w)/2:(H-h)/2[cf${i}];`;
+
+    const postChain = skipZoom
+      ? `fps=25`
+      : `zoompan=z='min(zoom+0.0012,1.25)':d=1:` +
+        `x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=720x1280:fps=25`;
+
+    const mayaH = Math.round(H * 0.28);
+    const mayaIdx = mayaInputStart + i;
+
+    filter +=
+      `[cf${i}]${postChain},` +
       `format=yuv420p,setsar=1,` +
       `drawtext=fontfile=${fontPath}:text='${captionText}':fontsize=44:` +
       `fontcolor=white:borderw=3:bordercolor=black@0.8:box=1:` +
       `boxcolor=black@0.35:boxborderw=18:x=(w-text_w)/2:y=h-th-70:` +
-      `line_spacing=10[v${i}];`;
+      `line_spacing=10[capped${i}];` +
+      `[${mayaIdx}:v]scale=-1:${mayaH}[mayascaled${i}];` +
+      `[capped${i}][mayascaled${i}]overlay=W-w-20:20[v${i}];`;
   }
 
   let finalLabel = "v0";
