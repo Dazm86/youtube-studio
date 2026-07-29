@@ -82,14 +82,24 @@ async function renderBatch({
   let filter = "";
   for (let i = 0; i < n; i++) {
     const captionText = wrapCaption(escapeDrawtext(batchCaptions[i] || ""), W < H ? 22 : 38);
-    const visualChain = skipZoom
-      ? `scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},fps=25`
-      : `scale=900:1600:force_original_aspect_ratio=increase,` +
-        `crop=900:1600,` +
-        `zoompan=z='min(zoom+0.0012,1.25)':d=1:` +
-        `x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=720x1280:fps=25`;
+    const coverW = skipZoom ? W : 900;
+    const coverH = skipZoom ? H : 1600;
+    // به‌جای بریدن دو طرف عکس برای پر کردن قاب، یک پس‌زمینه‌ی محو از خودِ
+    // عکس می‌سازیم و خودِ عکس رو کامل (بدون افتادن چیزی) وسط می‌ذاریم.
     filter +=
-      `[${i}:v]${visualChain},` +
+      `[${i}:v]split=2[bg${i}][fg${i}];` +
+      `[bg${i}]scale=${coverW}:${coverH}:force_original_aspect_ratio=increase,` +
+      `crop=${coverW}:${coverH},gblur=sigma=20[bgblur${i}];` +
+      `[fg${i}]scale=${coverW}:${coverH}:force_original_aspect_ratio=decrease[fgs${i}];` +
+      `[bgblur${i}][fgs${i}]overlay=(W-w)/2:(H-h)/2[cf${i}];`;
+
+    const postChain = skipZoom
+      ? `fps=25`
+      : `zoompan=z='min(zoom+0.0012,1.25)':d=1:` +
+        `x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=720x1280:fps=25`;
+
+    filter +=
+      `[cf${i}]${postChain},` +
       `format=yuv420p,setsar=1,` +
       `drawtext=fontfile=${fontPath}:text='${captionText}':fontsize=44:` +
       `fontcolor=white:borderw=3:bordercolor=black@0.8:box=1:` +
