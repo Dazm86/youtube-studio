@@ -7,6 +7,11 @@ import { distributeDurations, escapeDrawtext, wrapCaption } from "./scriptTiming
 
 const ffmpegPath = ffmpegInstaller.path;
 
+// چون رم سرور محدوده (پلن رایگان Render، ۵۱۲ مگابایت)، هیچ‌وقت بیشتر از این
+// تعداد عکس/کلیپ رو در یک اجرای FFmpeg همزمان باز نمی‌کنیم. ویدیوهای طولانی
+// (که ممکنه ۲۴ تا رسانه داشته باشن) به تکه‌های کوچیک تقسیم و جدا رندر می‌شن.
+const BATCH_SIZE = 4;
+
 // msedge-tts is requested at a fixed 48kbps CBR mono mp3, so duration can be
 // computed directly from the file size without needing ffprobe.
 function estimateAudioDurationSec(audioBuffer) {
@@ -44,6 +49,72 @@ function runFfmpeg(args, totalDurationSec, onProgress) {
   });
 }
 
+function chunkArray(arr, size) {
+  const out = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
+// یک تکه (batch) از عکس‌ها/کلیپ‌ها رو بدون صدا به یک ویدیوی کوچیک تبدیل می‌کنه.
+async function renderBatch({
+  batchPaths,
+  batchDurations,
+  batchCaptions,
+  W,
+  H,
+  skipZoom,
+  fontPath,
+  useVideoClips,
+  outputPath,
+  onProgress,
+}) {
+  const n = batchPaths.length;
+  const args = [];
+
+  for (let i = 0; i < n; i++) {
+    if (useVideoClips) {
+      args.push("-stream_loop", "-1", "-t", batchDurations[i].toFixed(2), "-i", batchPaths[i]);
+    } else {
+      args.push("-loop", "1", "-framerate", "25", "-t", batchDurations[i].toFixed(2), "-i", batchPaths[i]);
+    }
+  }
+
+  let filter = "";
+  for (let i = 0; i < n; i++) {
+    const captionText = wrapCaption(escapeDrawtext(batchCaptions[i] || ""), W < H ? 22 : 38);
+    const visualChain = skipZoom
+      ? `scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},fps=25`
+      : `scale=900:1600:force_original_aspect_ratio=increase,` +
+        `crop=900:1600,` +
+        `zoompan=z='min(zoom+0.0012,1.25)':d=1:` +
+        `x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=720x1280:fps=25`;
+    filter +=
+      `[${i}:v]${visualChain},` +
+      `format=yuv420p,setsar=1,` +
+      `drawtext=fontfile=${fontPath}:text='${captionText}':fontsize=44:` +
+      `fontcolor=white:borderw=3:bordercolor=black@0.8:box=1:` +
+      `boxcolor=black@0.35:boxborderw=18:x=(w-text_w)/2:y=h-th-70:` +
+      `line_spacing=10[v${i}];`;
+  }
+
+  let finalLabel = "v0";
+  if (n > 1) {
+    const inputsList = Array.from({ length: n }, (_, i) => `[v${i}]`).join("");
+    filter += `${inputsList}concat=n=${n}:v=1:a=0[vout];`;
+    finalLabel = "vout";
+  }
+  filter = filter.replace(/;$/, "");
+
+  args.push("-filter_complex", filter);
+  args.push("-map", `[${finalLabel}]`);
+  args.push("-an");
+  args.push("-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-b:v", "2500k");
+  args.push("-y", outputPath);
+
+  const batchDurationSec = batchDurations.reduce((a, b) => a + b, 0);
+  await runFfmpeg(args, batchDurationSec, onProgress);
+}
+
 export async function renderVideo({
   script,
   videoMode,
@@ -78,84 +149,85 @@ export async function renderVideo({
       const filePath = path.join(tmpDir, `media${i}.${mediaExt}`);
       await fsp.writeFile(filePath, buf);
       mediaPaths.push(filePath);
-      onProgress && onProgress((i + 1) / N / 4); // media download ~= first quarter
+      onProgress && onProgress(((i + 1) / N) * 0.15); // دانلود ~۱۵٪ اول
     }
 
     const audioPath = path.join(tmpDir, "narration.mp3");
     await fsp.writeFile(audioPath, audioBuffer);
 
     const fontPath = path.join(process.cwd(), "public", "fonts", "DejaVuSans-Bold.ttf");
-    const outputPath = path.join(tmpDir, "output.mp4");
-
     const skipZoom = useVideoClips || !isShort;
-    const clipDurations = perImageDurations;
 
-    const args = [];
-    for (let i = 0; i < N; i++) {
-      if (useVideoClips) {
-        args.push(
-          "-stream_loop", "-1",
-          "-t", clipDurations[i].toFixed(2),
-          "-i", mediaPaths[i]
-        );
-      } else {
-        args.push(
-          "-loop", "1",
-          "-framerate", "25",
-          "-t", clipDurations[i].toFixed(2),
-          "-i", mediaPaths[i]
-        );
-      }
+    // --- رندر تکه‌تکه: هیچ‌وقت بیش از BATCH_SIZE ورودی همزمان باز نمی‌مونه ---
+    const pathBatches = chunkArray(mediaPaths, BATCH_SIZE);
+    const durationBatches = chunkArray(perImageDurations, BATCH_SIZE);
+    const captionBatches = chunkArray(captions, BATCH_SIZE);
+
+    const batchOutputPaths = [];
+    let doneSoFarSec = 0;
+    for (let b = 0; b < pathBatches.length; b++) {
+      onStatus &&
+        onStatus(`در حال رندر تکه‌ی ${b + 1} از ${pathBatches.length}...`);
+      const batchOut = path.join(tmpDir, `batch${b}.mp4`);
+      const batchDurSec = durationBatches[b].reduce((a, c) => a + c, 0);
+
+      await renderBatch({
+        batchPaths: pathBatches[b],
+        batchDurations: durationBatches[b],
+        batchCaptions: captionBatches[b],
+        W,
+        H,
+        skipZoom,
+        fontPath,
+        useVideoClips,
+        outputPath: batchOut,
+        onProgress: (p) => {
+          const overallSec = doneSoFarSec + p * batchDurSec;
+          onProgress && onProgress(0.15 + (overallSec / audioDurationSec) * 0.65);
+        },
+      });
+
+      doneSoFarSec += batchDurSec;
+      batchOutputPaths.push(batchOut);
     }
-    args.push("-i", audioPath);
-    const musicIdx = N + 1;
-    args.push(
-      "-f", "lavfi",
-      "-i",
-      `aevalsrc=0.05*sin(2*PI*110*t)+0.035*sin(2*PI*164.81*t)+0.025*sin(2*PI*220*t):s=44100:d=${audioDurationSec.toFixed(
-        2
-      )}`
+
+    // --- چسباندن تکه‌ها به هم (خیلی سبک، فقط کپی جریان، بدون رمزگذاری دوباره) ---
+    onStatus && onStatus("در حال چسباندن تکه‌ها به هم...");
+    const listPath = path.join(tmpDir, "concat_list.txt");
+    const listContent = batchOutputPaths
+      .map((p) => `file '${p.replace(/'/g, "'\\''")}'`)
+      .join("\n");
+    await fsp.writeFile(listPath, listContent);
+
+    const silentFullPath = path.join(tmpDir, "silent_full.mp4");
+    await runFfmpeg(
+      ["-f", "concat", "-safe", "0", "-i", listPath, "-c", "copy", "-y", silentFullPath],
+      0,
+      null
     );
+    onProgress && onProgress(0.85);
 
-    let filter = "";
-    for (let i = 0; i < N; i++) {
-      const captionText = wrapCaption(escapeDrawtext(captions[i] || ""), isShort ? 22 : 38);
-      const visualChain = skipZoom
-        ? `scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},fps=25`
-        : `scale=900:1600:force_original_aspect_ratio=increase,` +
-          `crop=900:1600,` +
-          `zoompan=z='min(zoom+0.0012,1.25)':d=1:` +
-          `x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=720x1280:fps=25`;
-      filter +=
-        `[${i}:v]${visualChain},` +
-        `format=yuv420p,setsar=1,` +
-        `drawtext=fontfile=${fontPath}:text='${captionText}':fontsize=44:` +
-        `fontcolor=white:borderw=3:bordercolor=black@0.8:box=1:` +
-        `boxcolor=black@0.35:boxborderw=18:x=(w-text_w)/2:y=h-th-70:` +
-        `line_spacing=10[v${i}];`;
-    }
-
-    let finalLabel = "v0";
-    if (N > 1) {
-      const inputsList = Array.from({ length: N }, (_, i) => `[v${i}]`).join("");
-      filter += `${inputsList}concat=n=${N}:v=1:a=0[vout];`;
-      finalLabel = "vout";
-    }
-
-    const audioMixFilter = `[${N}:a][${musicIdx}:a]amix=inputs=2:duration=first[premix];[premix]volume=2.0[aout]`;
-    filter = filter.replace(/;$/, "") + ";" + audioMixFilter;
-
-    args.push("-filter_complex", filter);
-    args.push("-map", `[${finalLabel}]`);
-    args.push("-map", "[aout]");
-    args.push("-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-b:v", "2500k");
-    args.push("-c:a", "aac", "-b:a", "128k");
-    args.push("-shortest");
-    args.push("-y", outputPath);
-
-    onStatus && onStatus("در حال رندر نهایی ویدیو...");
-    await runFfmpeg(args, audioDurationSec, (p) => {
-      onProgress && onProgress(0.25 + p * 0.75); // render = remaining 75%
+    // --- افزودن صدا (روایت + هاله‌ی موزیک) — ویدیو فقط کپی می‌شه، رمزگذاری نمی‌شه ---
+    onStatus && onStatus("در حال افزودن صدا...");
+    const outputPath = path.join(tmpDir, "output.mp4");
+    const musicFilter = `aevalsrc=0.05*sin(2*PI*110*t)+0.035*sin(2*PI*164.81*t)+0.025*sin(2*PI*220*t):s=44100:d=${audioDurationSec.toFixed(
+      2
+    )}`;
+    const finalArgs = [
+      "-i", silentFullPath,
+      "-i", audioPath,
+      "-f", "lavfi", "-i", musicFilter,
+      "-filter_complex",
+      "[1:a][2:a]amix=inputs=2:duration=first[premix];[premix]volume=2.0[aout]",
+      "-map", "0:v",
+      "-map", "[aout]",
+      "-c:v", "copy",
+      "-c:a", "aac", "-b:a", "128k",
+      "-shortest",
+      "-y", outputPath,
+    ];
+    await runFfmpeg(finalArgs, audioDurationSec, (p) => {
+      onProgress && onProgress(0.85 + p * 0.15);
     });
 
     const outputBuffer = await fsp.readFile(outputPath);
