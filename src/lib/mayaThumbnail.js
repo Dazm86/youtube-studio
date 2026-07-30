@@ -97,7 +97,7 @@ export async function buildMayaThumbnail({ title, script, bgImageUrl }) {
   }
 
   // --- Maya cutout, resized ---
-  const mayaResized = await sharp(mayaBuffer).resize({ height: 760 }).toBuffer();
+  const mayaResized = await sharp(mayaBuffer).resize({ height: 680 }).toBuffer();
   const mayaMeta = await sharp(mayaResized).metadata();
   const mayaX = CANVAS_W - mayaMeta.width - 10;
   const mayaY = CANVAS_H - mayaMeta.height;
