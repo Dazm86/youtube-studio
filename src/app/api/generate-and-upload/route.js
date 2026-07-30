@@ -135,7 +135,7 @@ export async function POST(req) {
         });
         const videoId = uploadRes.data.id;
 
-        recordVideo({
+        await recordVideo({
           videoId,
           title,
           script,
