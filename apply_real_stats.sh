@@ -1,3 +1,273 @@
+mkdir -p src/lib src/app/api/sync-stats
+
+cat > src/app/api/auth/authOptions.js << 'EOF_SRC_APP_API_AUTH_AUTHOPTIONS_JS'
+import GoogleProvider from "next-auth/providers/google";
+
+async function refreshAccessToken(token) {
+  try {
+    const url = "https://oauth2.googleapis.com/token";
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: process.env.GOOGLE_CLIENT_ID,
+        client_secret: process.env.GOOGLE_CLIENT_SECRET,
+        grant_type: "refresh_token",
+        refresh_token: token.refreshToken,
+      }),
+    });
+
+    const refreshedTokens = await response.json();
+
+    if (!response.ok) {
+      throw refreshedTokens;
+    }
+
+    return {
+      ...token,
+      accessToken: refreshedTokens.access_token,
+      accessTokenExpires: Date.now() + refreshedTokens.expires_in * 1000,
+      refreshToken: refreshedTokens.refresh_token ?? token.refreshToken,
+    };
+  } catch (error) {
+    console.error("خطا در تمدید توکن:", error);
+    return { ...token, error: "RefreshAccessTokenError" };
+  }
+}
+
+export const authOptions = {
+  providers: [
+    GoogleProvider({
+      clientId: process.env.GOOGLE_CLIENT_ID,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+      authorization: {
+        params: {
+          scope: "openid email profile https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/yt-analytics.readonly",
+          access_type: "offline",
+          prompt: "consent",
+        },
+      },
+    }),
+  ],
+  callbacks: {
+    async jwt({ token, account }) {
+      if (account) {
+        token.accessToken = account.access_token;
+        token.refreshToken = account.refresh_token;
+        token.accessTokenExpires = Date.now() + account.expires_in * 1000;
+        return token;
+      }
+
+      if (Date.now() < token.accessTokenExpires) {
+        return token;
+      }
+
+      return refreshAccessToken(token);
+    },
+    async session({ session, token }) {
+      session.accessToken = token.accessToken;
+      session.error = token.error;
+      return session;
+    },
+  },
+};
+EOF_SRC_APP_API_AUTH_AUTHOPTIONS_JS
+
+cat > src/lib/youtubeAnalytics.js << 'EOF_SRC_LIB_YOUTUBEANALYTICS_JS'
+import { google } from "googleapis";
+
+// آمار همه‌ی ویدیوهای داده‌شده رو در یک درخواست از YouTube Analytics می‌گیره.
+// برمی‌گردونه: { [videoId]: { views, subscribersGained, likes, avgViewDurationSec } }
+export async function fetchStatsForVideos(accessToken, videoIds) {
+  if (!videoIds || videoIds.length === 0) return {};
+
+  const oauth2Client = new google.auth.OAuth2();
+  oauth2Client.setCredentials({ access_token: accessToken });
+  const youtubeAnalytics = google.youtubeAnalytics({
+    version: "v2",
+    auth: oauth2Client,
+  });
+
+  const res = await youtubeAnalytics.reports.query({
+    ids: "channel==MINE",
+    startDate: "2020-01-01",
+    endDate: new Date().toISOString().slice(0, 10),
+    metrics: "views,subscribersGained,likes,averageViewDuration",
+    dimensions: "video",
+    filters: `video==${videoIds.join(",")}`,
+    maxResults: 200,
+  });
+
+  const rows = res.data.rows || [];
+  const result = {};
+  for (const row of rows) {
+    const [videoId, views, subscribersGained, likes, avgViewDurationSec] = row;
+    result[videoId] = {
+      views: Number(views) || 0,
+      subscribersGained: Number(subscribersGained) || 0,
+      likes: Number(likes) || 0,
+      avgViewDurationSec: Number(avgViewDurationSec) || 0,
+    };
+  }
+  return result;
+}
+EOF_SRC_LIB_YOUTUBEANALYTICS_JS
+
+cat > src/lib/db.js << 'EOF_SRC_LIB_DB_JS'
+import { Pool } from "pg";
+
+let pool = null;
+let schemaReady = null;
+
+function getPool() {
+  if (!pool) {
+    if (!process.env.DATABASE_URL) {
+      throw new Error("DATABASE_URL تنظیم نشده");
+    }
+    pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false },
+    });
+  }
+  return pool;
+}
+
+async function ensureSchema() {
+  if (!schemaReady) {
+    schemaReady = getPool().query(`
+      CREATE TABLE IF NOT EXISTS videos (
+        id SERIAL PRIMARY KEY,
+        video_id TEXT NOT NULL,
+        title TEXT,
+        script TEXT,
+        video_mode TEXT,
+        use_video_clips BOOLEAN,
+        image_keyword TEXT,
+        views INTEGER,
+        subscribers_gained INTEGER,
+        likes INTEGER,
+        avg_view_duration_sec NUMERIC,
+        stats_updated_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ DEFAULT now()
+      );
+    `);
+  }
+  await schemaReady;
+}
+
+export async function getDbStatus() {
+  if (!process.env.DATABASE_URL) {
+    return { connected: false, error: "DATABASE_URL تنظیم نشده" };
+  }
+  try {
+    await ensureSchema();
+    const countRes = await getPool().query("SELECT COUNT(*) FROM videos");
+    const lastRes = await getPool().query(
+      "SELECT video_id, title, created_at FROM videos ORDER BY created_at DESC LIMIT 3"
+    );
+    return {
+      connected: true,
+      videoCount: parseInt(countRes.rows[0].count, 10),
+      lastVideos: lastRes.rows,
+    };
+  } catch (err) {
+    return { connected: false, error: err.message };
+  }
+}
+
+export async function recordVideo({
+  videoId,
+  title,
+  script,
+  videoMode,
+  useVideoClips,
+  imageKeyword,
+}) {
+  try {
+    await ensureSchema();
+    await getPool().query(
+      `INSERT INTO videos (video_id, title, script, video_mode, use_video_clips, image_keyword)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [videoId, title || "", script || "", videoMode || "", !!useVideoClips, imageKeyword || ""]
+    );
+  } catch (err) {
+    // ثبت آمار هیچ‌وقت نباید کل فرایند آپلود رو خراب کنه
+    console.error("recordVideo failed:", err.message);
+  }
+}
+
+export async function getAllVideoIds() {
+  await ensureSchema();
+  const res = await getPool().query("SELECT DISTINCT video_id FROM videos");
+  return res.rows.map((r) => r.video_id);
+}
+
+export async function updateVideoStats(videoId, stats) {
+  await ensureSchema();
+  await getPool().query(
+    `UPDATE videos
+     SET views = $2, subscribers_gained = $3, likes = $4,
+         avg_view_duration_sec = $5, stats_updated_at = now()
+     WHERE video_id = $1`,
+    [
+      videoId,
+      stats.views ?? 0,
+      stats.subscribersGained ?? 0,
+      stats.likes ?? 0,
+      stats.avgViewDurationSec ?? 0,
+    ]
+  );
+}
+EOF_SRC_LIB_DB_JS
+
+cat > src/app/api/sync-stats/route.js << 'EOF_SRC_APP_API_SYNC-STATS_ROUTE_JS'
+import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "../auth/authOptions";
+import { getAllVideoIds, updateVideoStats } from "../../../lib/db";
+import { fetchStatsForVideos } from "../../../lib/youtubeAnalytics";
+
+export async function POST() {
+  const session = await getServerSession(authOptions);
+  if (!session || !session.accessToken) {
+    return NextResponse.json({ error: "وارد نشده‌اید" }, { status: 401 });
+  }
+
+  try {
+    const videoIds = await getAllVideoIds();
+    if (videoIds.length === 0) {
+      return NextResponse.json({ updated: 0, message: "هنوز ویدیویی ثبت نشده" });
+    }
+
+    const stats = await fetchStatsForVideos(session.accessToken, videoIds);
+
+    let updated = 0;
+    for (const videoId of videoIds) {
+      if (stats[videoId]) {
+        await updateVideoStats(videoId, stats[videoId]);
+        updated++;
+      }
+    }
+
+    return NextResponse.json({ updated, total: videoIds.length });
+  } catch (err) {
+    console.error("sync-stats error:", err.message);
+    const isScopeError =
+      err.message && (err.message.includes("insufficient") || err.message.includes("403"));
+    return NextResponse.json(
+      {
+        error: isScopeError
+          ? "دسترسی آمار یوتیوب فعال نیست — یک‌بار از سایت خارج و دوباره با گوگل وارد شو تا دسترسی جدید تأیید بشه."
+          : err.message,
+      },
+      { status: 500 }
+    );
+  }
+}
+EOF_SRC_APP_API_SYNC-STATS_ROUTE_JS
+
+cat > src/app/page.js << 'EOF_SRC_APP_PAGE_JS'
 "use client";
 
 import { useState, useRef, useEffect } from "react";
@@ -734,3 +1004,5 @@ export default function Home() {
     </main>
   );
 }
+EOF_SRC_APP_PAGE_JS
+

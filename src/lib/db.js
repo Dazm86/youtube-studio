@@ -39,6 +39,26 @@ async function ensureSchema() {
   await schemaReady;
 }
 
+export async function getDbStatus() {
+  if (!process.env.DATABASE_URL) {
+    return { connected: false, error: "DATABASE_URL تنظیم نشده" };
+  }
+  try {
+    await ensureSchema();
+    const countRes = await getPool().query("SELECT COUNT(*) FROM videos");
+    const lastRes = await getPool().query(
+      "SELECT video_id, title, created_at FROM videos ORDER BY created_at DESC LIMIT 3"
+    );
+    return {
+      connected: true,
+      videoCount: parseInt(countRes.rows[0].count, 10),
+      lastVideos: lastRes.rows,
+    };
+  } catch (err) {
+    return { connected: false, error: err.message };
+  }
+}
+
 export async function recordVideo({
   videoId,
   title,
@@ -58,4 +78,27 @@ export async function recordVideo({
     // ثبت آمار هیچ‌وقت نباید کل فرایند آپلود رو خراب کنه
     console.error("recordVideo failed:", err.message);
   }
+}
+
+export async function getAllVideoIds() {
+  await ensureSchema();
+  const res = await getPool().query("SELECT DISTINCT video_id FROM videos");
+  return res.rows.map((r) => r.video_id);
+}
+
+export async function updateVideoStats(videoId, stats) {
+  await ensureSchema();
+  await getPool().query(
+    `UPDATE videos
+     SET views = $2, subscribers_gained = $3, likes = $4,
+         avg_view_duration_sec = $5, stats_updated_at = now()
+     WHERE video_id = $1`,
+    [
+      videoId,
+      stats.views ?? 0,
+      stats.subscribersGained ?? 0,
+      stats.likes ?? 0,
+      stats.avgViewDurationSec ?? 0,
+    ]
+  );
 }
