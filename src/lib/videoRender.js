@@ -119,7 +119,9 @@ async function renderBatch({
       `drawtext=fontfile=${fontPath}:text='${captionText}':fontsize=44:` +
       `fontcolor=white:borderw=3:bordercolor=black@0.8:box=1:` +
       `boxcolor=black@0.35:boxborderw=18:x=(w-text_w)/2:y=h-th-70:` +
-      `line_spacing=10[capped${i}];` +
+      `line_spacing=10,` +
+      `drawtext=fontfile=${fontPath}:text='The Mindful Path':fontsize=26:` +
+      `fontcolor=white@0.85:borderw=2:bordercolor=black@0.6:x=20:y=20[capped${i}];` +
       `[${mayaIdx}:v]scale=-1:${mayaH}[mayascaled${i}];` +
       `[capped${i}][mayascaled${i}]overlay=W-w-20:20[v${i}];`;
   }

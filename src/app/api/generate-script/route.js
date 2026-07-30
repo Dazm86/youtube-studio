@@ -50,6 +50,7 @@ Requirements:
 - Plain spoken English text only. No titles, no headers, no stage directions, no markdown, no emojis.
 - Written in first person as Maya, speaking directly to "you".
 - Warm, sincere tone, plain everyday words, short sentences.
+- The very first sentence must be a strong hook: a surprising statement, a relatable "you've probably felt this" moment, or a direct question — something that makes someone stop scrolling in the first 3 seconds. Do not start with a slow or generic opener like "I want to share something with you."
 - Has a clear beginning (hook), middle (the insight/lesson), and end (an encouraging, actionable takeaway).
 - Do not repeat the same idea twice.
 
