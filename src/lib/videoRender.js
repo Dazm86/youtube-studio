@@ -194,13 +194,14 @@ export async function renderVideo({
 
     const batchOutputPaths = [];
     let doneSoFarSec = 0;
+    const BATCH_TIMEOUT_MS = 90000;
     for (let b = 0; b < pathBatches.length; b++) {
       onStatus &&
         onStatus(`در حال رندر تکه‌ی ${b + 1} از ${pathBatches.length}...`);
       const batchOut = path.join(tmpDir, `batch${b}.mp4`);
       const batchDurSec = durationBatches[b].reduce((a, c) => a + c, 0);
 
-      await renderBatch({
+      const batchPromise = renderBatch({
         batchPaths: pathBatches[b],
         batchDurations: durationBatches[b],
         batchCaptions: captionBatches[b],
@@ -216,6 +217,19 @@ export async function renderVideo({
         },
       });
 
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(
+          () => reject(new Error(`زمان تکه‌ی ${b + 1} از ${pathBatches.length} تموم شد (بیشتر از ۹۰ ثانیه طول کشید)`)),
+          BATCH_TIMEOUT_MS
+        )
+      );
+
+      try {
+        await Promise.race([batchPromise, timeoutPromise]);
+      } catch (err) {
+        throw new Error(`تکه‌ی ${b + 1} از ${pathBatches.length} شکست خورد: ${err.message}`);
+      }
+
       doneSoFarSec += batchDurSec;
       batchOutputPaths.push(batchOut);
     }
@@ -229,11 +243,15 @@ export async function renderVideo({
     await fsp.writeFile(listPath, listContent);
 
     const silentFullPath = path.join(tmpDir, "silent_full.mp4");
-    await runFfmpeg(
-      ["-f", "concat", "-safe", "0", "-i", listPath, "-c", "copy", "-y", silentFullPath],
-      0,
-      null
-    );
+    try {
+      await runFfmpeg(
+        ["-f", "concat", "-safe", "0", "-i", listPath, "-c", "copy", "-y", silentFullPath],
+        0,
+        null
+      );
+    } catch (err) {
+      throw new Error(`چسباندن تکه‌ها شکست خورد: ${err.message}`);
+    }
     onProgress && onProgress(0.85);
 
     // --- افزودن صدا (روایت + هاله‌ی موزیک) — ویدیو فقط کپی می‌شه، رمزگذاری نمی‌شه ---
@@ -255,9 +273,13 @@ export async function renderVideo({
       "-shortest",
       "-y", outputPath,
     ];
-    await runFfmpeg(finalArgs, audioDurationSec, (p) => {
-      onProgress && onProgress(0.85 + p * 0.15);
-    });
+    try {
+      await runFfmpeg(finalArgs, audioDurationSec, (p) => {
+        onProgress && onProgress(0.85 + p * 0.15);
+      });
+    } catch (err) {
+      throw new Error(`افزودن صدا شکست خورد: ${err.message}`);
+    }
 
     const outputBuffer = await fsp.readFile(outputPath);
     return outputBuffer;
