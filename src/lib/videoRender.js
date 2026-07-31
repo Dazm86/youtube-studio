@@ -194,7 +194,7 @@ export async function renderVideo({
 
     const batchOutputPaths = [];
     let doneSoFarSec = 0;
-    const BATCH_TIMEOUT_MS = 90000;
+    const BATCH_TIMEOUT_MS = 300000;
     for (let b = 0; b < pathBatches.length; b++) {
       onStatus &&
         onStatus(`در حال رندر تکه‌ی ${b + 1} از ${pathBatches.length}...`);
