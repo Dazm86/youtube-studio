@@ -86,6 +86,20 @@ export async function getAllVideoIds() {
   return res.rows.map((r) => r.video_id);
 }
 
+// برای صفحه‌ی «آنالیز کانال» — لیست کامل ویدیوها به‌همراه آمارشون.
+export async function getAllVideos() {
+  await ensureSchema();
+  const res = await getPool().query(
+    `SELECT video_id, title, video_mode, use_video_clips, image_keyword,
+            views, subscribers_gained, likes, avg_view_duration_sec,
+            stats_updated_at, created_at
+     FROM videos
+     ORDER BY created_at DESC
+     LIMIT 200`
+  );
+  return res.rows;
+}
+
 export async function updateVideoStats(videoId, stats) {
   await ensureSchema();
   await getPool().query(
