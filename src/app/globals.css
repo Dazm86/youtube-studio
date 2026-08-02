@@ -2,7 +2,56 @@
 @tailwind components;
 @tailwind utilities;
 
+@theme {
+  --color-bg: #14120F;
+  --color-surface: #1E1B17;
+  --color-surface-raised: #262119;
+  --color-border: #332E27;
+  --color-border-light: #453E33;
+
+  --color-amber: #E8963C;
+  --color-amber-dim: #8A5D28;
+  --color-teal: #4FB8AE;
+  --color-teal-dim: #2E6E68;
+  --color-danger: #E8674C;
+
+  --color-text: #F2EEE7;
+  --color-text-muted: #948C7E;
+  --color-text-faint: #665D4E;
+
+  --font-sans: var(--font-vazirmatn), system-ui, sans-serif;
+  --font-mono: var(--font-mono-readout), ui-monospace, "SF Mono", Menlo, monospace;
+}
+
 body {
   margin: 0;
-  font-family: sans-serif;
+  font-family: var(--font-sans);
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+.readout {
+  font-family: var(--font-mono);
+  font-feature-settings: "tnum" 1;
+  letter-spacing: 0.02em;
+}
+
+.label-plate {
+  font-family: var(--font-mono);
+  letter-spacing: 0.12em;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+*:focus-visible {
+  outline: 2px solid var(--color-amber);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }
