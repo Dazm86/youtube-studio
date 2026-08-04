@@ -57,11 +57,24 @@ function chunkArray(arr, size) {
   return out;
 }
 
+// مایا فقط تو اولین بخش (هوک/شروع) و آخرین بخش (پایان) به‌صورت مجریِ
+// بزرگ ظاهر می‌شه. بخش‌های وسط (بدنه‌ی ویدیو) یکی‌درمیون یا کوچیک تو
+// گوشه‌ست یا اصلاً نیست — تا هم حس مجری واقعی بده، هم قاب رو برای
+// رسانه‌ی هر بخش شلوغ نکنه.
+function getMayaRole(index, total) {
+  if (total <= 1) return "presenter";
+  if (index === 0 || index === total - 1) return "presenter";
+  const bodyIndex = index - 1;
+  return bodyIndex % 2 === 0 ? "cameo" : "hidden";
+}
+
 // یک تکه (batch) از عکس‌ها/کلیپ‌ها رو بدون صدا به یک ویدیوی کوچیک تبدیل می‌کنه.
 async function renderBatch({
   batchPaths,
   batchDurations,
   batchCaptions,
+  batchStartIndex,
+  totalSegments,
   W,
   H,
   skipZoom,
@@ -93,37 +106,61 @@ async function renderBatch({
 
   let filter = "";
   for (let i = 0; i < n; i++) {
+    const globalIndex = batchStartIndex + i;
+    const role = getMayaRole(globalIndex, totalSegments);
+    const isPresenter = role === "presenter";
+
     const captionText = wrapCaption(escapeDrawtext(batchCaptions[i] || ""), W < H ? 22 : 38);
     const coverW = skipZoom ? W : 900;
     const coverH = skipZoom ? H : 1600;
-    // به‌جای بریدن دو طرف عکس برای پر کردن قاب، یک پس‌زمینه‌ی محو از خودِ
-    // عکس می‌سازیم و خودِ عکس رو کامل (بدون افتادن چیزی) وسط می‌ذاریم.
-    filter +=
-      `[${i}:v]split=2[bg${i}][fg${i}];` +
-      `[bg${i}]scale=${coverW}:${coverH}:force_original_aspect_ratio=increase,` +
-      `crop=${coverW}:${coverH},gblur=sigma=20[bgblur${i}];` +
-      `[fg${i}]scale=${coverW}:${coverH}:force_original_aspect_ratio=decrease[fgs${i}];` +
-      `[bgblur${i}][fgs${i}]overlay=(W-w)/2:(H-h)/2[cf${i}];`;
+
+    if (isPresenter) {
+      // حالت «مجری»: پس‌زمینه فقط محو و کمی تیره‌ست (بدون عکس تیز روش)،
+      // چون مایا که بزرگ جلوش می‌شینه قراره سوژه‌ی اصلی قاب باشه.
+      filter +=
+        `[${i}:v]scale=${coverW}:${coverH}:force_original_aspect_ratio=increase,` +
+        `crop=${coverW}:${coverH},eq=brightness=-0.12,gblur=sigma=30[cf${i}];`;
+    } else {
+      // به‌جای بریدن دو طرف عکس برای پر کردن قاب، یک پس‌زمینه‌ی محو از خودِ
+      // عکس می‌سازیم و خودِ عکس رو کامل (بدون افتادن چیزی) وسط می‌ذاریم.
+      filter +=
+        `[${i}:v]split=2[bg${i}][fg${i}];` +
+        `[bg${i}]scale=${coverW}:${coverH}:force_original_aspect_ratio=increase,` +
+        `crop=${coverW}:${coverH},gblur=sigma=20[bgblur${i}];` +
+        `[fg${i}]scale=${coverW}:${coverH}:force_original_aspect_ratio=decrease[fgs${i}];` +
+        `[bgblur${i}][fgs${i}]overlay=(W-w)/2:(H-h)/2[cf${i}];`;
+    }
 
     const postChain = skipZoom
       ? `fps=25`
       : `zoompan=z='min(zoom+0.0012,1.25)':d=1:` +
         `x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=720x1280:fps=25`;
 
-    const mayaH = Math.round(H * 0.28);
-    const mayaIdx = mayaInputStart + i;
+    // وقتی مایا بزرگ و پایین قاب وایساده، زیرنویس رو می‌بریم بالا تا روش نیفته.
+    const captionY = isPresenter ? "70" : "h-th-70";
 
     filter +=
       `[cf${i}]${postChain},` +
       `format=yuv420p,setsar=1,` +
       `drawtext=fontfile=${fontPath}:text='${captionText}':fontsize=44:` +
       `fontcolor=white:borderw=3:bordercolor=black@0.8:box=1:` +
-      `boxcolor=black@0.35:boxborderw=18:x=(w-text_w)/2:y=h-th-70:` +
+      `boxcolor=black@0.35:boxborderw=18:x=(w-text_w)/2:y=${captionY}:` +
       `line_spacing=10,` +
       `drawtext=fontfile=${fontPath}:text='The Mindful Path':fontsize=26:` +
-      `fontcolor=white@0.85:borderw=2:bordercolor=black@0.6:x=20:y=20[capped${i}];` +
-      `[${mayaIdx}:v]scale=-1:${mayaH}[mayascaled${i}];` +
-      `[capped${i}][mayascaled${i}]overlay=W-w-20:20[v${i}];`;
+      `fontcolor=white@0.85:borderw=2:bordercolor=black@0.6:x=20:y=20[capped${i}];`;
+
+    const mayaIdx = mayaInputStart + i;
+
+    if (role === "hidden") {
+      // این بخش، مایا داخل قاب نیست — رسانه خودش قاب رو پر می‌کنه.
+      filter += `[capped${i}]null[v${i}];`;
+    } else {
+      const mayaH = Math.round(H * (isPresenter ? 0.88 : 0.28));
+      const mayaOverlayPos = isPresenter ? "(W-w)/2:H-h" : "W-w-20:20";
+      filter +=
+        `[${mayaIdx}:v]scale=-1:${mayaH}[mayascaled${i}];` +
+        `[capped${i}][mayascaled${i}]overlay=${mayaOverlayPos}[v${i}];`;
+    }
   }
 
   let finalLabel = "v0";
@@ -202,6 +239,8 @@ export async function renderVideo({
         batchPaths: pathBatches[b],
         batchDurations: durationBatches[b],
         batchCaptions: captionBatches[b],
+        batchStartIndex: b * BATCH_SIZE,
+        totalSegments: N,
         W,
         H,
         skipZoom,
