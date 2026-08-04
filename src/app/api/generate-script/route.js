@@ -36,22 +36,34 @@ export async function POST(req) {
     topicInstruction = `Pick a fresh, specific mindfulness or motivational theme yourself (avoid generic or overused topics like just "gratitude" or "believe in yourself" on their own — find a specific angle or story-like framing).${avoidList}`;
   }
 
-  const lengthInstruction = isShort
-    ? `Write a spoken narration script for a short video (about 30-60 seconds when read aloud, roughly 90-130 words).`
-    : `Write a spoken narration script for a long-form video (about 7-8 minutes when read aloud, roughly 950-1150 words). Structure it with a clear hook/intro, 2-4 developed points or a short story with examples, and a closing takeaway. Vary sentence rhythm so it doesn't feel repetitive over the longer length.`;
+  const structureInstruction = isShort
+    ? `Write a spoken narration script for a short video (30-60 seconds when read aloud, roughly 90-130 words), structured in four beats:
+1. Hook (first ~3 seconds): one line that immediately grabs attention — a surprising claim, a "you've probably felt this" moment, or a direct question.
+2. Empathy (next ~10 seconds): show you understand the viewer's struggle, in their own words.
+3. Insight (next ~30 seconds): the core reframe or unexpected angle — the heart of the video, not just a slogan.
+4. Closing (final ~15-20 seconds): one memorable, quotable line that stays with the viewer. Not a call to subscribe.`
+    : `Write a spoken narration script for a long-form video (about 7-8 minutes when read aloud, roughly 950-1150 words), structured in six beats:
+1. Opening: a question or short story that pulls the viewer in.
+2. Problem: frame why this topic actually matters.
+3. Story: one real-feeling story, experience, or scenario that illustrates it.
+4. Insight: the core, deep, practical message — an unexpected angle, not a slogan.
+5. Action: 3-5 concrete, specific steps the viewer can actually take.
+6. Wrap-up: an inspiring close that invites reflection, not just a request to subscribe.
+Vary sentence rhythm so it doesn't feel repetitive over the longer length.`;
 
-  const prompt = `You are the scriptwriter for Maya, the host of a YouTube channel called "The Mindful Path". Maya is warm, cheerful, and speaks directly to the viewer like a caring friend.
+  const prompt = `You are the scriptwriter for Maya, the host of a YouTube channel called "The Mindful Path". Maya is warm, cheerful, and speaks directly to the viewer like a caring friend. This is insight and personal-growth content, not pure entertainment — viewers come for a feeling, an idea, or a shift in perspective, so every script should follow the arc: STORY -> EMOTION -> INSIGHT -> ACTION.
 
 ${topicInstruction}
 
-${lengthInstruction}
+${structureInstruction}
 
 Requirements:
-- Plain spoken English text only. No titles, no headers, no stage directions, no markdown, no emojis.
+- Plain spoken English text only. No titles, no headers, no stage directions, no markdown, no emojis, no beat labels like "Hook:" or "Insight:" — just the flowing narration itself.
 - Written in first person as Maya, speaking directly to "you".
 - Warm, sincere tone, plain everyday words, short sentences.
 - The very first sentence must be a strong hook: a surprising statement, a relatable "you've probably felt this" moment, or a direct question — something that makes someone stop scrolling in the first 3 seconds. Do not start with a slow or generic opener like "I want to share something with you."
-- Has a clear beginning (hook), middle (the insight/lesson), and end (an encouraging, actionable takeaway).
+- Introduce something new roughly every 20-30 seconds of spoken time — a new question, a real example, an impactful line, or a clear beat change — so the script never idles on one point too long.
+- Never use standalone generic motivational clichés ("just believe in yourself", "never give up", "you can do anything") without a story, reason, or concrete example behind them.
 - Do not repeat the same idea twice.
 
 Respond with ONLY the narration text itself, nothing else.`;

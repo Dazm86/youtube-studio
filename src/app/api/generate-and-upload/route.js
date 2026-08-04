@@ -5,7 +5,8 @@ import { google } from "googleapis";
 import { Readable } from "stream";
 import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
 import { fetchImages, fetchClips } from "../../../lib/media";
-import { renderVideo } from "../../../lib/videoRender";
+import { renderVideo, estimateAudioDurationSec } from "../../../lib/videoRender";
+import { distributeDurations } from "../../../lib/scriptTiming";
 import { buildMayaThumbnail } from "../../../lib/mayaThumbnail";
 import { recordVideo } from "../../../lib/db";
 
@@ -60,42 +61,62 @@ export async function POST(req) {
         const audioBuffer = Buffer.concat(chunks);
         send({ status: "صدا ساخته شد ✅", progress: 8 });
 
-        // --- ۲. گرفتن عکس/کلیپ ---
+        // --- ۲. تقسیم اسکریپت به بخش‌های زمان‌بندی‌شده + گرفتن عکس/کلیپ مخصوص هر بخش ---
         const isShort = videoMode === "short";
-        const wordCount = script.trim().split(/\s+/).filter(Boolean).length;
-        const estimatedSeconds = (wordCount / 140) * 60;
+        const audioDurationSec = estimateAudioDurationSec(audioBuffer);
         const mediaCount = isShort
           ? 6
-          : Math.min(24, Math.max(6, Math.ceil(estimatedSeconds / 15)));
+          : Math.min(24, Math.max(6, Math.ceil(audioDurationSec / 15)));
+        const { durations, captions } = distributeDurations(
+          script,
+          mediaCount,
+          audioDurationSec
+        );
 
-        send({
-          status: useVideoClips
-            ? "مرحله ۲ از ۵: در حال گرفتن کلیپ ویدیویی..."
-            : "مرحله ۲ از ۵: در حال گرفتن عکس...",
-          progress: 10,
-        });
         const orientation = isShort ? "portrait" : "landscape";
-        const mediaResult = useVideoClips
-          ? await fetchClips({
-              text: script,
-              keyword: imageKeyword,
-              count: mediaCount,
-              orientation,
-            })
-          : await fetchImages({
-              text: script,
-              keyword: imageKeyword,
-              count: mediaCount,
-              orientation,
+        const hasManualKeyword = imageKeyword && imageKeyword.trim();
+        const mediaItems = [];
+
+        if (hasManualKeyword) {
+          // کلیدواژه‌ی دستی یعنی کاربر می‌خواد همه‌ی رسانه‌ها حول یک موضوع
+          // مشخص باشن؛ رفتار قبلی (یک جستجوی کلی برای کل ویدیو) عمداً حفظ می‌شه.
+          send({
+            status: useVideoClips
+              ? "مرحله ۲ از ۵: در حال گرفتن کلیپ ویدیویی..."
+              : "مرحله ۲ از ۵: در حال گرفتن عکس...",
+            progress: 10,
+          });
+          const mediaResult = useVideoClips
+            ? await fetchClips({ keyword: imageKeyword, count: mediaCount, orientation })
+            : await fetchImages({ keyword: imageKeyword, count: mediaCount, orientation });
+          mediaItems.push(...(useVideoClips ? mediaResult.clips : mediaResult.images));
+        } else {
+          // حالت خودکار: هر بخش/تایم‌استمپ از اسکریپت جستجوی عکس/کلیپ
+          // مخصوص به خودش رو می‌گیره، به‌جای یک جستجوی کلی برای کل اسکریپت.
+          for (let i = 0; i < captions.length; i++) {
+            send({
+              status: `مرحله ۲ از ۵: در حال گرفتن ${
+                useVideoClips ? "کلیپ" : "عکس"
+              } برای بخش ${i + 1} از ${captions.length}...`,
+              progress: 10 + (i / captions.length) * 5,
             });
-        const mediaItems = useVideoClips ? mediaResult.clips : mediaResult.images;
+            const mediaResult = useVideoClips
+              ? await fetchClips({ text: captions[i], count: 1, orientation })
+              : await fetchImages({ text: captions[i], count: 1, orientation });
+            mediaItems.push(
+              useVideoClips ? mediaResult.clips[0] : mediaResult.images[0]
+            );
+          }
+        }
+
         const bgImageUrl = mediaItems[0] || "";
         send({ status: "رسانه‌ها آماده شد ✅", progress: 15 });
 
         // --- ۳. رندر ویدیو ---
         send({ status: "مرحله ۳ از ۵: در حال رندر ویدیو...", progress: 16 });
         const videoBuffer = await renderVideo({
-          script,
+          durations,
+          captions,
           videoMode,
           useVideoClips,
           mediaItems,

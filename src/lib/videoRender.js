@@ -3,7 +3,7 @@ import fsp from "fs/promises";
 import os from "os";
 import path from "path";
 import ffmpegInstaller from "@ffmpeg-installer/ffmpeg";
-import { distributeDurations, escapeDrawtext, wrapCaption } from "./scriptTiming";
+import { escapeDrawtext, wrapCaption } from "./scriptTiming";
 import { pickMayaPose } from "./mayaThumbnail";
 
 const ffmpegPath = ffmpegInstaller.path;
@@ -16,7 +16,7 @@ const BATCH_SIZE = 1;
 
 // msedge-tts is requested at a fixed 48kbps CBR mono mp3, so duration can be
 // computed directly from the file size without needing ffprobe.
-function estimateAudioDurationSec(audioBuffer) {
+export function estimateAudioDurationSec(audioBuffer) {
   return audioBuffer.length / 6000; // 48000 bits/s = 6000 bytes/s
 }
 
@@ -145,7 +145,8 @@ async function renderBatch({
 }
 
 export async function renderVideo({
-  script,
+  durations,
+  captions,
   videoMode,
   useVideoClips,
   mediaItems,
@@ -162,11 +163,7 @@ export async function renderVideo({
     const N = mediaItems.length;
 
     const audioDurationSec = estimateAudioDurationSec(audioBuffer);
-    const { durations: perImageDurations, captions } = distributeDurations(
-      script,
-      N,
-      audioDurationSec
-    );
+    const perImageDurations = durations;
 
     onStatus && onStatus(`در حال دانلود ${N} فایل رسانه...`);
     const mediaExt = useVideoClips ? "mp4" : "jpg";
@@ -194,7 +191,7 @@ export async function renderVideo({
 
     const batchOutputPaths = [];
     let doneSoFarSec = 0;
-    const BATCH_TIMEOUT_MS = 90000;
+    const BATCH_TIMEOUT_MS = 300000;
     for (let b = 0; b < pathBatches.length; b++) {
       onStatus &&
         onStatus(`در حال رندر تکه‌ی ${b + 1} از ${pathBatches.length}...`);
@@ -219,7 +216,7 @@ export async function renderVideo({
 
       const timeoutPromise = new Promise((_, reject) =>
         setTimeout(
-          () => reject(new Error(`زمان تکه‌ی ${b + 1} از ${pathBatches.length} تموم شد (بیشتر از ۹۰ ثانیه طول کشید)`)),
+          () => reject(new Error(`زمان تکه‌ی ${b + 1} از ${pathBatches.length} تموم شد (بیشتر از ۳۰۰ ثانیه طول کشید)`)),
           BATCH_TIMEOUT_MS
         )
       );
