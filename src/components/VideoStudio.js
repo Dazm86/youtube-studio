@@ -212,12 +212,17 @@ export default function VideoStudio({ mode }) {
           if (obj.done) {
             setUploadedVideoId(obj.videoId);
             setVideoGenProgress(100);
-            setVideoGenStatus(
-              "آپلود کامل شد ✅" +
-                (obj.thumbnailStatus === "ok"
-                  ? " (تامبنیل مایا هم ست شد)"
-                  : " (تامبنیل ست نشد ⚠️ — احتمالاً کانال نیاز به تأیید شماره تلفن داره)")
-            );
+            const thumbNote =
+              obj.thumbnailStatus === "ok"
+                ? " (تامبنیل مایا هم ست شد)"
+                : " (تامبنیل ست نشد ⚠️ — احتمالاً کانال نیاز به تأیید شماره تلفن داره)";
+            const captionNote =
+              obj.captionStatus === "ok"
+                ? " (زیرنویس هم آپلود شد)"
+                : obj.captionStatus && obj.captionStatus.startsWith("failed")
+                ? " (زیرنویس آپلود نشد ⚠️)"
+                : "";
+            setVideoGenStatus("آپلود کامل شد ✅" + thumbNote + captionNote);
           }
         }
       }

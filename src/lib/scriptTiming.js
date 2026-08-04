@@ -46,6 +46,31 @@ export function escapeDrawtext(text) {
     .replace(/%/g, "\\%");
 }
 
+function formatSrtTime(totalSeconds) {
+  const clamped = Math.max(0, totalSeconds);
+  const wholeSeconds = Math.floor(clamped);
+  const ms = Math.round((clamped - wholeSeconds) * 1000);
+  const h = Math.floor(wholeSeconds / 3600);
+  const m = Math.floor(wholeSeconds / 60) % 60;
+  const s = wholeSeconds % 60;
+  const pad = (n, len = 2) => String(n).padStart(len, "0");
+  return `${pad(h)}:${pad(m)}:${pad(s)},${pad(ms, 3)}`;
+}
+
+// یک فایل SRT استاندارد از همون بخش‌ها/زمان‌بندی‌ای می‌سازه که برای
+// جستجوی رسانه‌ی هر بخش هم استفاده شد — پس زیرنویس همیشه دقیقاً با
+// همون تایمینگ ویدیوی رندرشده هماهنگه.
+export function buildSrt(captions, durations) {
+  let cursor = 0;
+  const blocks = captions.map((text, i) => {
+    const start = cursor;
+    const end = cursor + durations[i];
+    cursor = end;
+    return `${i + 1}\n${formatSrtTime(start)} --> ${formatSrtTime(end)}\n${(text || "").trim()}\n`;
+  });
+  return blocks.join("\n");
+}
+
 export function wrapCaption(text, maxCharsPerLine) {
   const words = text.split(/\s+/).filter(Boolean);
   const lines = [];

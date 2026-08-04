@@ -6,7 +6,7 @@ import { Readable } from "stream";
 import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
 import { fetchImages, fetchClips } from "../../../lib/media";
 import { renderVideo, estimateAudioDurationSec } from "../../../lib/videoRender";
-import { distributeDurations } from "../../../lib/scriptTiming";
+import { distributeDurations, buildSrt } from "../../../lib/scriptTiming";
 import { buildMayaThumbnail } from "../../../lib/mayaThumbnail";
 import { recordVideo } from "../../../lib/db";
 
@@ -164,7 +164,7 @@ export async function POST(req) {
           useVideoClips,
           imageKeyword,
         });
-        send({ status: "مرحله ۵ از ۵: در حال تنظیم تامبنیل...", progress: 92 });
+        send({ status: "مرحله ۵ از ۵: در حال تنظیم تامبنیل و زیرنویس...", progress: 92 });
 
         // --- ۵. تامبنیل ---
         let thumbnailStatus = "skipped";
@@ -180,7 +180,31 @@ export async function POST(req) {
           thumbnailStatus = "failed: " + thumbErr.message;
         }
 
-        send({ done: true, videoId, thumbnailStatus, progress: 100 });
+        // --- ۶. زیرنویس (SRT جدا، نه سوخته تو تصویر) ---
+        // همون بخش‌بندی/زمان‌بندی‌ای که برای جستجوی رسانه استفاده شد اینجا
+        // هم به‌کار می‌ره، پس زیرنویس همیشه با ویدیوی رندرشده هم‌زمانه.
+        // این مسیر یه زبان (انگلیسی) رو آپلود می‌کنه؛ برای چندزبانه کردن،
+        // کافیه همین متن ترجمه بشه و با language/name متفاوت دوباره insert بشه.
+        let captionStatus = "skipped";
+        try {
+          const srtContent = buildSrt(captions, durations);
+          await youtube.captions.insert({
+            part: ["snippet"],
+            requestBody: {
+              snippet: { videoId, language: "en", name: "English", isDraft: false },
+            },
+            media: {
+              mimeType: "application/octet-stream",
+              body: Readable.from(Buffer.from(srtContent, "utf-8")),
+            },
+          });
+          captionStatus = "ok";
+        } catch (capErr) {
+          console.error("caption upload error:", capErr.message);
+          captionStatus = "failed: " + capErr.message;
+        }
+
+        send({ done: true, videoId, thumbnailStatus, captionStatus, progress: 100 });
       } catch (err) {
         console.error("generate-and-upload error:", err);
         send({ error: err.message || "خطای نامشخص" });

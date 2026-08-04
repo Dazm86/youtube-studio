@@ -3,7 +3,6 @@ import fsp from "fs/promises";
 import os from "os";
 import path from "path";
 import ffmpegInstaller from "@ffmpeg-installer/ffmpeg";
-import { escapeDrawtext, wrapCaption } from "./scriptTiming";
 import { pickMayaPose } from "./mayaThumbnail";
 
 const ffmpegPath = ffmpegInstaller.path;
@@ -110,7 +109,6 @@ async function renderBatch({
     const role = getMayaRole(globalIndex, totalSegments);
     const isPresenter = role === "presenter";
 
-    const captionText = wrapCaption(escapeDrawtext(batchCaptions[i] || ""), W < H ? 22 : 38);
     const coverW = skipZoom ? W : 900;
     const coverH = skipZoom ? H : 1600;
 
@@ -136,16 +134,9 @@ async function renderBatch({
       : `zoompan=z='min(zoom+0.0012,1.25)':d=1:` +
         `x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=720x1280:fps=25`;
 
-    // وقتی مایا بزرگ و پایین قاب وایساده، زیرنویس رو می‌بریم بالا تا روش نیفته.
-    const captionY = isPresenter ? "70" : "h-th-70";
-
     filter +=
       `[cf${i}]${postChain},` +
       `format=yuv420p,setsar=1,` +
-      `drawtext=fontfile=${fontPath}:text='${captionText}':fontsize=44:` +
-      `fontcolor=white:borderw=3:bordercolor=black@0.8:box=1:` +
-      `boxcolor=black@0.35:boxborderw=18:x=(w-text_w)/2:y=${captionY}:` +
-      `line_spacing=10,` +
       `drawtext=fontfile=${fontPath}:text='The Mindful Path':fontsize=26:` +
       `fontcolor=white@0.85:borderw=2:bordercolor=black@0.6:x=20:y=20[capped${i}];`;
 
