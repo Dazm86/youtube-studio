@@ -8,6 +8,7 @@ import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
 import { fetchImages, fetchClips } from "../../../lib/media";
 import { renderVideo, estimateAudioDurationSec } from "../../../lib/videoRender";
 import { distributeDurations, buildSrt } from "../../../lib/scriptTiming";
+import { translateCaptions } from "../../../lib/translateCaptions";
 import { buildMayaThumbnail } from "../../../lib/mayaThumbnail";
 import { recordVideo } from "../../../lib/db";
 
@@ -222,7 +223,50 @@ export async function POST(req) {
           captionStatus = "failed: " + capErr.message;
         }
 
-        send({ done: true, videoId, thumbnailStatus, captionStatus, progress: 100 });
+        // --- ۷. زیرنویس چندزبانه ---
+        // همون متنِ بخش‌بندی‌شده (captions) که برای SRT انگلیسی استفاده شد،
+        // اینجا هم پایه‌ست — فقط ترجمه می‌شه، تایمینگ (durations) عوض نمی‌شه.
+        const CAPTION_LANGUAGES = [
+          { code: "es", name: "Español" },
+          { code: "pt", name: "Português" },
+          { code: "ar", name: "العربية" },
+          { code: "hi", name: "हिन्दी" },
+          { code: "fa", name: "فارسی" },
+        ];
+        let translatedOk = 0;
+        for (const lang of CAPTION_LANGUAGES) {
+          try {
+            send({
+              status: `در حال ترجمه و آپلود زیرنویس ${lang.name}...`,
+              progress: 96,
+            });
+            const translated = await translateCaptions(captions, lang.name);
+            const translatedSrt = buildSrt(translated, durations);
+            await youtube.captions.insert({
+              part: ["snippet"],
+              requestBody: {
+                snippet: { videoId, language: lang.code, name: lang.name, isDraft: false },
+              },
+              media: {
+                mimeType: "application/octet-stream",
+                body: Readable.from(Buffer.from(translatedSrt, "utf-8")),
+              },
+            });
+            translatedOk++;
+          } catch (langErr) {
+            console.error(`caption ${lang.code} failed:`, langErr.message);
+          }
+        }
+        const translatedCaptionsSummary = `${translatedOk} از ${CAPTION_LANGUAGES.length} زبان اضافه شد`;
+
+        send({
+          done: true,
+          videoId,
+          thumbnailStatus,
+          captionStatus,
+          translatedCaptionsSummary,
+          progress: 100,
+        });
       } catch (err) {
         console.error("generate-and-upload error:", err);
         send({ error: err.message || "خطای نامشخص" });

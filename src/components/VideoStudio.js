@@ -225,7 +225,10 @@ export default function VideoStudio({ mode }) {
                 : obj.captionStatus && obj.captionStatus.startsWith("failed")
                 ? " (زیرنویس آپلود نشد ⚠️)"
                 : "";
-            setVideoGenStatus("آپلود کامل شد ✅" + thumbNote + captionNote);
+            const translatedNote = obj.translatedCaptionsSummary
+              ? ` (زیرنویس چندزبانه: ${obj.translatedCaptionsSummary})`
+              : "";
+            setVideoGenStatus("آپلود کامل شد ✅" + thumbNote + captionNote + translatedNote);
           }
         }
       }
