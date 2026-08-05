@@ -40,3 +40,8 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .env.local
+apply_nav_home.sh
+apply_new_design.sh
+captions-update.zip
+maya-personality-update.zip
+updated-files.zip
