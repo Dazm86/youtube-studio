@@ -1,6 +1,6 @@
 import GoogleProvider from "next-auth/providers/google";
 
-async function refreshAccessToken(token) {
+export async function refreshAccessToken(token) {
   try {
     const url = "https://oauth2.googleapis.com/token";
 

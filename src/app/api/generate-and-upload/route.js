@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "../auth/authOptions";
+import { getToken } from "next-auth/jwt";
+import { authOptions, refreshAccessToken } from "../auth/authOptions";
 import { google } from "googleapis";
 import { Readable } from "stream";
 import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
@@ -129,9 +130,24 @@ export async function POST(req) {
         send({ status: "ویدیو رندر شد ✅", progress: 80 });
 
         // --- ۴. آپلود در یوتیوب ---
+        // رندر ممکنه ۱۵-۴۰ دقیقه طول کشیده باشه — یعنی توکنی که اول
+        // درخواست گرفتیم ممکنه الان منقضی شده باشه. یه بار دیگه، همین‌جا،
+        // با refresh_token یه توکن تازه می‌گیریم، نه این‌که به توکن اولیه
+        // اعتماد کنیم.
+        let uploadAccessToken = accessToken;
+        try {
+          const rawToken = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+          if (rawToken && rawToken.refreshToken) {
+            const refreshed = await refreshAccessToken(rawToken);
+            if (refreshed.accessToken) uploadAccessToken = refreshed.accessToken;
+          }
+        } catch (refreshErr) {
+          console.error("token refresh before upload failed:", refreshErr.message);
+        }
+
         send({ status: "مرحله ۴ از ۵: در حال آپلود در یوتیوب...", progress: 85 });
         const oauth2Client = new google.auth.OAuth2();
-        oauth2Client.setCredentials({ access_token: accessToken });
+        oauth2Client.setCredentials({ access_token: uploadAccessToken });
         const youtube = google.youtube({ version: "v3", auth: oauth2Client });
 
         const tags = (tagsRaw || "")
