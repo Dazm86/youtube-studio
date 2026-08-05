@@ -112,19 +112,26 @@ async function renderBatch({
     const coverW = skipZoom ? W : 900;
     const coverH = skipZoom ? H : 1600;
 
+    const smallW = Math.max(2, Math.round(coverW / 4));
+    const smallH = Math.max(2, Math.round(coverH / 4));
+
     if (isPresenter) {
       // حالت «مجری»: پس‌زمینه فقط محو و کمی تیره‌ست (بدون عکس تیز روش)،
       // چون مایا که بزرگ جلوش می‌شینه قراره سوژه‌ی اصلی قاب باشه.
+      // بلور رو رو یه نسخه‌ی کوچیک‌شده می‌زنیم (نه روی تصویر کامل) — نتیجه‌ی
+      // بصری یکیه، ولی حجم محاسبات gblur به‌شدت کمتره.
       filter +=
         `[${i}:v]scale=${coverW}:${coverH}:force_original_aspect_ratio=increase,` +
-        `crop=${coverW}:${coverH},eq=brightness=-0.12,gblur=sigma=30[cf${i}];`;
+        `crop=${coverW}:${coverH},eq=brightness=-0.12,` +
+        `scale=${smallW}:${smallH},gblur=sigma=8,scale=${coverW}:${coverH}[cf${i}];`;
     } else {
       // به‌جای بریدن دو طرف عکس برای پر کردن قاب، یک پس‌زمینه‌ی محو از خودِ
       // عکس می‌سازیم و خودِ عکس رو کامل (بدون افتادن چیزی) وسط می‌ذاریم.
       filter +=
         `[${i}:v]split=2[bg${i}][fg${i}];` +
         `[bg${i}]scale=${coverW}:${coverH}:force_original_aspect_ratio=increase,` +
-        `crop=${coverW}:${coverH},gblur=sigma=20[bgblur${i}];` +
+        `crop=${coverW}:${coverH},scale=${smallW}:${smallH},gblur=sigma=6,` +
+        `scale=${coverW}:${coverH}[bgblur${i}];` +
         `[fg${i}]scale=${coverW}:${coverH}:force_original_aspect_ratio=decrease[fgs${i}];` +
         `[bgblur${i}][fgs${i}]overlay=(W-w)/2:(H-h)/2[cf${i}];`;
     }

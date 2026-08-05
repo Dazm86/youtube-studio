@@ -47,6 +47,8 @@ export async function POST(req) {
         }
       };
 
+      const heartbeat = setInterval(() => send({ ping: true }), 15000);
+
       try {
         // --- ۱. ساخت صدا ---
         send({ status: "مرحله ۱ از ۵: در حال ساخت صدا...", progress: 2 });
@@ -66,7 +68,7 @@ export async function POST(req) {
         const audioDurationSec = estimateAudioDurationSec(audioBuffer);
         const mediaCount = isShort
           ? 6
-          : Math.min(24, Math.max(6, Math.ceil(audioDurationSec / 15)));
+          : Math.min(24, Math.max(6, Math.ceil(audioDurationSec / 24)));
         const { durations, captions } = distributeDurations(
           script,
           mediaCount,
@@ -209,6 +211,7 @@ export async function POST(req) {
         console.error("generate-and-upload error:", err);
         send({ error: err.message || "خطای نامشخص" });
       } finally {
+        clearInterval(heartbeat);
         controller.close();
       }
     },

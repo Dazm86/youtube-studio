@@ -186,6 +186,7 @@ export default function VideoStudio({ mode }) {
       const decoder = new TextDecoder();
       let buffer = "";
       let finalError = null;
+      let streamEndedCleanly = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -208,8 +209,10 @@ export default function VideoStudio({ mode }) {
           }
           if (obj.error) {
             finalError = obj.error;
+            streamEndedCleanly = true;
           }
           if (obj.done) {
+            streamEndedCleanly = true;
             setUploadedVideoId(obj.videoId);
             setVideoGenProgress(100);
             const thumbNote =
@@ -229,6 +232,10 @@ export default function VideoStudio({ mode }) {
 
       if (finalError) {
         throw new Error(finalError);
+      } else if (!streamEndedCleanly) {
+        throw new Error(
+          "اتصال به سرور وسط پردازش قطع شد — مشخص نیست ویدیو کامل شده یا نه. کانالت رو چک کن، یا دوباره امتحان کن."
+        );
       }
     } catch (err) {
       console.error("generate-and-upload error:", err);
