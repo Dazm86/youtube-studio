@@ -137,6 +137,8 @@ export default function ChannelAnalytics() {
                   <th style={{ padding: "0.4rem" }}>لایک</th>
                   <th style={{ padding: "0.4rem" }}>سابسکرایب</th>
                   <th style={{ padding: "0.4rem" }}>میانگین تماشا</th>
+                  <th style={{ padding: "0.4rem" }}>نگه‌داشت</th>
+                  <th style={{ padding: "0.4rem" }}>CTR تامبنیل</th>
                   <th style={{ padding: "0.4rem" }}>تاریخ</th>
                 </tr>
               </thead>
@@ -159,6 +161,12 @@ export default function ChannelAnalytics() {
                       {Number(v.subscribers_gained || 0).toLocaleString("fa-IR")}
                     </td>
                     <td style={{ padding: "0.4rem" }}>{formatDuration(v.avg_view_duration_sec)}</td>
+                    <td style={{ padding: "0.4rem" }}>
+                      {v.retention_pct ? `${Number(v.retention_pct).toFixed(0)}%` : "—"}
+                    </td>
+                    <td style={{ padding: "0.4rem" }}>
+                      {v.thumbnail_ctr ? `${Number(v.thumbnail_ctr).toFixed(1)}%` : "—"}
+                    </td>
                     <td style={{ padding: "0.4rem" }}>{formatDate(v.created_at)}</td>
                   </tr>
                 ))}

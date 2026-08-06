@@ -114,6 +114,21 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-06 — Analytics depth + feedback loop
+DB now tracks retention (`averageViewPercentage`), thumbnail impressions,
+and thumbnail CTR (`videoThumbnailImpressions`/
+`videoThumbnailImpressionsClickRate` — added to the YouTube Analytics
+API on 2026-01-15, confirmed via the official metrics reference before
+using them; query falls back to the original basic metric set if the
+combined query is ever rejected). Analytics page now shows retention%
+and CTR per video. Feedback loop: `generate-script` now pulls the
+channel's top-retention past videos (min. 10 views, to avoid a
+1-view fluke topping the list) and includes just their opening line +
+retention% in the prompt as "what's worked" context — degrades silently
+to normal generation if there's no data yet or the DB call fails. Files:
+`lib/db.js`, `lib/youtubeAnalytics.js`, `api/generate-script/route.js`,
+`components/ChannelAnalytics.js`.
+
 ### 2026-08-06 — This roadmap file
 Added this file so any future session (same model or a different one)
 can onboard instantly instead of re-deriving project state from scratch.

@@ -18,23 +18,34 @@ function getPool() {
 
 async function ensureSchema() {
   if (!schemaReady) {
-    schemaReady = getPool().query(`
-      CREATE TABLE IF NOT EXISTS videos (
-        id SERIAL PRIMARY KEY,
-        video_id TEXT NOT NULL,
-        title TEXT,
-        script TEXT,
-        video_mode TEXT,
-        use_video_clips BOOLEAN,
-        image_keyword TEXT,
-        views INTEGER,
-        subscribers_gained INTEGER,
-        likes INTEGER,
-        avg_view_duration_sec NUMERIC,
-        stats_updated_at TIMESTAMPTZ,
-        created_at TIMESTAMPTZ DEFAULT now()
-      );
-    `);
+    schemaReady = (async () => {
+      await getPool().query(`
+        CREATE TABLE IF NOT EXISTS videos (
+          id SERIAL PRIMARY KEY,
+          video_id TEXT NOT NULL,
+          title TEXT,
+          script TEXT,
+          video_mode TEXT,
+          use_video_clips BOOLEAN,
+          image_keyword TEXT,
+          views INTEGER,
+          subscribers_gained INTEGER,
+          likes INTEGER,
+          avg_view_duration_sec NUMERIC,
+          stats_updated_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ DEFAULT now()
+        );
+      `);
+      // ستون‌های جدید (عمق آنالیتیکس) — با ALTER چون ممکنه دیتابیس از قبل
+      // با نسخه‌ی قدیمی‌تر ساخته شده باشه و CREATE TABLE IF NOT EXISTS
+      // روش اثر نکنه.
+      await getPool().query(`
+        ALTER TABLE videos
+          ADD COLUMN IF NOT EXISTS retention_pct NUMERIC,
+          ADD COLUMN IF NOT EXISTS thumbnail_impressions INTEGER,
+          ADD COLUMN IF NOT EXISTS thumbnail_ctr NUMERIC;
+      `);
+    })();
   }
   await schemaReady;
 }
@@ -92,6 +103,7 @@ export async function getAllVideos() {
   const res = await getPool().query(
     `SELECT video_id, title, video_mode, use_video_clips, image_keyword,
             views, subscribers_gained, likes, avg_view_duration_sec,
+            retention_pct, thumbnail_impressions, thumbnail_ctr,
             stats_updated_at, created_at
      FROM videos
      ORDER BY created_at DESC
@@ -105,7 +117,9 @@ export async function updateVideoStats(videoId, stats) {
   await getPool().query(
     `UPDATE videos
      SET views = $2, subscribers_gained = $3, likes = $4,
-         avg_view_duration_sec = $5, stats_updated_at = now()
+         avg_view_duration_sec = $5, retention_pct = $6,
+         thumbnail_impressions = $7, thumbnail_ctr = $8,
+         stats_updated_at = now()
      WHERE video_id = $1`,
     [
       videoId,
@@ -113,6 +127,26 @@ export async function updateVideoStats(videoId, stats) {
       stats.subscribersGained ?? 0,
       stats.likes ?? 0,
       stats.avgViewDurationSec ?? 0,
+      stats.avgViewPercentage ?? 0,
+      stats.thumbnailImpressions ?? 0,
+      stats.thumbnailCtr ?? 0,
     ]
   );
+}
+
+// حلقه‌ی بازخورد: بهترین ویدیوهای قبلی از نظر نگه‌داشت مخاطب، تا تولید
+// اسکریپت جدید از الگوهای موفق قبلی یاد بگیره. حداقل ۱۰ بازدید شرطه، تا
+// یه ویدیوی تازه با ۱-۲ بازدید (که ممکنه خودِ صاحب کانال دیده باشه) بی‌جهت
+// «بهترین» به‌حساب نیاد.
+export async function getTopPerformingVideos(limit = 5) {
+  await ensureSchema();
+  const res = await getPool().query(
+    `SELECT title, script, video_mode, retention_pct, thumbnail_ctr, views
+     FROM videos
+     WHERE retention_pct IS NOT NULL AND retention_pct > 0 AND views >= 10
+     ORDER BY retention_pct DESC
+     LIMIT $1`,
+    [limit]
+  );
+  return res.rows;
 }

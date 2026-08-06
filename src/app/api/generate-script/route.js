@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "../auth/authOptions";
 import { getRecentVideoTitles } from "../../../lib/channelHistory";
+import { getTopPerformingVideos } from "../../../lib/db";
 
 export async function POST(req) {
   const session = await getServerSession(authOptions);
@@ -51,6 +52,25 @@ export async function POST(req) {
 6. Wrap-up: an inspiring close that invites reflection, not just a request to subscribe.
 Vary sentence rhythm so it doesn't feel repetitive over the longer length.`;
 
+  // حلقه‌ی بازخورد: بهترین ویدیوهای قبلی از نظر نگه‌داشت مخاطب (اگه داده‌ای
+  // باشه) — فقط جمله‌ی اول هرکدوم رو می‌فرستیم، نه کل اسکریپت، تا هزینه‌ی
+  // پرامپت زیاد نشه.
+  let feedbackContext = "";
+  try {
+    const topVideos = await getTopPerformingVideos(5);
+    if (topVideos.length > 0) {
+      const examples = topVideos
+        .map((v) => {
+          const opener = (v.script || "").trim().split(/(?<=[.!?])\s+/).slice(0, 1).join(" ");
+          return `- "${v.title}" (${Math.round(v.retention_pct)}% average retention) opened with: "${opener}"`;
+        })
+        .join("\n");
+      feedbackContext = `\n\nThis channel's best-performing past videos by audience retention — notice what kind of opening/angle earns attention, and let that instinct guide you (never copy these lines):\n${examples}\n`;
+    }
+  } catch (err) {
+    console.error("feedback loop lookup failed (continuing without it):", err.message);
+  }
+
   const prompt = `You are the scriptwriter for Maya, the host of a YouTube channel called "The Mindful Path". This is insight and personal-growth content, not pure entertainment — viewers come for a feeling, an idea, or a shift in perspective, so every script should follow the arc: STORY -> EMOTION -> INSIGHT -> ACTION.
 
 Maya's personality: energetic and inspiring. She talks like she genuinely can't wait to tell you this — real excitement, not forced hype. Short, punchy sentences. She reacts to her own points as she says them (a little surprise, a laugh in the phrasing) instead of stating things flatly. She speaks directly to "you", and calls the viewer "friend" sometimes, naturally, never stiffly.
@@ -60,7 +80,7 @@ Give her a few recurring verbal habits so she feels like a consistent host, not 
 - A short reactive aside here and there, in the spirit of: "I know, right?" / "Stay with me." / "Yes — really."
 - A punchy, energizing sign-off, in the spirit of: "Go be unstoppable, friend." — always reworded, never the same line twice.
 Use at most two of these habits in one script — enough to feel like her, not so many it feels gimmicky.
-
+${feedbackContext}
 ${topicInstruction}
 
 ${structureInstruction}
