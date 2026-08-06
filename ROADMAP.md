@@ -114,6 +114,23 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-06 — Real fix for the mid-render disconnect (self-ping)
+The 2026-08-05 heartbeat entry below was an incomplete fix. User
+discovered by testing (manually visiting the site kept a render alive
+past 15 min; not visiting, it died at ~15 min every time) that the
+in-stream heartbeat wasn't the mechanism — confirmed against Render's
+docs: free web services spin down after 15 min with no *new inbound
+HTTP request* to the service. Writing more bytes onto an
+already-open response stream doesn't count as new inbound traffic, so
+the old heartbeat never actually reset Render's timer. Real fix: every
+5 minutes during a render, the server now makes a genuine new HTTP
+request to its own public URL (`NEXTAUTH_URL` + `/api/status`) — this
+*does* count as inbound traffic and keeps the instance from spinning
+down mid-render. Kept the old in-stream heartbeat too (harmless,
+still useful against generic idle-connection drops on the client
+side) — just added the real fix alongside it. File:
+`api/generate-and-upload/route.js`.
+
 ### 2026-08-06 — Analytics depth + feedback loop
 DB now tracks retention (`averageViewPercentage`), thumbnail impressions,
 and thumbnail CTR (`videoThumbnailImpressions`/

@@ -51,6 +51,23 @@ export async function POST(req) {
 
       const heartbeat = setInterval(() => send({ ping: true }), 15000);
 
+      // نکته‌ی مهم: heartbeat بالا فقط رو همین stream باز، داده می‌فرسته —
+      // از نگاه خودِ Render این «ترافیک ورودی جدید» حساب نمی‌شه، چون هیچ
+      // درخواست تازه‌ای به سرویس نمی‌رسه، فقط خروجیِ یه درخواستِ قبلاً
+      // شروع‌شده ادامه پیدا می‌کنه. Render پلن رایگان رو بعد از ۱۵ دقیقه
+      // بدون «درخواست HTTP ورودی تازه» می‌خوابونه — دقیقاً چیزی که خودت با
+      // تست دستی کشف کردی. برای همین، جدا از heartbeat، هر ۵ دقیقه یه
+      // درخواست HTTP واقعی و تازه به URL عمومی خودِ سایت می‌زنیم؛ همین یکی
+      // جلوی خوابیدن سرویس رو می‌گیره.
+      const selfPingUrl = process.env.NEXTAUTH_URL;
+      const selfPing = selfPingUrl
+        ? setInterval(() => {
+            fetch(`${selfPingUrl}/api/status`).catch((err) => {
+              console.error("self-ping failed:", err.message);
+            });
+          }, 5 * 60 * 1000)
+        : null;
+
       try {
         // --- ۱. ساخت صدا ---
         send({ status: "مرحله ۱ از ۵: در حال ساخت صدا...", progress: 2 });
@@ -272,6 +289,7 @@ export async function POST(req) {
         send({ error: err.message || "خطای نامشخص" });
       } finally {
         clearInterval(heartbeat);
+        if (selfPing) clearInterval(selfPing);
         controller.close();
       }
     },
