@@ -16,6 +16,7 @@ export async function POST(req) {
   const file = formData.get("video");
   const title = formData.get("title") || "بدون عنوان";
   const description = formData.get("description") || "";
+  const thumbnailText = formData.get("thumbnailText") || "";
   const privacyStatus = formData.get("privacyStatus") || "private";
   const publishAt = formData.get("publishAt") || null;
   const script = formData.get("script") || "";
@@ -65,7 +66,7 @@ export async function POST(req) {
     let thumbnailStatus = "skipped";
 
     try {
-      const thumbBuffer = await buildMayaThumbnail({ title, script, bgImageUrl });
+      const thumbBuffer = await buildMayaThumbnail({ title, thumbnailText, script, bgImageUrl });
       await youtube.thumbnails.set({
         videoId,
         media: {

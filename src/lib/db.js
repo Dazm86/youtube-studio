@@ -45,6 +45,11 @@ async function ensureSchema() {
           ADD COLUMN IF NOT EXISTS thumbnail_impressions INTEGER,
           ADD COLUMN IF NOT EXISTS thumbnail_ctr NUMERIC;
       `);
+      // ستون جدید: متن جدای صورت کوچک (کوتاه‌تر از عنوان، مخصوص روی تصویر)
+      await getPool().query(`
+        ALTER TABLE videos
+          ADD COLUMN IF NOT EXISTS thumbnail_text TEXT;
+      `);
     })();
   }
   await schemaReady;
@@ -77,13 +82,22 @@ export async function recordVideo({
   videoMode,
   useVideoClips,
   imageKeyword,
+  thumbnailText,
 }) {
   try {
     await ensureSchema();
     await getPool().query(
-      `INSERT INTO videos (video_id, title, script, video_mode, use_video_clips, image_keyword)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [videoId, title || "", script || "", videoMode || "", !!useVideoClips, imageKeyword || ""]
+      `INSERT INTO videos (video_id, title, script, video_mode, use_video_clips, image_keyword, thumbnail_text)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [
+        videoId,
+        title || "",
+        script || "",
+        videoMode || "",
+        !!useVideoClips,
+        imageKeyword || "",
+        thumbnailText || "",
+      ]
     );
   } catch (err) {
     // ثبت آمار هیچ‌وقت نباید کل فرایند آپلود رو خراب کنه

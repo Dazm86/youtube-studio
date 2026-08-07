@@ -114,6 +114,31 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-07 — Metadata rewrite: keyword-led titles, separate thumbnail text
+Rewrote `suggest-metadata`'s AI prompt after comparing the top 10 channels
+in the niche surfaced 4 gaps: titles buried the hook inside a generic
+sentence instead of opening with it, titles had no channel branding,
+thumbnails just displayed the full (long) title instead of short punchy
+text, and descriptions opened with a greeting instead of the keyword.
+Fixed: title must now open with a keyword/number/named problem, then end
+with " | The Mindful Path"; new `thumbnailText` field (4-6 words, must
+read differently from the title) generated alongside title/description/
+tags; description's first line now leads with the keyword directly (no
+"Hey!"/"Welcome" opener), since that first line is all a viewer sees
+before "Show more". Heuristic (no-Groq-key) fallback updated to the same
+shape so both paths stay consistent. `thumbnailText` now flows
+end-to-end: AI-suggested → editable in the UI (new input + a live CSS
+preview of the thumbnail composition) → sent on both upload paths
+(auto-pipeline and manual upload, so the field behaves the same
+regardless of which "Upload" button is used) → rendered on the actual
+thumbnail (smaller font than before, horizontally centered in the space
+left of Maya instead of left-anchored, since the text is much shorter
+now) → persisted via a new `thumbnail_text` column. Files:
+`api/suggest-metadata/route.js`, `lib/mayaThumbnail.js`,
+`components/VideoStudio.js`, `api/generate-and-upload/route.js`,
+`api/upload/route.js` (kept consistent with the shared metadata fields),
+`lib/db.js` (schema + `recordVideo`).
+
 ### 2026-08-06 — Real fix for the mid-render disconnect (self-ping)
 The 2026-08-05 heartbeat entry below was an incomplete fix. User
 discovered by testing (manually visiting the site kept a render alive

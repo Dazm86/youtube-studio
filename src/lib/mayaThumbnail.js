@@ -61,7 +61,8 @@ function wrapText(text, maxCharsPerLine, maxLines) {
   return lines;
 }
 
-export async function buildMayaThumbnail({ title, script, bgImageUrl }) {
+export async function buildMayaThumbnail({ title, thumbnailText, script, bgImageUrl }) {
+  const displayText = thumbnailText || title;
   const pose = pickMayaPose(script || title || "");
   const posePath = path.join(process.cwd(), "public", "maya", `${pose}.png`);
   const mayaBuffer = fs.readFileSync(posePath);
@@ -102,17 +103,21 @@ export async function buildMayaThumbnail({ title, script, bgImageUrl }) {
   const mayaX = CANVAS_W - mayaMeta.width - 10;
   const mayaY = CANVAS_H - mayaMeta.height;
 
-  // --- Title text (SVG, bold with outline for contrast) ---
-  const lines = wrapText(title, 16, 3);
-  const fontSize = 74;
-  const lineHeight = 86;
+  // --- Thumbnail text (SVG, bold with outline for contrast) ---
+  // متن کوتاه‌تره (۴-۶ کلمه) پس فونت کوچیک‌تر و فقط ۲ خط کافیه؛ به‌جای
+  // چسبیدن به لبه‌ی چپ (x=56)، هر خط داخل فضای موجود قبل از مایا
+  // (از ۰ تا mayaX) به‌صورت افقی وسط‌چین می‌شه — موضع مرکزیِ واضح‌تر.
+  const lines = wrapText(displayText, 22, 2);
+  const fontSize = 62;
+  const lineHeight = 74;
   const textBlockHeight = lines.length * lineHeight;
   const startY = (CANVAS_H - textBlockHeight) / 2 + fontSize;
+  const textCenterX = mayaX / 2;
 
   const textSvgLines = lines
     .map(
       (line, i) =>
-        `<text x="56" y="${startY + i * lineHeight}" font-family="DejaVu Sans, Arial, sans-serif" font-weight="bold" font-size="${fontSize}" fill="#ffffff" stroke="#3a1d4d" stroke-width="7" paint-order="stroke" stroke-linejoin="round">${escapeXml(line)}</text>`
+        `<text x="${textCenterX}" y="${startY + i * lineHeight}" text-anchor="middle" font-family="DejaVu Sans, Arial, sans-serif" font-weight="bold" font-size="${fontSize}" fill="#ffffff" stroke="#3a1d4d" stroke-width="6" paint-order="stroke" stroke-linejoin="round">${escapeXml(line)}</text>`
     )
     .join("\n");
 

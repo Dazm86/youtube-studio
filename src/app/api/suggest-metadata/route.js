@@ -33,13 +33,22 @@ function extractKeywords(text, count) {
 function heuristicMetadata(script) {
   const keywords = extractKeywords(script, 12);
   const firstSentence = (script.match(/[^.!?]+[.!?]?/) || [script])[0].trim();
-  const title =
-    firstSentence.length > 65
-      ? firstSentence.slice(0, 62) + "..."
+  // زیر ۴۸ کاراکتر نگه می‌داریم تا با " | The Mindful Path" اضافه‌شده
+  // عنوان کامل هنوز زیر ~۷۰ کاراکتر بمونه.
+  const hook =
+    firstSentence.length > 48
+      ? firstSentence.slice(0, 45) + "..."
       : firstSentence;
+  const title = `${hook} | The Mindful Path`;
+
+  // متن جدای صورت کوچک: ۴-۶ کلمه‌ی اول جمله، جدا از عنوان کامل
+  const thumbnailText =
+    firstSentence.split(/\s+/).slice(0, 5).join(" ") ||
+    (keywords[0] ? keywords[0][0].toUpperCase() + keywords[0].slice(1) : "Mindful Moment");
 
   return {
     title,
+    thumbnailText,
     description: script.slice(0, 300),
     tags: keywords,
     source: "heuristic",
@@ -69,11 +78,12 @@ ${script}
 """
 
 Respond with ONLY a JSON object (no markdown, no code fences, no explanation) in this exact shape:
-{"title": "...", "description": "...", "tags": ["...", "..."]}
+{"title": "...", "thumbnailText": "...", "description": "...", "tags": ["...", "..."]}
 
 Rules:
-- title: under 70 characters, compelling and honest (no false claims), for a motivational/mindfulness audience
-- description: 2-4 warm sentences summarizing the video's message, ending with 3-5 relevant hashtags
+- title: MUST open with a strong hook pulled straight from the video's topic — a specific keyword, a number, or a named problem/pain point (e.g. "5 Signs...", "Anxiety Doesn't...", "Why You Can't Stop..."). Never open with a generic phrase, a greeting, or a full sentence copied from the script. Follow the hook with the rest of the title, then end with exactly " | The Mindful Path". Keep everything before that suffix under ~48 characters so the full title stays under ~70.
+- thumbnailText: 4-6 words only, written to sit as bold text on a thumbnail image (short, punchy, high-curiosity). Must NOT restate or shorten the title — give it a different angle or emotional beat from the same topic. No trailing punctuation.
+- description: the FIRST LINE must open directly with the video's main keyword/topic — no "Hey!", "Welcome", "In this video" or similar greetings, since that first line is all viewers see before "Show more". After that keyword-led opening line, add 2-3 more warm sentences summarizing the video's message, ending with 3-5 relevant hashtags.
 - tags: 10-15 short relevant keywords/phrases for YouTube SEO (lowercase, no # symbol)`;
 
   try {
@@ -108,6 +118,7 @@ Rules:
 
     return NextResponse.json({
       title: parsed.title || "",
+      thumbnailText: parsed.thumbnailText || "",
       description: parsed.description || "",
       tags: Array.isArray(parsed.tags) ? parsed.tags : [],
       source: "ai",

@@ -11,6 +11,7 @@ export default function VideoStudio({ mode }) {
   const { data: session, status: sessionStatus } = useSession();
 
   const [title, setTitle] = useState("");
+  const [thumbnailText, setThumbnailText] = useState("");
   const [description, setDescription] = useState("");
   const [privacyStatus, setPrivacyStatus] = useState("private");
   const [publishAt, setPublishAt] = useState("");
@@ -161,6 +162,7 @@ export default function VideoStudio({ mode }) {
         body: JSON.stringify({
           script,
           title,
+          thumbnailText,
           description,
           tags: tagsStr,
           privacyStatus,
@@ -273,6 +275,7 @@ export default function VideoStudio({ mode }) {
         throw new Error(data.error || "خطا در دریافت پیشنهاد");
       }
       setTitle(data.title || "");
+      setThumbnailText(data.thumbnailText || "");
       setDescription(data.description || "");
       setTagsStr((data.tags || []).join(", "));
       setSuggestMetaStatus(
@@ -358,6 +361,7 @@ export default function VideoStudio({ mode }) {
     const formData = new FormData();
     formData.append("video", file);
     formData.append("title", title);
+    formData.append("thumbnailText", thumbnailText);
     formData.append("description", description);
     formData.append("privacyStatus", privacyStatus);
     formData.append("script", script);
@@ -518,6 +522,69 @@ export default function VideoStudio({ mode }) {
           value={title}
           onChange={(e) => setTitle(e.target.value)}
         />
+
+        <div>
+          <input
+            type="text"
+            placeholder="متن صورت کوچک (۴-۶ کلمه، جدا از عنوان)"
+            value={thumbnailText}
+            onChange={(e) => setThumbnailText(e.target.value)}
+            style={{ width: "100%" }}
+          />
+          <div
+            style={{
+              marginTop: "0.5rem",
+              position: "relative",
+              width: "100%",
+              aspectRatio: "16 / 9",
+              borderRadius: "8px",
+              overflow: "hidden",
+              backgroundImage: videoBgImageUrl
+                ? `linear-gradient(rgba(0,0,0,0.35), rgba(0,0,0,0.35)), url(${videoBgImageUrl})`
+                : "linear-gradient(135deg, #7a3e9d, #e8672c)",
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+            }}
+          >
+            <span
+              style={{
+                position: "absolute",
+                top: "50%",
+                left: 0,
+                width: "62%",
+                transform: "translateY(-50%)",
+                textAlign: "center",
+                fontWeight: "bold",
+                fontSize: "clamp(0.85rem, 4vw, 1.3rem)",
+                lineHeight: 1.25,
+                color: "#fff",
+                textShadow:
+                  "-2px -2px 0 #3a1d4d, 2px -2px 0 #3a1d4d, -2px 2px 0 #3a1d4d, 2px 2px 0 #3a1d4d, 0 0 8px rgba(58,29,77,0.8)",
+                padding: "0 0.5rem",
+              }}
+            >
+              {thumbnailText || title || "متن صورت کوچک اینجا نمایش داده می‌شه"}
+            </span>
+            <img
+              src="/maya/greeting.png"
+              alt="مایا"
+              onError={(e) => {
+                e.target.style.display = "none";
+              }}
+              style={{
+                position: "absolute",
+                bottom: 0,
+                right: "4%",
+                height: "92%",
+                objectFit: "contain",
+              }}
+            />
+          </div>
+          <p style={{ fontSize: "0.75rem", color: "#666", marginTop: "0.25rem" }}>
+            پیش‌نمایش تقریبیِ صورت کوچک — پس‌زمینه‌ی واقعی و ژست مایا موقع رندر نهایی ست می‌شن.
+          </p>
+        </div>
+
         <textarea
           placeholder="توضیحات"
           value={description}

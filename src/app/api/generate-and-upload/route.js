@@ -24,6 +24,7 @@ export async function POST(req) {
     script,
     title,
     description,
+    thumbnailText,
     tags: tagsRaw,
     privacyStatus,
     publishAt,
@@ -199,13 +200,14 @@ export async function POST(req) {
           videoMode,
           useVideoClips,
           imageKeyword,
+          thumbnailText,
         });
         send({ status: "مرحله ۵ از ۵: در حال تنظیم تامبنیل و زیرنویس...", progress: 92 });
 
         // --- ۵. تامبنیل ---
         let thumbnailStatus = "skipped";
         try {
-          const thumbBuffer = await buildMayaThumbnail({ title, script, bgImageUrl });
+          const thumbBuffer = await buildMayaThumbnail({ title, thumbnailText, script, bgImageUrl });
           await youtube.thumbnails.set({
             videoId,
             media: { mimeType: "image/png", body: Readable.from(thumbBuffer) },
