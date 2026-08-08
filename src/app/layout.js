@@ -1,6 +1,7 @@
 import "./globals.css";
 import { Vazirmatn, JetBrains_Mono } from "next/font/google";
 import Providers from "./providers";
+import NavBar from "../components/NavBar";
 
 const vazirmatn = Vazirmatn({
   subsets: ["arabic", "latin"],
@@ -23,7 +24,10 @@ export default function RootLayout({ children }) {
   return (
     <html lang="fa" dir="rtl" className={`${vazirmatn.variable} ${monoReadout.variable}`}>
       <body>
-        <Providers>{children}</Providers>
+        <Providers>
+          <NavBar />
+          {children}
+        </Providers>
       </body>
     </html>
   );
