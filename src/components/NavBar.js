@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { href: "/short", label: "ویدیوی شورت" },
   { href: "/api-check", label: "بررسی API ها" },
   { href: "/analytics", label: "آنالیز کانال" },
+  { href: "/schedule", label: "⏰ زمان‌بندی خودکار" },
 ];
 
 export default function NavBar() {

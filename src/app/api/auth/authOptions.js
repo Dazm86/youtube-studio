@@ -1,4 +1,5 @@
 import GoogleProvider from "next-auth/providers/google";
+import { saveRefreshToken } from "../../../lib/db";
 
 export async function refreshAccessToken(token) {
   try {
@@ -53,6 +54,13 @@ export const authOptions = {
         token.accessToken = account.access_token;
         token.refreshToken = account.refresh_token;
         token.accessTokenExpires = Date.now() + account.expires_in * 1000;
+        // فاز ۴: این refresh_token رو تو DB هم ذخیره می‌کنیم (نه فقط تو
+        // کوکیِ رمزنگاری‌شده‌ی NextAuth) — چون پایپ‌لاینِ زمان‌بندی‌شده
+        // (بدون نشست مرورگرِ فعال) باید بتونه هر وقت خواست توکن تازه
+        // بگیره. خطای اینجا نباید جلوی ورود کاربر رو بگیره.
+        saveRefreshToken(account.refresh_token).catch((err) =>
+          console.error("saveRefreshToken failed:", err.message)
+        );
         return token;
       }
 

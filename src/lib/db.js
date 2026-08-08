@@ -90,6 +90,43 @@ async function ensureSchema() {
           created_at TIMESTAMPTZ DEFAULT now()
         );
       `);
+      // فاز ۴ — زمان‌بندی خودکار: چون این پایپ‌لاین باید بدون هیچ نشست
+      // مرورگرِ فعالی (نه NextAuth session، نه کوکی) بتونه آپلود کنه،
+      // refresh_token گوگل رو (که با access_type=offline از قبل گرفته
+      // می‌شه) اینجا هم ذخیره می‌کنیم، نه فقط تو کوکیِ رمزنگاری‌شده‌ی
+      // NextAuth. یک ردیف ثابت (id=1) چون کل اپ تک‌کاربره/تک‌کاناله.
+      await getPool().query(`
+        CREATE TABLE IF NOT EXISTS channel_auth (
+          id INTEGER PRIMARY KEY DEFAULT 1,
+          refresh_token TEXT,
+          updated_at TIMESTAMPTZ DEFAULT now(),
+          CONSTRAINT single_row CHECK (id = 1)
+        );
+      `);
+      await getPool().query(`
+        CREATE TABLE IF NOT EXISTS schedules (
+          id SERIAL PRIMARY KEY,
+          video_mode TEXT NOT NULL,
+          days_of_week INTEGER[] NOT NULL,
+          time_of_day TEXT NOT NULL,
+          timezone TEXT NOT NULL DEFAULT 'Asia/Tehran',
+          privacy_status TEXT NOT NULL DEFAULT 'public',
+          enabled BOOLEAN NOT NULL DEFAULT true,
+          last_run_date TEXT,
+          created_at TIMESTAMPTZ DEFAULT now()
+        );
+      `);
+      await getPool().query(`
+        CREATE TABLE IF NOT EXISTS schedule_runs (
+          id SERIAL PRIMARY KEY,
+          schedule_id INTEGER NOT NULL,
+          status TEXT NOT NULL DEFAULT 'running',
+          video_id TEXT,
+          error TEXT,
+          started_at TIMESTAMPTZ DEFAULT now(),
+          finished_at TIMESTAMPTZ
+        );
+      `);
     })();
   }
   await schemaReady;
@@ -269,6 +306,105 @@ export async function getTopPerformingVideos(limit = 5) {
      WHERE retention_pct IS NOT NULL AND retention_pct > 0 AND views >= 10
      ORDER BY retention_pct DESC
      LIMIT $1`,
+    [limit]
+  );
+  return res.rows;
+}
+
+// --- فاز ۴: زمان‌بندی خودکار ---
+
+// refresh_token گوگل رو ذخیره می‌کنه (هر بار کاربر لاگین می‌کنه، از
+// authOptions.js صدا زده می‌شه). upsert روی همون ردیف ثابت id=1.
+export async function saveRefreshToken(refreshToken) {
+  if (!refreshToken) return; // گوگل همیشه refresh_token جدید برنمی‌گردونه؛ قدیمی رو دست‌نخورده نگه می‌داریم
+  await ensureSchema();
+  await getPool().query(
+    `INSERT INTO channel_auth (id, refresh_token, updated_at) VALUES (1, $1, now())
+     ON CONFLICT (id) DO UPDATE SET refresh_token = $1, updated_at = now()`,
+    [refreshToken]
+  );
+}
+
+export async function getRefreshToken() {
+  await ensureSchema();
+  const res = await getPool().query(`SELECT refresh_token FROM channel_auth WHERE id = 1`);
+  return res.rows[0]?.refresh_token || null;
+}
+
+export async function listSchedules() {
+  await ensureSchema();
+  const res = await getPool().query(
+    `SELECT id, video_mode, days_of_week, time_of_day, timezone, privacy_status,
+            enabled, last_run_date, created_at
+     FROM schedules ORDER BY created_at ASC`
+  );
+  return res.rows;
+}
+
+export async function createSchedule({
+  videoMode,
+  daysOfWeek,
+  timeOfDay,
+  timezone,
+  privacyStatus,
+}) {
+  await ensureSchema();
+  const res = await getPool().query(
+    `INSERT INTO schedules (video_mode, days_of_week, time_of_day, timezone, privacy_status)
+     VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+    [videoMode, daysOfWeek, timeOfDay, timezone || "Asia/Tehran", privacyStatus || "public"]
+  );
+  return res.rows[0];
+}
+
+export async function updateSchedule(id, { daysOfWeek, timeOfDay, timezone, privacyStatus, enabled }) {
+  await ensureSchema();
+  await getPool().query(
+    `UPDATE schedules SET
+       days_of_week = COALESCE($2, days_of_week),
+       time_of_day = COALESCE($3, time_of_day),
+       timezone = COALESCE($4, timezone),
+       privacy_status = COALESCE($5, privacy_status),
+       enabled = COALESCE($6, enabled)
+     WHERE id = $1`,
+    [id, daysOfWeek || null, timeOfDay || null, timezone || null, privacyStatus || null, enabled ?? null]
+  );
+}
+
+export async function deleteSchedule(id) {
+  await ensureSchema();
+  await getPool().query(`DELETE FROM schedules WHERE id = $1`, [id]);
+}
+
+// claim کردنِ یک زمان‌بندی برای امروز — قبل از شروعِ واقعیِ رندر صدا زده
+// می‌شه، تا اگه دو تا ping هم‌پوشان با هم برسن، دوبار اجرا نشه.
+export async function markScheduleRan(id, dateStr) {
+  await ensureSchema();
+  await getPool().query(`UPDATE schedules SET last_run_date = $2 WHERE id = $1`, [id, dateStr]);
+}
+
+export async function startScheduleRun(scheduleId) {
+  await ensureSchema();
+  const res = await getPool().query(
+    `INSERT INTO schedule_runs (schedule_id, status) VALUES ($1, 'running') RETURNING id`,
+    [scheduleId]
+  );
+  return res.rows[0].id;
+}
+
+export async function finishScheduleRun(runId, { status, videoId, error }) {
+  await ensureSchema();
+  await getPool().query(
+    `UPDATE schedule_runs SET status = $2, video_id = $3, error = $4, finished_at = now() WHERE id = $1`,
+    [runId, status, videoId || null, error || null]
+  );
+}
+
+export async function listRecentScheduleRuns(limit = 20) {
+  await ensureSchema();
+  const res = await getPool().query(
+    `SELECT id, schedule_id, status, video_id, error, started_at, finished_at
+     FROM schedule_runs ORDER BY started_at DESC LIMIT $1`,
     [limit]
   );
   return res.rows;

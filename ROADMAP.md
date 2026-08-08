@@ -43,7 +43,10 @@ video editor, no manual upload.
 ## Environment variables (set in Render dashboard)
 
 `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `NEXTAUTH_SECRET`,
-`NEXTAUTH_URL`, `GROQ_API_KEY`, `PEXELS_API_KEY`, `DATABASE_URL`
+`NEXTAUTH_URL`, `GROQ_API_KEY`, `PEXELS_API_KEY`, `DATABASE_URL`,
+`CRON_SECRET` *(Phase 4 — shared secret an external cron pinger sends
+to `/api/scheduler/run`; that endpoint is disabled entirely if this
+isn't set)*
 
 ## Deployment workflow (Termux, Android)
 
@@ -73,40 +76,48 @@ git push
 - `long/page.js`, `short/page.js` — render `VideoStudio` with `mode="long"` / `"short"`
 - `analytics/page.js` — renders `ChannelAnalytics`
 - `api-check/page.js` — renders `ApiStatus`
+- **`schedule/page.js`** *(new, Phase 4)* — renders `ScheduleSettings`
 - `layout.js` — RTL Persian layout, Vazirmatn font
 - `providers.js` — NextAuth `SessionProvider` wrapper
 
 ### API routes (`src/app/api/`)
-- **`generate-script/route.js`** — Groq call that writes the narration: story→emotion→insight→action formula, Maya's energetic personality + rotating catchphrase kit baked into the prompt. Plain text output (not JSON) — must stay editable in the UI textarea and usable as-is by TTS/metadata calls.
-- **`generate-and-upload/route.js`** — the core pipeline, streams progress as newline-delimited JSON. Steps: TTS → bucket script into timed segments (`distributeDurations`) → per-segment Pexels search → FFmpeg render (per-segment batches, dynamic ducked BGM) → refresh Google token → upload to YouTube → thumbnail (variant A live, variant B stored) → English SRT caption → translated captions (5 languages) → community-post draft (long-form only). Sends a heartbeat ping every 15s throughout.
+- **`generate-script/route.js`** — thin wrapper: auth check, then calls `lib/scriptGen.js`. *Phase 4: logic itself moved into the lib so the scheduler can call it without an HTTP round-trip; behavior/prompt unchanged.*
+- **`generate-and-upload/route.js`** — thin wrapper: streams NDJSON progress, but the actual work now lives in `lib/pipeline.js: runPipeline()`. *Phase 4 extraction — same steps as before (TTS → media → render → upload → thumbnail → captions → community-post draft), just shared with the scheduler now instead of duplicated.*
 - `images/route.js`, `clips/route.js` — thin wrappers around `lib/media.js`
 - `tts/route.js` — voice preview
-- `suggest-metadata/route.js` — AI (or heuristic fallback) title/description/tags from a script; now returns **two** title + thumbnail-text variants (A/B) per call.
+- `suggest-metadata/route.js` — thin wrapper around `lib/metadataGen.js` (AI or heuristic title/description/tags, two A/B variants). *Phase 4: logic moved into the lib for the same reason as generate-script.*
 - `upload/route.js` — manual path: user uploads an already-made video file directly, still gets a Maya thumbnail. Does NOT have the long-render token-refresh logic (not needed — this path is short).
 - `sync-stats/route.js` — pulls views/subscribers/likes from YouTube Analytics into the DB
 - `videos/route.js` — lists recorded videos (analytics page)
 - `status/route.js`, `status/groq`, `status/pexels`, `status/youtube` — connectivity checks for the API-check page
-- `auth/[...nextauth]/route.js` + `auth/authOptions.js` — Google OAuth, JWT refresh logic (`refreshAccessToken` is exported for reuse)
-- **`community-post/route.js`** *(new, Phase 3)* — generates + stores a Community Tab post draft (poll or quote) via Groq for a given `videoId`. Draft only — see Known constraints.
-- **`ab-test/route.js`** *(new, Phase 3)* — switches the *live* title+thumbnail on a given video between stored variant A/B (`videos.update` + `thumbnails.set`). Sequential switch, not simultaneous split-testing — see Known constraints.
-- **`repurpose-short/route.js`** *(new, Phase 3)* — accepts a source long-form video file (multipart) + its YouTube `videoId`, reads the retention curve from YouTube Analytics, crops the highest-retention window to 9:16 with animated captions, and either returns the `.mp4` or auto-uploads it as a Short.
+- `auth/[...nextauth]/route.js` + `auth/authOptions.js` — Google OAuth, JWT refresh logic (`refreshAccessToken` is exported for reuse). *Phase 4: `jwt` callback now also persists the Google `refresh_token` to the DB (`saveRefreshToken`) on every fresh sign-in — see Known constraints for why.*
+- `community-post/route.js` — generates + stores a Community Tab post draft (poll or quote) via Groq for a given `videoId`. Draft only — see Known constraints.
+- `ab-test/route.js` — switches the *live* title+thumbnail on a given video between stored variant A/B (`videos.update` + `thumbnails.set`). Sequential switch, not simultaneous split-testing — see Known constraints.
+- `repurpose-short/route.js` — accepts a source long-form video file (multipart) + its YouTube `videoId`, reads the retention curve from YouTube Analytics, crops the highest-retention window to 9:16 with animated captions, and either returns the `.mp4` or auto-uploads it as a Short.
+- **`scheduler/run/route.js`** *(new, Phase 4)* — the endpoint an external cron pinger hits (GET, `?secret=` or `x-cron-secret` header must match `CRON_SECRET`). Checks all enabled `schedules` against the current time in each one's own timezone; for anything due, claims it (`last_run_date`) and kicks off `generateScript` → `generateMetadata` → `runPipeline` in the background (fire-and-forget after responding, since this is a persistent Node process on Render, not serverless) — logs progress to `console.log` and the final result to `schedule_runs`. See Known constraints for the whole "why not just use setInterval" reasoning.
+- **`schedules/route.js`** *(new, Phase 4)* — CRUD (GET/POST/PUT/DELETE) for schedule configs, used by `ScheduleSettings.js`. Requires a normal logged-in session (unlike `scheduler/run`, which uses the cron secret instead since it has no browser session).
 
 ### Lib (`src/lib/`)
-- **`videoRender.js`** — FFmpeg orchestration. One segment per FFmpeg process (`BATCH_SIZE = 1`, deliberately, to stay inside 512MB RAM — **kept intact in Phase 3**), 300s timeout per segment (throws and stops the whole render on failure — no retry). Maya appears large/centered ("presenter" role) only on the first and last segment; alternates small-corner-cameo/fully-hidden for body segments. Backdrop blur uses a downscale→blur→upscale trick for speed. *Phase 3:* final audio mix now picks a local mood-matched BGM track (`public/audio/bgm/`, mapped from `pickMayaPose`) and ducks it under narration via `sidechaincompress` (falls back to the old synthetic tone if no BGM file exists — never fails the render). New exports: `renderVerticalShortFromSource` (crop-to-9:16 + animated burned-in captions for Shorts) and `probeDurationSec` (reads source duration from ffmpeg's own stderr — no ffprobe dependency in this project).
+- **`videoRender.js`** — FFmpeg orchestration. One segment per FFmpeg process (`BATCH_SIZE = 1`, deliberately, to stay inside 512MB RAM — kept intact through every phase), 300s timeout per segment (throws and stops the whole render on failure — no retry). Maya appears large/centered ("presenter" role) only on the first and last segment; alternates small-corner-cameo/fully-hidden for body segments. Backdrop blur uses a downscale→blur→upscale trick for speed. Final audio mix picks a local mood-matched BGM track (`public/audio/bgm/`, mapped from `pickMayaPose`) and ducks it under narration via `sidechaincompress` (falls back to the old synthetic tone if no BGM file exists — never fails the render). Also exports `renderVerticalShortFromSource` (crop-to-9:16 + animated burned-in captions for Shorts) and `probeDurationSec`/`probeHasAudioStream` (read straight from ffmpeg's own stderr — no ffprobe dependency in this project).
 - **`scriptTiming.js`** — splits the flat script into N timed buckets (`distributeDurations`) and builds SRT files (`buildSrt`) from any (captions, durations) pair — reused for every caption language.
 - `media.js` — Pexels search (`fetchImages`/`fetchClips`); auto-extracts keywords from text when no manual keyword is given.
 - **`translateCaptions.js`** — Groq call that translates the caption array into another language, 1:1 index-preserving (required so `buildSrt` timing still lines up with the video).
-- `mayaThumbnail.js` — composites the YouTube thumbnail (Maya + blurred background + title text); picks Maya's pose by keyword-matching segment text against 7 moods + a default. *Phase 3:* `pickMayaPose` now built on `pickMayaPoseRanked` (full ranking, not just top pick); `buildMayaThumbnail` takes a `variant` ('A'/'B') that changes the color grade (purple-orange vs. teal-blue) and picks the 2nd-ranked pose for B; new `buildMayaThumbnailVariants` builds both in one call.
+- `mayaThumbnail.js` — composites the YouTube thumbnail (Maya + blurred background + title text); picks Maya's pose by keyword-matching segment text against 7 moods + a default (`pickMayaPose`, built on `pickMayaPoseRanked` — full ranking, not just top pick). `buildMayaThumbnail` takes a `variant` ('A'/'B') that changes the color grade (purple-orange vs. teal-blue) and picks the 2nd-ranked pose for B; `buildMayaThumbnailVariants` builds both in one call.
 - `channelHistory.js` — pulls recent video titles from YouTube itself, used as "memory" so new scripts don't repeat topics
 - `youtubeAnalytics.js` — batch stats fetch for `sync-stats`
-- `db.js` — Postgres pool + `videos` table (auto-created on first use). *Phase 3:* added `title_a/title_b/thumbnail_text_a/thumbnail_text_b/active_variant` columns + `setActiveVariant`/`getVideoByVideoId`; new `community_posts` and `repurposed_shorts` tables + their record/get functions.
-- **`repurpose.js`** *(new, Phase 3)* — `getRetentionCurve` (YouTube Analytics `elapsedVideoTimeRatio`) + `findBestRetentionWindow` (picks the highest-retention slice of a given target length; falls back to a documented heuristic window for videos too new to have retention data yet).
-- **`communityPost.js`** *(new, Phase 3)* — Groq call that writes one Community Tab post draft (poll or quote) for a video.
+- `db.js` — Postgres pool + `videos` table (auto-created on first use), plus `title_a/title_b/thumbnail_text_a/thumbnail_text_b/active_variant` columns, `community_posts` and `repurposed_shorts` tables. *Phase 4:* new `channel_auth` table (single row, holds the persisted Google `refresh_token`), `schedules` table, `schedule_runs` table, and all their CRUD/log functions.
+- `repurpose.js` — `getRetentionCurve` (YouTube Analytics `elapsedVideoTimeRatio`) + `findBestRetentionWindow` (picks the highest-retention slice of a given target length; falls back to a documented heuristic window for videos too new to have retention data yet).
+- `communityPost.js` — Groq call that writes one Community Tab post draft (poll or quote) for a video.
+- **`scriptGen.js`** *(new, Phase 4)* — script-generation logic extracted out of `generate-script/route.js` (`generateScript({topic, mode, accessToken})`), so both the interactive route and the scheduler call the exact same code path instead of two copies drifting apart.
+- **`metadataGen.js`** *(new, Phase 4)* — title/description/tags/A-B-variant generation extracted out of `suggest-metadata/route.js` (`generateMetadata(script)`), same reasoning as `scriptGen.js`.
+- **`pipeline.js`** *(new, Phase 4)* — the entire TTS→media→render→upload→thumbnail→captions→community-post sequence extracted out of `generate-and-upload/route.js` into `runPipeline(params, {emit})`. `emit(obj)` has the exact same `{status, progress}` shape the old inline `send()` had. The upload-time access-token refresh is caller-supplied (`getUploadAccessToken`) rather than hardcoded, since the interactive route refreshes from the NextAuth cookie while the scheduler refreshes from the DB-stored refresh token — `pipeline.js` itself stays agnostic of which.
 
 ### Components (`src/components/`)
 - `VideoStudio.js` — the whole long/short creation UI + the streaming-fetch client for `generate-and-upload`
-- `ChannelAnalytics.js` — as named. *Phase 3:* added a per-video actions column — "generate community post draft" (shows the poll/quote inline) and A/B title switch buttons (bold = currently live variant).
-- `ApiStatus.js`, `NavBar.js` — as named (NavBar also auto-signs-out on an unrecoverable token-refresh error)
+- `ChannelAnalytics.js` — video list + stats, per-video community-post-draft button, and A/B title switch buttons (bold = currently live variant)
+- `ApiStatus.js` — as named
+- `NavBar.js` — as named (also auto-signs-out on an unrecoverable token-refresh error). *Phase 4: added the "⏰ زمان‌بندی خودکار" nav link.*
+- **`ScheduleSettings.js`** *(new, Phase 4)* — lists/creates/edits/deletes schedules, shows the external-cron setup instructions (with the exact URL to paste into cron-job.org, minus the secret value itself), and shows a log of recent scheduled runs (status/videoId/error).
 - `HomeDashboard.js` — **unused/legacy**, superseded by the inline dashboard in `app/page.js`. Safe to ignore or delete.
 
 ## Known constraints
@@ -147,10 +158,117 @@ git push
   back to the old synthetic tone per file if a given mood's track is
   missing, so nothing breaks either way — it just sounds better once
   real tracks are added.
+- **Why scheduled uploads use an external cron pinger instead of an
+  in-app `setInterval`**: confirmed (both by the user's own earlier
+  testing, see the 2026-08-06 heartbeat entry below, and by re-checking
+  current Render pricing while building this) that Render's free tier
+  spins the whole service down after 15 minutes with no new *inbound*
+  HTTP request — while asleep, literally no JS is running, so nothing
+  running inside the app can wake itself up at a scheduled time. Render
+  does sell a native Cron Job product, but it's billed per-minute as a
+  separate paid service (not part of the free tier), which conflicts
+  with this project's explicit free-tier constraint — so
+  `scheduler/run/route.js` instead expects a **free external pinger**
+  (cron-job.org recommended, ~10 min interval) to hit it; the endpoint
+  itself decides whether anything is actually due. If a $0 constraint
+  stops mattering later, switching to Render's own Cron Job calling the
+  same URL is a one-line config change, no code change needed.
+- The scheduler currently has **no catch-up/retry for a missed slot**
+  — if the service happens to be down for the entire ~15-minute
+  tolerance window around a scheduled time (rare, but possible right
+  after a deploy or an extended outage), that day's/week's run is
+  simply skipped, not queued for later. Visible either way in the
+  "اجراهای اخیر" log on `/schedule` (a gap where a run should've been).
+- Scheduled (unattended) uploads reuse the same "let AI pick a topic"
+  path already used interactively — there's no per-schedule topic
+  queue. Script/metadata quality is exactly what the manual path
+  already produces, since both now call the same `lib/scriptGen.js` /
+  `lib/metadataGen.js` functions.
+- The Google **refresh token is now also persisted to Postgres**
+  (`channel_auth` table, `saveRefreshToken`/`getRefreshToken` in
+  `db.js`) — required so the scheduler can mint a YouTube access token
+  with nobody logged in. Single-row table, matching this app's
+  single-channel design; re-signing-in overwrites it. If Google ever
+  stops returning a `refresh_token` on a given sign-in (it only does
+  so reliably on first consent per app+account), the old one already
+  in the DB is kept as-is rather than overwritten with nothing.
 
 ## Changelog
 
 Newest first. Add new entries above the top one — date, what, why, files.
+
+### 2026-08-08 — Phase 4: fully automatic scheduled uploads
+User wants zero-touch publishing: a short every day at a set time, a
+long video once a week at a different time, both configurable from
+the site itself (day/days + time + timezone + privacy).
+
+**Why this needed a real refactor, not just a new route:** the existing
+generate/upload logic lived entirely inside two interactive,
+session-bound route handlers (`generate-script`, `suggest-metadata`,
+`generate-and-upload`) — each assumed a logged-in browser session and,
+for the upload route, an NDJSON stream back to a client. A scheduler
+has neither. So the actual generation logic was extracted into three
+`lib/` functions (`scriptGen.js`, `metadataGen.js`, `pipeline.js`) that
+both the interactive routes *and* the new scheduler call — same code
+path, not a second copy that could drift out of sync. The interactive
+routes are now thin wrappers (auth check → call the lib function →
+shape the response the same as before); verified their behavior is
+unchanged (same prompts, same response shapes, same streamed
+`{status, progress}` events).
+
+**Auth for a pipeline with nobody logged in:** the Google `refresh_token`
+(already fetched via `access_type=offline` at sign-in) previously only
+lived in the encrypted NextAuth session cookie — no use to a background
+job. `authOptions.js`'s `jwt` callback now also saves it to a new
+`channel_auth` table on every fresh sign-in, and the scheduler pulls it
+from there to mint fresh access tokens on its own, no browser required.
+
+**Why an external pinger instead of an in-app timer:** confirmed (re-
+checked current Render pricing while building this) that the free tier
+spins the whole service down after 15 min idle — while asleep, no code
+is running at all, so nothing inside the app can wake itself up at a
+scheduled time. Render does sell a native Cron Job, but it's a paid
+add-on, which conflicts with this project's stated free-tier
+constraint. So instead: new `api/scheduler/run/route.js`, a GET
+endpoint secured by a `CRON_SECRET` env var, meant to be pinged every
+~10 min by a free external service (cron-job.org recommended — set up
+instructions are shown right on the new `/schedule` page, URL included,
+secret redacted). Each ping checks every enabled schedule against the
+current time *in that schedule's own timezone*, and for anything due
+(within a 15-min tolerance window, and not already run today), claims
+it immediately (`schedules.last_run_date`) then kicks off script→
+metadata→render→upload in the background *after* responding to the
+pinger — this works because Render hosts this as a persistent Node
+process, not a serverless function, so background work genuinely
+continues post-response. The scheduled run reuses the exact same
+5-minute self-ping-to-`/api/status` trick the interactive upload route
+already used to survive its own 15-40 min duration.
+
+**New tables**: `schedules` (video_mode, days_of_week int[], time_of_day,
+timezone, privacy_status, enabled, last_run_date) and `schedule_runs`
+(status/videoId/error log per attempt, shown on `/schedule`).
+
+**New page**: `/schedule` (`ScheduleSettings.js`) — add/edit/enable/
+delete schedules, day-of-week checkboxes + time + IANA timezone
+(defaults `Asia/Tehran`) + privacy dropdown (defaults **public** — since
+the entire point is zero-touch, unlike the manual path which defaults
+to private; change per-schedule if that's not wanted), plus a table of
+recent runs so it's visible from the site whether it's actually
+firing, without needing DB access. Linked from `NavBar.js`.
+
+**Known limitations, not silently glossed over** (also in Known
+constraints above): no catch-up if a slot is missed entirely (e.g. the
+service was down through the whole tolerance window); topic is always
+AI-picked (no per-schedule topic queue) — same as the existing "let AI
+pick" behavior already used interactively, nothing new there.
+
+Files: `lib/scriptGen.js` (new), `lib/metadataGen.js` (new),
+`lib/pipeline.js` (new), `lib/db.js`, `api/generate-script/route.js`
+(now a thin wrapper), `api/suggest-metadata/route.js` (now a thin
+wrapper), `api/generate-and-upload/route.js` (now a thin wrapper),
+`api/scheduler/run/route.js` (new), `api/schedules/route.js` (new),
+`api/auth/authOptions.js`, `components/ScheduleSettings.js` (new),
+`components/NavBar.js`, `app/schedule/page.js` (new).
 
 ### 2026-08-08 — Phase 3: multi-platform distribution, A/B testing, Shorts repurposing, dynamic BGM
 Five changes, engagement/growth/audio-quality focused. Two real YouTube
