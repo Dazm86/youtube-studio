@@ -42,15 +42,14 @@ export async function POST(req) {
 1. Hook (first ~3 seconds): one line that immediately grabs attention — a surprising claim, a "you've probably felt this" moment, or a direct question.
 2. Empathy (next ~10 seconds): show you understand the viewer's struggle, in their own words.
 3. Insight (next ~30 seconds): the core reframe or unexpected angle — the heart of the video, not just a slogan.
-4. Closing (final ~15-20 seconds): one memorable, quotable line that stays with the viewer. Not a call to subscribe.`
-    : `Write a spoken narration script for a long-form video (about 7-8 minutes when read aloud, roughly 950-1150 words), structured in six beats:
-1. Opening: a question or short story that pulls the viewer in.
-2. Problem: frame why this topic actually matters.
-3. Story: one real-feeling story, experience, or scenario that illustrates it.
-4. Insight: the core, deep, practical message — an unexpected angle, not a slogan.
-5. Action: 3-5 concrete, specific steps the viewer can actually take.
-6. Wrap-up: an inspiring close that invites reflection, not just a request to subscribe.
-Vary sentence rhythm so it doesn't feel repetitive over the longer length.`;
+4. Closing (final ~15-20 seconds): end with one specific, personal question tied directly to this video's topic, then explicitly invite viewers to answer in the comments (in the spirit of: "What's a memory you can't seem to shake? Tell me in the comments." — always reworded and specific to this video's actual topic, never a generic "what do you think?"). Not a call to subscribe.`
+    : `Write a spoken narration script for a long-form video that MUST run past the 8-minute mark when read aloud — target 1200-1500 words, never fewer than 1200. Structure it around 3-4 deep sub-sections that each get real room to breathe (a few hundred words each, packed with concrete detail — this is a deep dive, not a quick overview):
+1. Hook + Root Cause: open with a question or short story that pulls the viewer in, then dig into WHY this problem actually happens — the real, underlying cause most people never examine.
+2. Symptoms / How It Shows Up: describe, specifically and relatably, how this plays out in someone's actual daily life — enough detail that the viewer recognizes themselves in it.
+3. Real Story: one real-feeling story, experience, or scenario — a specific character or moment, not an abstraction — that makes it concrete.
+4. Actionable Steps: 3-5 concrete, specific steps the viewer can actually take, each explained enough to be genuinely useful, not just listed in passing.
+Close with a brief, inspiring wrap-up that invites reflection, then end with one specific, personal question tied directly to this video's topic, explicitly inviting viewers to share their answer in the comments (in the spirit of: "What's a memory you can't seem to shake? Let me know in the comments." — always reworded and specific to this video's actual topic, never a generic "what do you think?"). Not just a request to subscribe.
+Vary sentence rhythm so it doesn't feel repetitive over the longer length. Do not rush any section to hit a shorter length — if a section feels thin, expand it with more concrete detail, examples, or explanation rather than moving on early.`;
 
   // حلقه‌ی بازخورد: بهترین ویدیوهای قبلی از نظر نگه‌داشت مخاطب (اگه داده‌ای
   // باشه) — فقط جمله‌ی اول هرکدوم رو می‌فرستیم، نه کل اسکریپت، تا هزینه‌ی
@@ -106,7 +105,9 @@ Respond with ONLY the narration text itself, nothing else.`;
         model: "llama-3.3-70b-versatile",
         messages: [{ role: "user", content: prompt }],
         temperature: 1,
-        max_tokens: isShort ? 400 : 2500,
+        // حالت بلند حالا هدفش ۱۲۰۰-۱۵۰۰ کلمه‌ست (قبلاً ~۹۵۰-۱۱۵۰ بود)؛
+        // سقف توکن رو بالا بردیم که وسط اسکریپت قطع نشه.
+        max_tokens: isShort ? 400 : 3000,
       }),
     });
 

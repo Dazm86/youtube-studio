@@ -33,11 +33,11 @@ function extractKeywords(text, count) {
 function heuristicMetadata(script) {
   const keywords = extractKeywords(script, 12);
   const firstSentence = (script.match(/[^.!?]+[.!?]?/) || [script])[0].trim();
-  // زیر ۴۸ کاراکتر نگه می‌داریم تا با " | The Mindful Path" اضافه‌شده
-  // عنوان کامل هنوز زیر ~۷۰ کاراکتر بمونه.
+  // زیر ۵۲ کاراکتر نگه می‌داریم تا با " | The Mindful Path" اضافه‌شده
+  // عنوان کامل هنوز زیر ~۷۲ کاراکتر بمونه.
   const hook =
-    firstSentence.length > 48
-      ? firstSentence.slice(0, 45) + "..."
+    firstSentence.length > 52
+      ? firstSentence.slice(0, 49) + "..."
       : firstSentence;
   const title = `${hook} | The Mindful Path`;
 
@@ -81,7 +81,7 @@ Respond with ONLY a JSON object (no markdown, no code fences, no explanation) in
 {"title": "...", "thumbnailText": "...", "description": "...", "tags": ["...", "..."]}
 
 Rules:
-- title: MUST open with a strong hook pulled straight from the video's topic — a specific keyword, a number, or a named problem/pain point (e.g. "5 Signs...", "Anxiety Doesn't...", "Why You Can't Stop..."). Never open with a generic phrase, a greeting, or a full sentence copied from the script. Follow the hook with the rest of the title, then end with exactly " | The Mindful Path". Keep everything before that suffix under ~48 characters so the full title stays under ~70.
+- title: MUST present a concrete problem and promise a solution — this is the most important rule and overrides any pull toward something clever-sounding. Strictly forbidden: artistic, poetic, vague, or abstract titles (never something like "Memory Echoes" or "The Weight We Carry") — a viewer must understand exactly what problem this video solves within one glance. Prefer the pattern "[Problem statement or question] (And How to [Solution/Fix])" (e.g. "Why You Can't Let Go of the Past (And How to Stop)", "5 Signs You're Burning Out (And What Actually Helps)") — a number or a direct why/how framing both work as the opening hook, but the title must always resolve toward a solution being promised, never just name a feeling. Follow the hook with the rest of the title, then end with exactly " | The Mindful Path". Keep everything before that suffix under ~52 characters so the full title stays under ~72.
 - thumbnailText: 4-6 words only, written to sit as bold text on a thumbnail image (short, punchy, high-curiosity). Must NOT restate or shorten the title — give it a different angle or emotional beat from the same topic. No trailing punctuation.
 - description: the FIRST LINE must open directly with the video's main keyword/topic — no "Hey!", "Welcome", "In this video" or similar greetings, since that first line is all viewers see before "Show more". After that keyword-led opening line, add 2-3 more warm sentences summarizing the video's message, ending with 3-5 relevant hashtags.
 - tags: 10-15 short relevant keywords/phrases for YouTube SEO (lowercase, no # symbol)`;

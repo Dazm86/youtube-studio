@@ -86,9 +86,17 @@ export async function POST(req) {
         // --- ۲. تقسیم اسکریپت به بخش‌های زمان‌بندی‌شده + گرفتن عکس/کلیپ مخصوص هر بخش ---
         const isShort = videoMode === "short";
         const audioDurationSec = estimateAudioDurationSec(audioBuffer);
+        // سرعت تعویض تصویر: کوتاه هر ۲-۳ ثانیه (محور ۲.۵)، بلند هر ۵-۸ ثانیه
+        // (محور ۶.۵) — چون اسکریپت بلند حالا خیلی طولانی‌تره (۱۲۰۰-۱۵۰۰ کلمه،
+        // یعنی ~۸-۱۰ دقیقه)، این با تقسیم قبلی (هر ۲۴ ثانیه) فاصله‌ی زیادی داره:
+        // تعداد قطعات می‌تونه به ~۶۰-۸۰ برسه. از نظر حافظه مشکلی نیست، چون
+        // BATCH_SIZE=1 تو videoRender.js هر قطعه رو کاملاً جدا رندر می‌کنه —
+        // ولی یعنی به همون نسبت تعداد درخواست Pexels و رندرهای پی‌درپی بیشتر
+        // می‌شه (کل پایپ‌لاین کندتر می‌شه، نه سنگین‌تر). برای همین یه سقف
+        // (۸۰) گذاشتیم که از حد معقولی رد نشه.
         const mediaCount = isShort
-          ? 6
-          : Math.min(24, Math.max(6, Math.ceil(audioDurationSec / 24)));
+          ? Math.min(30, Math.max(8, Math.ceil(audioDurationSec / 2.5)))
+          : Math.min(80, Math.max(6, Math.ceil(audioDurationSec / 6.5)));
         const { durations, captions } = distributeDurations(
           script,
           mediaCount,

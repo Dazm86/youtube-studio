@@ -114,6 +114,39 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-08 — Phase 2: monetization length, comment CTA, curiosity-gap titles, faster cuts
+Four changes aimed at watch time / ads / CTR:
+1. **Long-form length**: `generate-script`'s long-mode prompt now mandates
+   1200-1500 words (past the 8-min mark) in 3-4 deep sub-sections (hook +
+   root cause, symptoms, real story, actionable steps) instead of six
+   lighter beats averaging ~950-1150 words. `max_tokens` raised 2500→3000
+   so a full-length script doesn't get cut off mid-sentence.
+2. **Comment CTA**: both short and long prompts now require the closing
+   ~15-20s to end with one specific, personal, topic-tied question that
+   explicitly asks viewers to answer in the comments (not a generic "what
+   do you think?", not a subscribe ask).
+3. **Curiosity-gap titles**: `suggest-metadata`'s title rule now strictly
+   forbids artistic/abstract titles (e.g. "Memory Echoes") and requires a
+   concrete problem+solution pattern — "[Problem] (And How to [Fix])" —
+   before the " | The Mindful Path" suffix. Character budget loosened
+   48→52 (heuristic fallback too) since the parenthetical pattern runs
+   longer.
+4. **Faster cuts**: `generate-and-upload`'s `mediaCount` formula changed
+   from a fixed 6 (short) / ~24s-per-segment (long) to targeting 2-3s/
+   segment (short) and 5-8s/segment (long), via `audioDurationSec /
+   2.5` and `/ 6.5` respectively. Because long scripts are now much
+   longer, this can push segment count up to ~60-80 (was capped at 24) —
+   `BATCH_SIZE=1` in `videoRender.js` means peak memory is unaffected
+   (still exactly one image per ffmpeg run regardless of count), but the
+   pipeline runs more sequential Pexels searches + ffmpeg batches, so
+   total render time goes up too. Added a ceiling (30 short / 80 long)
+   so this can't run away. `scriptTiming.js` and `videoRender.js`
+   themselves needed no changes — both already handle any segment count
+   generically. Existing per-segment `send()` progress updates already
+   cover streaming liveness; no change needed there either.
+Files: `api/generate-script/route.js`, `api/suggest-metadata/route.js`,
+`api/generate-and-upload/route.js`.
+
 ### 2026-08-07 — Metadata rewrite: keyword-led titles, separate thumbnail text
 Rewrote `suggest-metadata`'s AI prompt after comparing the top 10 channels
 in the niche surfaced 4 gaps: titles buried the hook inside a generic
