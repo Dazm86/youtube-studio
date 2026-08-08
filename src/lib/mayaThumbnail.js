@@ -16,20 +16,24 @@ const POSE_KEYWORDS = {
 };
 
 export function pickMayaPose(text) {
+  return pickMayaPoseRanked(text)[0];
+}
+
+// همون امتیازدهی pickMayaPose، ولی کل رتبه‌بندی رو برمی‌گردونه — برای
+// تست A/B تامبنیل لازمه که نسخه‌ی B یک ژست *متفاوت* (نه لزوماً بی‌ربط)
+// از همون متن انتخاب کنه، نه اینکه هر دو نسخه ژست یکسان داشته باشن.
+function pickMayaPoseRanked(text) {
   const t = (text || "").toLowerCase();
-  let best = "greeting";
-  let bestScore = 0;
-  for (const [pose, words] of Object.entries(POSE_KEYWORDS)) {
+  const scored = Object.entries(POSE_KEYWORDS).map(([pose, words]) => {
     let score = 0;
-    for (const w of words) {
-      if (t.includes(w)) score++;
-    }
-    if (score > bestScore) {
-      bestScore = score;
-      best = pose;
-    }
-  }
-  return best;
+    for (const w of words) if (t.includes(w)) score++;
+    return { pose, score };
+  });
+  scored.sort((a, b) => b.score - a.score);
+  const ranked = scored.filter((s) => s.score > 0).map((s) => s.pose);
+  if (ranked.length === 0) return ["greeting", "confident"];
+  if (ranked.length === 1) ranked.push("confident" === ranked[0] ? "excited" : "confident");
+  return ranked;
 }
 
 function escapeXml(str) {
@@ -61,9 +65,26 @@ function wrapText(text, maxCharsPerLine, maxLines) {
   return lines;
 }
 
-export async function buildMayaThumbnail({ title, thumbnailText, script, bgImageUrl }) {
+// دو کانسپت رنگی برای تست A/B. A همون گرید بنفش-نارنجیِ برند فعلیه؛
+// B یک گرید سردتر آبی-فیروزه‌ای (پس‌زمینه هم modulate hue می‌گیره)، تا
+// دو نسخه از نظر بصری واقعاً قابل تمایز باشن، نه فقط متن‌شون فرق کنه.
+const VARIANT_GRADES = {
+  A: { gradientFrom: "#7a3e9d", gradientTo: "#e8672c", hue: 0, saturation: 1 },
+  B: { gradientFrom: "#0f6e8c", gradientTo: "#0fb59e", hue: 200, saturation: 1.15 },
+};
+
+export async function buildMayaThumbnail({
+  title,
+  thumbnailText,
+  script,
+  bgImageUrl,
+  variant = "A",
+  posePool,
+}) {
   const displayText = thumbnailText || title;
-  const pose = pickMayaPose(script || title || "");
+  const grade = VARIANT_GRADES[variant] || VARIANT_GRADES.A;
+  const ranked = posePool || pickMayaPoseRanked(script || title || "");
+  const pose = variant === "B" ? ranked[1] || ranked[0] : ranked[0];
   const posePath = path.join(process.cwd(), "public", "maya", `${pose}.png`);
   const mayaBuffer = fs.readFileSync(posePath);
 
@@ -75,7 +96,7 @@ export async function buildMayaThumbnail({ title, thumbnailText, script, bgImage
       const arrBuf = await res.arrayBuffer();
       bg = await sharp(Buffer.from(arrBuf))
         .resize(CANVAS_W, CANVAS_H, { fit: "cover" })
-        .modulate({ brightness: 0.55 })
+        .modulate({ brightness: 0.55, saturation: grade.saturation, hue: grade.hue })
         .blur(6)
         .png()
         .toBuffer();
@@ -88,8 +109,8 @@ export async function buildMayaThumbnail({ title, thumbnailText, script, bgImage
       <svg width="${CANVAS_W}" height="${CANVAS_H}" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stop-color="#7a3e9d"/>
-            <stop offset="100%" stop-color="#e8672c"/>
+            <stop offset="0%" stop-color="${grade.gradientFrom}"/>
+            <stop offset="100%" stop-color="${grade.gradientTo}"/>
           </linearGradient>
         </defs>
         <rect width="100%" height="100%" fill="url(#g)"/>
@@ -137,4 +158,36 @@ export async function buildMayaThumbnail({ title, thumbnailText, script, bgImage
     .toBuffer();
 
   return finalImage;
+}
+
+// دو نسخه‌ی تامبنیل (A/B) رو با یک بار دانلود/پردازش پس‌زمینه می‌سازه —
+// pose ranking یک‌بار حساب می‌شه و بین هر دو نسخه به اشتراک گذاشته
+// می‌شه، تا نسخه‌ی B همیشه دومین ژست منطقی رو بگیره (نه یک ژست تصادفی).
+export async function buildMayaThumbnailVariants({
+  title,
+  thumbnailTextA,
+  thumbnailTextB,
+  script,
+  bgImageUrl,
+}) {
+  const posePool = pickMayaPoseRanked(script || title || "");
+  const [a, b] = await Promise.all([
+    buildMayaThumbnail({
+      title,
+      thumbnailText: thumbnailTextA,
+      script,
+      bgImageUrl,
+      variant: "A",
+      posePool,
+    }),
+    buildMayaThumbnail({
+      title,
+      thumbnailText: thumbnailTextB || thumbnailTextA,
+      script,
+      bgImageUrl,
+      variant: "B",
+      posePool,
+    }),
+  ]);
+  return { a, b };
 }

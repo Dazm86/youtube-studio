@@ -10,7 +10,8 @@ import { renderVideo, estimateAudioDurationSec } from "../../../lib/videoRender"
 import { distributeDurations, buildSrt } from "../../../lib/scriptTiming";
 import { translateCaptions } from "../../../lib/translateCaptions";
 import { buildMayaThumbnail } from "../../../lib/mayaThumbnail";
-import { recordVideo } from "../../../lib/db";
+import { generateCommunityPost } from "../../../lib/communityPost";
+import { recordVideo, recordCommunityPost } from "../../../lib/db";
 
 export async function POST(req) {
   const session = await getServerSession(authOptions);
@@ -31,6 +32,8 @@ export async function POST(req) {
     videoMode,
     useVideoClips,
     imageKeyword,
+    titleB,
+    thumbnailTextB,
   } = body;
 
   if (!script || !script.trim()) {
@@ -209,13 +212,24 @@ export async function POST(req) {
           useVideoClips,
           imageKeyword,
           thumbnailText,
+          titleB,
+          thumbnailTextB,
         });
         send({ status: "مرحله ۵ از ۵: در حال تنظیم تامبنیل و زیرنویس...", progress: 92 });
 
         // --- ۵. تامبنیل ---
+        // فقط نسخه‌ی A همین‌جا واقعاً روی ویدیو ست می‌شه — نسخه‌ی B تو
+        // دیتابیس نگه داشته می‌شه و بعداً از طریق api/ab-test می‌شه بهش
+        // سوییچ کرد (چون یوتیوب split-test هم‌زمان از طریق API نمی‌ده).
         let thumbnailStatus = "skipped";
         try {
-          const thumbBuffer = await buildMayaThumbnail({ title, thumbnailText, script, bgImageUrl });
+          const thumbBuffer = await buildMayaThumbnail({
+            title,
+            thumbnailText,
+            script,
+            bgImageUrl,
+            variant: "A",
+          });
           await youtube.thumbnails.set({
             videoId,
             media: { mimeType: "image/png", body: Readable.from(thumbBuffer) },
@@ -286,12 +300,33 @@ export async function POST(req) {
         }
         const translatedCaptionsSummary = `${translatedOk} از ${CAPTION_LANGUAGES.length} زبان اضافه شد`;
 
+        // --- ۸. پیش‌نویس پست کامیونیتی (فقط برای ویدیوهای لانگ) ---
+        // فقط پیش‌نویسه — یوتیوب راهی برای انتشار خودکار تو تب Community
+        // از طریق API عمومی نمی‌ده (توضیح کامل تو lib/communityPost.js).
+        // هیچ خطایی اینجا نباید کل آپلود رو خراب کنه، دقیقاً مثل
+        // تامبنیل/زیرنویس.
+        let communityPostStatus = "skipped";
+        let communityPostDraft = null;
+        if (!isShort && process.env.GROQ_API_KEY) {
+          try {
+            send({ status: "در حال ساخت پیش‌نویس پست کامیونیتی...", progress: 98 });
+            communityPostDraft = await generateCommunityPost({ title, script });
+            await recordCommunityPost({ videoId, ...communityPostDraft });
+            communityPostStatus = "ok";
+          } catch (postErr) {
+            console.error("community post generation failed:", postErr.message);
+            communityPostStatus = "failed: " + postErr.message;
+          }
+        }
+
         send({
           done: true,
           videoId,
           thumbnailStatus,
           captionStatus,
           translatedCaptionsSummary,
+          communityPostStatus,
+          communityPostDraft,
           progress: 100,
         });
       } catch (err) {

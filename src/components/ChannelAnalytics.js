@@ -26,6 +26,12 @@ export default function ChannelAnalytics() {
   const [error, setError] = useState("");
   const [syncing, setSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState("");
+  // فاز ۳: وضعیت هر اکشن (پست کامیونیتی / سوییچ A-B) به‌ازای هر videoId،
+  // جدا نگه داشته می‌شه تا کلیک روی یک ردیف بقیه رو تحت تاثیر قرار نده.
+  const [postDrafts, setPostDrafts] = useState({});
+  const [postLoading, setPostLoading] = useState({});
+  const [abLoading, setAbLoading] = useState({});
+  const [abStatus, setAbStatus] = useState({});
 
   // توجه: این تابع عمداً setState رو قبل از اولین await صدا نمی‌زنه، چون
   // از useEffect زیر هم فراخوانی می‌شه و React الان به‌خاطر ریندرهای زنجیره‌ای
@@ -67,6 +73,46 @@ export default function ChannelAnalytics() {
   }
 
   if (sessionStatus === "loading") return null;
+
+  // فاز ۳: پیش‌نویس پست کامیونیتی رو برای یک ویدیوی مشخص می‌سازه و
+  // ذخیره می‌کنه (فقط پیش‌نویس — یوتیوب انتشار خودکار تو Community
+  // نمی‌ده، برای همین متن آماده‌ی کپی برمی‌گرده).
+  async function handleCommunityPost(videoId) {
+    setPostLoading((s) => ({ ...s, [videoId]: true }));
+    try {
+      const res = await fetch("/api/community-post", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ videoId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "خطا در ساخت پیش‌نویس");
+      setPostDrafts((s) => ({ ...s, [videoId]: data }));
+    } catch (err) {
+      setPostDrafts((s) => ({ ...s, [videoId]: { error: err.message } }));
+    }
+    setPostLoading((s) => ({ ...s, [videoId]: false }));
+  }
+
+  // فاز ۳: سوییچ نسخه‌ی فعالِ عنوان/تامبنیل (A/B ترتیبی — توضیح کامل تو
+  // api/ab-test/route.js).
+  async function handleSwitchVariant(videoId, variant) {
+    setAbLoading((s) => ({ ...s, [videoId]: true }));
+    try {
+      const res = await fetch("/api/ab-test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ videoId, variant }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "خطا در سوییچ نسخه");
+      setAbStatus((s) => ({ ...s, [videoId]: `نسخه‌ی ${variant} فعال شد ✅` }));
+      await loadVideos();
+    } catch (err) {
+      setAbStatus((s) => ({ ...s, [videoId]: "خطا: " + err.message }));
+    }
+    setAbLoading((s) => ({ ...s, [videoId]: false }));
+  }
 
   if (!session) {
     return (
@@ -140,6 +186,7 @@ export default function ChannelAnalytics() {
                   <th style={{ padding: "0.4rem" }}>نگه‌داشت</th>
                   <th style={{ padding: "0.4rem" }}>CTR تامبنیل</th>
                   <th style={{ padding: "0.4rem" }}>تاریخ</th>
+                  <th style={{ padding: "0.4rem" }}>فاز ۳</th>
                 </tr>
               </thead>
               <tbody>
@@ -168,6 +215,75 @@ export default function ChannelAnalytics() {
                       {v.thumbnail_ctr ? `${Number(v.thumbnail_ctr).toFixed(1)}%` : "—"}
                     </td>
                     <td style={{ padding: "0.4rem" }}>{formatDate(v.created_at)}</td>
+                    <td style={{ padding: "0.4rem", minWidth: "180px" }}>
+                      {v.video_mode !== "short" && (
+                        <button
+                          type="button"
+                          onClick={() => handleCommunityPost(v.video_id)}
+                          disabled={postLoading[v.video_id]}
+                          style={{ fontSize: "0.75rem", marginBottom: "0.3rem", width: "100%" }}
+                        >
+                          {postLoading[v.video_id] ? "..." : "📝 پیش‌نویس پست کامیونیتی"}
+                        </button>
+                      )}
+                      {postDrafts[v.video_id] &&
+                        (postDrafts[v.video_id].error ? (
+                          <div style={{ color: "#e53935", fontSize: "0.7rem" }}>
+                            {postDrafts[v.video_id].error}
+                          </div>
+                        ) : (
+                          <div
+                            style={{
+                              fontSize: "0.7rem",
+                              background: "#f5f5f5",
+                              padding: "0.3rem",
+                              borderRadius: "4px",
+                              marginBottom: "0.3rem",
+                            }}
+                          >
+                            <strong>{postDrafts[v.video_id].postType === "poll" ? "نظرسنجی" : "نقل‌قول"}:</strong>{" "}
+                            {postDrafts[v.video_id].postText}
+                            {postDrafts[v.video_id].pollOptions && (
+                              <ul style={{ margin: "0.2rem 0 0", paddingRight: "1rem" }}>
+                                {postDrafts[v.video_id].pollOptions.map((opt, i) => (
+                                  <li key={i}>{opt}</li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        ))}
+                      {v.title_b && (
+                        <div style={{ display: "flex", gap: "0.3rem" }}>
+                          <button
+                            type="button"
+                            onClick={() => handleSwitchVariant(v.video_id, "A")}
+                            disabled={abLoading[v.video_id]}
+                            style={{
+                              fontSize: "0.7rem",
+                              flex: 1,
+                              fontWeight: v.active_variant === "A" ? "bold" : "normal",
+                            }}
+                          >
+                            عنوان A
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSwitchVariant(v.video_id, "B")}
+                            disabled={abLoading[v.video_id]}
+                            style={{
+                              fontSize: "0.7rem",
+                              flex: 1,
+                              fontWeight: v.active_variant === "B" ? "bold" : "normal",
+                            }}
+                          >
+                            عنوان B
+                          </button>
+                        </div>
+                      )}
+                      {abStatus[v.video_id] && (
+                        <div style={{ fontSize: "0.65rem", color: "#666" }}>{abStatus[v.video_id]}</div>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>

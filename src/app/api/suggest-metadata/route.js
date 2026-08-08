@@ -33,22 +33,37 @@ function extractKeywords(text, count) {
 function heuristicMetadata(script) {
   const keywords = extractKeywords(script, 12);
   const firstSentence = (script.match(/[^.!?]+[.!?]?/) || [script])[0].trim();
+  const secondSentence = (
+    script.match(/[^.!?]+[.!?]?/g) || [script]
+  )[1]?.trim();
   // زیر ۵۲ کاراکتر نگه می‌داریم تا با " | The Mindful Path" اضافه‌شده
   // عنوان کامل هنوز زیر ~۷۲ کاراکتر بمونه.
-  const hook =
-    firstSentence.length > 52
-      ? firstSentence.slice(0, 49) + "..."
-      : firstSentence;
-  const title = `${hook} | The Mindful Path`;
+  const clip = (s) => (s && s.length > 52 ? s.slice(0, 49) + "..." : s);
+  const topKeyword = keywords[0]
+    ? keywords[0][0].toUpperCase() + keywords[0].slice(1)
+    : "This";
 
-  // متن جدای صورت کوچک: ۴-۶ کلمه‌ی اول جمله، جدا از عنوان کامل
-  const thumbnailText =
-    firstSentence.split(/\s+/).slice(0, 5).join(" ") ||
-    (keywords[0] ? keywords[0][0].toUpperCase() + keywords[0].slice(1) : "Mindful Moment");
+  // نسخه‌ی A: هوک جمله‌ی اول اسکریپت (زاویه‌ی «مشکل/داستان»).
+  const titleA = `${clip(firstSentence) || topKeyword} | The Mindful Path`;
+  // نسخه‌ی B: زاویه‌ی «چرا/عدد»، از کلیدواژه‌ی غالب اسکریپت — عمداً متنِ
+  // متفاوتی از جمله‌ی اول می‌سازه تا دو نسخه واقعاً زاویه‌ی متفاوت داشته
+  // باشن، نه فقط بازنویسیِ همون جمله.
+  const titleB = `Why ${topKeyword} Feels So Hard (And What Helps) | The Mindful Path`;
+
+  // متن جدای صورت کوچک: هر نسخه از جمله‌ی متفاوتی برداشت می‌شه
+  const thumbnailTextA =
+    firstSentence.split(/\s+/).slice(0, 5).join(" ") || topKeyword;
+  const thumbnailTextB =
+    (secondSentence || firstSentence).split(/\s+/).slice(0, 5).join(" ") ||
+    topKeyword;
 
   return {
-    title,
-    thumbnailText,
+    title: titleA,
+    thumbnailText: thumbnailTextA,
+    titleA,
+    titleB,
+    thumbnailTextA,
+    thumbnailTextB,
     description: script.slice(0, 300),
     tags: keywords,
     source: "heuristic",
@@ -78,11 +93,11 @@ ${script}
 """
 
 Respond with ONLY a JSON object (no markdown, no code fences, no explanation) in this exact shape:
-{"title": "...", "thumbnailText": "...", "description": "...", "tags": ["...", "..."]}
+{"titleA": "...", "titleB": "...", "thumbnailTextA": "...", "thumbnailTextB": "...", "description": "...", "tags": ["...", "..."]}
 
 Rules:
-- title: MUST present a concrete problem and promise a solution — this is the most important rule and overrides any pull toward something clever-sounding. Strictly forbidden: artistic, poetic, vague, or abstract titles (never something like "Memory Echoes" or "The Weight We Carry") — a viewer must understand exactly what problem this video solves within one glance. Prefer the pattern "[Problem statement or question] (And How to [Solution/Fix])" (e.g. "Why You Can't Let Go of the Past (And How to Stop)", "5 Signs You're Burning Out (And What Actually Helps)") — a number or a direct why/how framing both work as the opening hook, but the title must always resolve toward a solution being promised, never just name a feeling. Follow the hook with the rest of the title, then end with exactly " | The Mindful Path". Keep everything before that suffix under ~52 characters so the full title stays under ~72.
-- thumbnailText: 4-6 words only, written to sit as bold text on a thumbnail image (short, punchy, high-curiosity). Must NOT restate or shorten the title — give it a different angle or emotional beat from the same topic. No trailing punctuation.
+- titleA and titleB: TWO distinct title options for an A/B test — same video, genuinely different hooks/angles (e.g. one framed as a direct "why" problem+solution, the other as a number/list framing, or a curiosity-gap question), not just two rewordings of the same sentence. Each MUST present a concrete problem and promise a solution — this is the most important rule and overrides any pull toward something clever-sounding. Strictly forbidden: artistic, poetic, vague, or abstract titles (never something like "Memory Echoes" or "The Weight We Carry") — a viewer must understand exactly what problem this video solves within one glance. Prefer the pattern "[Problem statement or question] (And How to [Solution/Fix])" (e.g. "Why You Can't Let Go of the Past (And How to Stop)", "5 Signs You're Burning Out (And What Actually Helps)") — a number or a direct why/how framing both work as the opening hook, but each title must always resolve toward a solution being promised, never just name a feeling. Follow the hook with the rest of the title, then end with exactly " | The Mindful Path". Keep everything before that suffix under ~52 characters so the full title stays under ~72.
+- thumbnailTextA and thumbnailTextB: 4-6 words each, written to sit as bold text on a thumbnail image (short, punchy, high-curiosity). Each must pair with its matching title (A with A, B with B) but must NOT restate or shorten that title — give it a different angle or emotional beat from the same topic. No trailing punctuation. The two thumbnail texts should also read differently from each other.
 - description: the FIRST LINE must open directly with the video's main keyword/topic — no "Hey!", "Welcome", "In this video" or similar greetings, since that first line is all viewers see before "Show more". After that keyword-led opening line, add 2-3 more warm sentences summarizing the video's message, ending with 3-5 relevant hashtags.
 - tags: 10-15 short relevant keywords/phrases for YouTube SEO (lowercase, no # symbol)`;
 
@@ -116,9 +131,17 @@ Rules:
       return NextResponse.json(heuristicMetadata(script));
     }
 
+    const titleA = parsed.titleA || parsed.title || "";
+    const thumbnailTextA = parsed.thumbnailTextA || parsed.thumbnailText || "";
     return NextResponse.json({
-      title: parsed.title || "",
-      thumbnailText: parsed.thumbnailText || "",
+      // فیلدهای قدیمی (title/thumbnailText) رو هم برای سازگاری با کدهای
+      // فعلیِ فرانت‌اند نگه می‌داریم — همیشه برابر نسخه‌ی A.
+      title: titleA,
+      thumbnailText: thumbnailTextA,
+      titleA,
+      titleB: parsed.titleB || "",
+      thumbnailTextA,
+      thumbnailTextB: parsed.thumbnailTextB || "",
       description: parsed.description || "",
       tags: Array.isArray(parsed.tags) ? parsed.tags : [],
       source: "ai",

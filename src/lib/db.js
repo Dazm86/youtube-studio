@@ -50,6 +50,46 @@ async function ensureSchema() {
         ALTER TABLE videos
           ADD COLUMN IF NOT EXISTS thumbnail_text TEXT;
       `);
+      // فاز ۳ — تست A/B عنوان/تامبنیل: هر ویدیو دو نسخه‌ی عنوان/متن تامبنیل
+      // ذخیره می‌کنه؛ فقط نسخه‌ی A موقع آپلود واقعاً روی یوتیوب می‌ره (چون
+      // Data API v3 هیچ endpoint عمومی‌ای برای split-test هم‌زمان نداره)،
+      // نسخه‌ی B برای سوییچ دستی/بعدی (بر اساس CTR اولیه) نگه داشته می‌شه.
+      await getPool().query(`
+        ALTER TABLE videos
+          ADD COLUMN IF NOT EXISTS title_a TEXT,
+          ADD COLUMN IF NOT EXISTS title_b TEXT,
+          ADD COLUMN IF NOT EXISTS thumbnail_text_a TEXT,
+          ADD COLUMN IF NOT EXISTS thumbnail_text_b TEXT,
+          ADD COLUMN IF NOT EXISTS active_variant TEXT DEFAULT 'A',
+          ADD COLUMN IF NOT EXISTS variant_switched_at TIMESTAMPTZ;
+      `);
+      // فاز ۳ — پست‌های کامیونیتی: چون یوتیوب هیچ endpoint عمومی‌ای برای
+      // پست کردن خودکار تو تب Community نداره، فقط پیش‌نویس (poll/quote)
+      // تولیدشده با Groq رو اینجا نگه می‌داریم تا کاربر خودش دستی پیست کنه.
+      await getPool().query(`
+        CREATE TABLE IF NOT EXISTS community_posts (
+          id SERIAL PRIMARY KEY,
+          video_id TEXT NOT NULL,
+          post_type TEXT,
+          post_text TEXT,
+          poll_options JSONB,
+          status TEXT DEFAULT 'draft',
+          created_at TIMESTAMPTZ DEFAULT now()
+        );
+      `);
+      // فاز ۳ — بازآفرینی شورت از یک ویدیوی بلند (بر اساس بازه‌ی
+      // پربازدهی‌ترین نگه‌داشت مخاطب).
+      await getPool().query(`
+        CREATE TABLE IF NOT EXISTS repurposed_shorts (
+          id SERIAL PRIMARY KEY,
+          source_video_id TEXT NOT NULL,
+          short_video_id TEXT,
+          start_sec NUMERIC,
+          end_sec NUMERIC,
+          retention_source TEXT,
+          created_at TIMESTAMPTZ DEFAULT now()
+        );
+      `);
     })();
   }
   await schemaReady;
@@ -83,12 +123,16 @@ export async function recordVideo({
   useVideoClips,
   imageKeyword,
   thumbnailText,
+  titleB,
+  thumbnailTextB,
 }) {
   try {
     await ensureSchema();
     await getPool().query(
-      `INSERT INTO videos (video_id, title, script, video_mode, use_video_clips, image_keyword, thumbnail_text)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      `INSERT INTO videos
+         (video_id, title, script, video_mode, use_video_clips, image_keyword,
+          thumbnail_text, title_a, title_b, thumbnail_text_a, thumbnail_text_b, active_variant)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'A')`,
       [
         videoId,
         title || "",
@@ -97,12 +141,77 @@ export async function recordVideo({
         !!useVideoClips,
         imageKeyword || "",
         thumbnailText || "",
+        title || "",
+        titleB || null,
+        thumbnailText || "",
+        thumbnailTextB || null,
       ]
     );
   } catch (err) {
     // ثبت آمار هیچ‌وقت نباید کل فرایند آپلود رو خراب کنه
     console.error("recordVideo failed:", err.message);
   }
+}
+
+// یک ویدیوی مشخص رو برای مصرف‌کننده‌هایی مثل پست کامیونیتی و بازآفرینی
+// شورت برمی‌گردونه (به عنوان/اسکریپت نیاز دارن، نه کل لیست).
+export async function getVideoByVideoId(videoId) {
+  await ensureSchema();
+  const res = await getPool().query(
+    `SELECT video_id, title, script, video_mode, title_a, title_b,
+            thumbnail_text_a, thumbnail_text_b, active_variant
+     FROM videos WHERE video_id = $1 LIMIT 1`,
+    [videoId]
+  );
+  return res.rows[0] || null;
+}
+
+// سوییچ نسخه‌ی فعال عنوان/تامبنیل (A یا B). این جایگزینِ صادقانه‌ی
+// "split test هم‌زمان" است — یوتیوب چنین چیزی رو از طریق API عمومی
+// نمی‌ده، پس این یک سوییچ ترتیبی است: نسخه‌ی جدید واقعاً روی ویدیوی
+// زنده (videos.update + thumbnails.set) اعمال می‌شه و از این لحظه به
+// بعد سنجیده می‌شه.
+export async function setActiveVariant(videoId, variant) {
+  await ensureSchema();
+  await getPool().query(
+    `UPDATE videos SET active_variant = $2, variant_switched_at = now() WHERE video_id = $1`,
+    [videoId, variant]
+  );
+}
+
+export async function recordCommunityPost({ videoId, postType, postText, pollOptions }) {
+  await ensureSchema();
+  const res = await getPool().query(
+    `INSERT INTO community_posts (video_id, post_type, post_text, poll_options, status)
+     VALUES ($1, $2, $3, $4, 'draft') RETURNING id, created_at`,
+    [videoId, postType || "quote", postText || "", JSON.stringify(pollOptions || null)]
+  );
+  return res.rows[0];
+}
+
+export async function getCommunityPostsForVideo(videoId) {
+  await ensureSchema();
+  const res = await getPool().query(
+    `SELECT id, post_type, post_text, poll_options, status, created_at
+     FROM community_posts WHERE video_id = $1 ORDER BY created_at DESC`,
+    [videoId]
+  );
+  return res.rows;
+}
+
+export async function recordRepurposedShort({
+  sourceVideoId,
+  shortVideoId,
+  startSec,
+  endSec,
+  retentionSource,
+}) {
+  await ensureSchema();
+  await getPool().query(
+    `INSERT INTO repurposed_shorts (source_video_id, short_video_id, start_sec, end_sec, retention_source)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [sourceVideoId, shortVideoId || null, startSec, endSec, retentionSource]
+  );
 }
 
 export async function getAllVideoIds() {

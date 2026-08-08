@@ -73,29 +73,35 @@ git push
 
 ### API routes (`src/app/api/`)
 - **`generate-script/route.js`** — Groq call that writes the narration: story→emotion→insight→action formula, Maya's energetic personality + rotating catchphrase kit baked into the prompt. Plain text output (not JSON) — must stay editable in the UI textarea and usable as-is by TTS/metadata calls.
-- **`generate-and-upload/route.js`** — the core pipeline, streams progress as newline-delimited JSON. Steps: TTS → bucket script into timed segments (`distributeDurations`) → per-segment Pexels search → FFmpeg render (per-segment batches) → refresh Google token → upload to YouTube → thumbnail → English SRT caption → translated captions (5 languages). Sends a heartbeat ping every 15s throughout.
+- **`generate-and-upload/route.js`** — the core pipeline, streams progress as newline-delimited JSON. Steps: TTS → bucket script into timed segments (`distributeDurations`) → per-segment Pexels search → FFmpeg render (per-segment batches, dynamic ducked BGM) → refresh Google token → upload to YouTube → thumbnail (variant A live, variant B stored) → English SRT caption → translated captions (5 languages) → community-post draft (long-form only). Sends a heartbeat ping every 15s throughout.
 - `images/route.js`, `clips/route.js` — thin wrappers around `lib/media.js`
 - `tts/route.js` — voice preview
-- `suggest-metadata/route.js` — AI (or heuristic fallback) title/description/tags from a script
+- `suggest-metadata/route.js` — AI (or heuristic fallback) title/description/tags from a script; now returns **two** title + thumbnail-text variants (A/B) per call.
 - `upload/route.js` — manual path: user uploads an already-made video file directly, still gets a Maya thumbnail. Does NOT have the long-render token-refresh logic (not needed — this path is short).
 - `sync-stats/route.js` — pulls views/subscribers/likes from YouTube Analytics into the DB
 - `videos/route.js` — lists recorded videos (analytics page)
 - `status/route.js`, `status/groq`, `status/pexels`, `status/youtube` — connectivity checks for the API-check page
 - `auth/[...nextauth]/route.js` + `auth/authOptions.js` — Google OAuth, JWT refresh logic (`refreshAccessToken` is exported for reuse)
+- **`community-post/route.js`** *(new, Phase 3)* — generates + stores a Community Tab post draft (poll or quote) via Groq for a given `videoId`. Draft only — see Known constraints.
+- **`ab-test/route.js`** *(new, Phase 3)* — switches the *live* title+thumbnail on a given video between stored variant A/B (`videos.update` + `thumbnails.set`). Sequential switch, not simultaneous split-testing — see Known constraints.
+- **`repurpose-short/route.js`** *(new, Phase 3)* — accepts a source long-form video file (multipart) + its YouTube `videoId`, reads the retention curve from YouTube Analytics, crops the highest-retention window to 9:16 with animated captions, and either returns the `.mp4` or auto-uploads it as a Short.
 
 ### Lib (`src/lib/`)
-- **`videoRender.js`** — FFmpeg orchestration. One segment per FFmpeg process (`BATCH_SIZE = 1`, deliberately, to stay inside 512MB RAM), 300s timeout per segment (throws and stops the whole render on failure — no retry). Maya appears large/centered ("presenter" role) only on the first and last segment; alternates small-corner-cameo/fully-hidden for body segments. Backdrop blur uses a downscale→blur→upscale trick for speed.
+- **`videoRender.js`** — FFmpeg orchestration. One segment per FFmpeg process (`BATCH_SIZE = 1`, deliberately, to stay inside 512MB RAM — **kept intact in Phase 3**), 300s timeout per segment (throws and stops the whole render on failure — no retry). Maya appears large/centered ("presenter" role) only on the first and last segment; alternates small-corner-cameo/fully-hidden for body segments. Backdrop blur uses a downscale→blur→upscale trick for speed. *Phase 3:* final audio mix now picks a local mood-matched BGM track (`public/audio/bgm/`, mapped from `pickMayaPose`) and ducks it under narration via `sidechaincompress` (falls back to the old synthetic tone if no BGM file exists — never fails the render). New exports: `renderVerticalShortFromSource` (crop-to-9:16 + animated burned-in captions for Shorts) and `probeDurationSec` (reads source duration from ffmpeg's own stderr — no ffprobe dependency in this project).
 - **`scriptTiming.js`** — splits the flat script into N timed buckets (`distributeDurations`) and builds SRT files (`buildSrt`) from any (captions, durations) pair — reused for every caption language.
 - `media.js` — Pexels search (`fetchImages`/`fetchClips`); auto-extracts keywords from text when no manual keyword is given.
 - **`translateCaptions.js`** — Groq call that translates the caption array into another language, 1:1 index-preserving (required so `buildSrt` timing still lines up with the video).
-- `mayaThumbnail.js` — composites the YouTube thumbnail (Maya + blurred background + title text); also picks Maya's pose (`pickMayaPose`) by keyword-matching segment text against 7 moods + a default.
+- `mayaThumbnail.js` — composites the YouTube thumbnail (Maya + blurred background + title text); picks Maya's pose by keyword-matching segment text against 7 moods + a default. *Phase 3:* `pickMayaPose` now built on `pickMayaPoseRanked` (full ranking, not just top pick); `buildMayaThumbnail` takes a `variant` ('A'/'B') that changes the color grade (purple-orange vs. teal-blue) and picks the 2nd-ranked pose for B; new `buildMayaThumbnailVariants` builds both in one call.
 - `channelHistory.js` — pulls recent video titles from YouTube itself, used as "memory" so new scripts don't repeat topics
 - `youtubeAnalytics.js` — batch stats fetch for `sync-stats`
-- `db.js` — Postgres pool + `videos` table (auto-created on first use)
+- `db.js` — Postgres pool + `videos` table (auto-created on first use). *Phase 3:* added `title_a/title_b/thumbnail_text_a/thumbnail_text_b/active_variant` columns + `setActiveVariant`/`getVideoByVideoId`; new `community_posts` and `repurposed_shorts` tables + their record/get functions.
+- **`repurpose.js`** *(new, Phase 3)* — `getRetentionCurve` (YouTube Analytics `elapsedVideoTimeRatio`) + `findBestRetentionWindow` (picks the highest-retention slice of a given target length; falls back to a documented heuristic window for videos too new to have retention data yet).
+- **`communityPost.js`** *(new, Phase 3)* — Groq call that writes one Community Tab post draft (poll or quote) for a video.
 
 ### Components (`src/components/`)
 - `VideoStudio.js` — the whole long/short creation UI + the streaming-fetch client for `generate-and-upload`
-- `ChannelAnalytics.js`, `ApiStatus.js`, `NavBar.js` — as named (NavBar also auto-signs-out on an unrecoverable token-refresh error)
+- `ChannelAnalytics.js` — as named. *Phase 3:* added a per-video actions column — "generate community post draft" (shows the poll/quote inline) and A/B title switch buttons (bold = currently live variant).
+- `ApiStatus.js`, `NavBar.js` — as named (NavBar also auto-signs-out on an unrecoverable token-refresh error)
 - `HomeDashboard.js` — **unused/legacy**, superseded by the inline dashboard in `app/page.js`. Safe to ignore or delete.
 
 ## Known constraints
@@ -109,10 +115,113 @@ git push
   fetched at request-start.
 - Adding a new OAuth scope requires the user to sign out/in once before
   it takes effect (existing sessions don't retroactively gain it).
+- **YouTube Data API v3 has no Community Tab endpoint.** Confirmed
+  during Phase 3 — no `communityPosts.insert` or equivalent exists
+  publicly. `community-post/route.js` therefore only generates and
+  stores a *draft* (poll/quote text); the user still posts it manually
+  from the YouTube app/Studio. If YouTube ever ships this publicly,
+  swap the draft-save call for a real publish call in that route.
+- **YouTube gives no way to download a previously-uploaded video's
+  original file** (no `videos.download`) — only metadata/stats are
+  readable back. This is why `repurpose-short` takes the source `.mp4`
+  as a fresh upload from the user rather than fetching it by
+  `videoId`; only the retention curve (for picking the best window) is
+  pulled from the API.
+- **No public API for simultaneous A/B split-testing of title/
+  thumbnail either** — YouTube Studio's own "Test & Compare" feature is
+  manual-only inside Studio, not exposed via Data API v3. `ab-test/
+  route.js` implements the closest honest equivalent: variant A goes
+  live at upload time, variant B is stored, and switching is a real
+  but *sequential* `videos.update`/`thumbnails.set` call — compare
+  CTR before/after the switch in Analytics, not two variants running
+  at once.
+- Local BGM tracks (`public/audio/bgm/calm.mp3`, `reflective.mp3`,
+  `hopeful.mp3`, `uplifting.mp3`) are **not included in this repo** —
+  Pexels has no audio API, so this needs a few royalty-free lo-fi/
+  ambient tracks added manually to that folder. Render silently falls
+  back to the old synthetic tone per file if a given mood's track is
+  missing, so nothing breaks either way — it just sounds better once
+  real tracks are added.
 
 ## Changelog
 
 Newest first. Add new entries above the top one — date, what, why, files.
+
+### 2026-08-08 — Phase 3: multi-platform distribution, A/B testing, Shorts repurposing, dynamic BGM
+Five changes, engagement/growth/audio-quality focused. Two real YouTube
+API gaps surfaced while building this — documented in Known constraints
+above rather than papered over, since a future session needs to know
+they're platform limits, not bugs to "fix" later:
+
+1. **Dynamic BGM + ducking**: `videoRender.js`'s final audio mix now
+   picks a local mood-matched track (reusing `pickMayaPose`'s scoring —
+   4 mood buckets: calm/reflective/hopeful/uplifting) from
+   `public/audio/bgm/` instead of one static synthetic tone, and ducks
+   it under narration with `sidechaincompress` (music drops while Maya
+   talks, recovers in real silence — reactive to the actual TTS audio
+   signal, since there's no manual SSML pause data to key off). Falls
+   back to the old synthetic tone if no BGM file is present for the
+   picked mood, so a bare-bones deploy still renders fine. **BGM audio
+   files themselves are not part of this change** — Pexels has no audio
+   API, so those need to be added to the repo manually (see Known
+   constraints).
+2. **Community post drafts**: after a long-form upload, Groq generates
+   one poll/quote tied to the video and it's saved as a draft (new
+   `community_posts` table + `community-post/route.js`, GET and POST).
+   **Not auto-published** — YouTube Data API v3 has no public Community
+   Tab endpoint at all, confirmed while building this, so this is a
+   ready-to-copy draft, not a live post. Wired a small actions column
+   into `ChannelAnalytics.js` so the draft is actually reachable
+   (button + inline poll/quote display), not just an API that exists
+   with no UI.
+3. **Title/thumbnail A/B**: `suggest-metadata` now returns two full
+   variants (different hook angle, not just reworded) instead of one;
+   `mayaThumbnail.js` gained a `variant` param that changes color grade
+   (purple-orange vs. teal-blue) and picks the 2nd-ranked mood pose for
+   B, so the two thumbnails are visually distinct, not just different
+   text. Variant A goes live at upload (`videos.insert`/
+   `thumbnails.set` unchanged there); variant B is stored
+   (`title_b`/`thumbnail_text_b` columns) and can be swapped live via
+   the new `ab-test/route.js` + the analytics-page A/B buttons.
+   **This is sequential, not simultaneous** split-testing — YouTube
+   gives no public API for showing two variants to different viewers
+   at once (that's Studio-only, manual). Compare CTR before/after the
+   switch in Analytics.
+4. **Shorts repurposing**: new `repurpose-short/route.js` — given a
+   source video file + its `videoId`, reads the retention curve from
+   YouTube Analytics (`elapsedVideoTimeRatio`, new `lib/repurpose.js`),
+   picks the highest-retention window of the requested target length
+   (heuristic window if the video's too new for retention data yet),
+   crops to 9:16 with a blurred-background fill (same technique
+   `videoRender.js` already uses for portrait mode) via new
+   `renderVerticalShortFromSource`, burns in animated (fade in/out)
+   captions if caption timing is supplied, and either returns the
+   `.mp4` directly or auto-uploads it as a Short. Takes the source file
+   as a fresh upload rather than fetching by `videoId` because
+   **YouTube's API has no way to download a previously-uploaded
+   video's original file** — confirmed while building this, see Known
+   constraints. Added `probeDurationSec`/`probeHasAudioStream` to
+   `videoRender.js` (reads ffmpeg's own stderr — no ffprobe binary in
+   this project) since this route needs the source's real duration.
+5. **BATCH_SIZE=1 untouched** — verified still `1` in `videoRender.js`
+   after all the above; none of this phase's rendering changes run
+   multiple FFmpeg inputs open at once beyond what already existed.
+
+Files: `lib/videoRender.js`, `lib/mayaThumbnail.js`, `lib/db.js`,
+`lib/repurpose.js` (new), `lib/communityPost.js` (new),
+`api/suggest-metadata/route.js`, `api/generate-and-upload/route.js`,
+`api/community-post/route.js` (new), `api/ab-test/route.js` (new),
+`api/repurpose-short/route.js` (new), `components/ChannelAnalytics.js`.
+
+**Not done in this pass** (flagging for next session rather than
+quietly skipping): no UI was built for triggering `repurpose-short`
+itself (it's a working, tested-by-inspection endpoint, callable today
+via curl/Postman with a `video` file + `videoId` + optional
+`targetDurationSec`/`captions`/`autoUpload` fields) — a proper
+upload-and-preview flow in `VideoStudio.js` or a new page would be the
+natural next step. `VideoStudio.js` also hasn't been wired to show the
+two A/B title options at generation time yet (currently only visible/
+switchable after upload, from the analytics page).
 
 ### 2026-08-08 — Phase 2: monetization length, comment CTA, curiosity-gap titles, faster cuts
 Four changes aimed at watch time / ads / CTR:
