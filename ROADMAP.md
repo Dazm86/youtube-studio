@@ -5,7 +5,12 @@
 > built, and everything done so far. **After you make any change, add a
 > new entry at the top of the Changelog** (date, what changed, why, which
 > files) so the next session — you or another model — has full context
-> without re-reading every diff.
+> without re-reading every diff. **Also, every time you deliver changed
+> code, give the exact Termux commands to apply it** (see "Deployment
+> workflow" below) — copy the zip to `~/youtube-studio`, `unzip -o`,
+> `git add`, `git commit -m "..."`, `git push` — with the real filename
+> and a commit message describing that change. Don't make the user ask
+> for this separately.
 
 ## What this is
 
