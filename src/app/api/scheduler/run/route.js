@@ -1,15 +1,15 @@
 import { NextResponse } from "next/server";
-import { refreshAccessToken } from "../auth/authOptions";
-import { generateScript } from "../../../lib/scriptGen";
-import { generateMetadata } from "../../../lib/metadataGen";
-import { runPipeline } from "../../../lib/pipeline";
+import { refreshAccessToken } from "../../auth/authOptions";
+import { generateScript } from "../../../../lib/scriptGen";
+import { generateMetadata } from "../../../../lib/metadataGen";
+import { runPipeline } from "../../../../lib/pipeline";
 import {
   listSchedules,
   markScheduleRan,
   startScheduleRun,
   finishScheduleRun,
   getRefreshToken,
-} from "../../../lib/db";
+} from "../../../../lib/db";
 
 // چرا این endpoint وجود داره (و نه یک setInterval داخل خودِ اپ):
 // Render پلن رایگان بعد از ۱۵ دقیقه بدون درخواست HTTP ورودیِ تازه سرویس
