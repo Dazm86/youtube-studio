@@ -259,15 +259,86 @@ git push
   ffmpeg pre-pass and much longer filter expressions for a difference
   most viewers won't consciously notice — not worth it unless it turns
   out to look wrong in practice.
-- **`{pose}-talk.png`/`{pose}-blink.png` must exactly match the base
-  file's canvas size and character position** — the animation code
-  overlays them at the identical coordinates every frame; if the art
-  shifts even a few pixels between variants, swapping will visibly
-  jump instead of reading as a mouth/eye change.
+- **`{pose}-talk.png`/`{pose}-blink.png`/`{pose}-talk-blink.png` must
+  exactly match the base file's canvas size and character position**
+  — the animation code overlays them at the identical coordinates
+  every frame; if the art shifts even a few pixels between variants,
+  swapping will visibly jump instead of reading as a mouth/eye change.
+  In practice, exports from tools like Picsart auto-crop each image
+  tightly to its own content, so this almost never holds for raw
+  exports straight out of such a tool — they need a normalization pass
+  (pad every variant for a pose onto a shared, bottom-anchored canvas
+  first) before dropping them into `public/maya/`. Not something
+  Claude can verify on a future pass without being handed the raw
+  exports again — this isn't validated at render time, a misaligned
+  file will just render with a visible jump/pulse, not an error.
+- **Maya pose-name mapping for hand-drawn/exported art can't be
+  verified without the actual base files** — when 8 poses' worth of
+  new art arrives without pose labels in the filenames, matching each
+  one to `excited`/`thinking`/etc. is inference from gesture semantics
+  against `mayaThumbnail.js`'s `POSE_KEYWORDS`, not certainty. Worth a
+  quick visual check against the live `public/maya/{pose}.png` files
+  after any such batch lands.
 
 ## Changelog
 
 Newest first. Add new entries above the top one — date, what, why, files.
+
+### 2026-08-09 — Phase 6b: the actual Maya art arrived — normalized + wired in, plus a 4th state
+User made the art (3 zips: mouth-open, eyes-closed, and — beyond what
+was asked for — mouth-open+eyes-closed together, 8 poses each = 24
+PNGs) and asked what to do next.
+
+**Pose identity had to be figured out, not assumed.** The 24 exported
+files were named by Picsart's own timestamped export convention, not
+by pose — nothing tied a given file to "excited" vs "thinking" vs
+anything else. Built a labeled contact-sheet grid to compare all 24 at
+once, then viewed the ambiguous ones at full size individually (the
+small grid thumbnails were genuinely hard to read correctly — first
+pass misread two columns and had to be corrected against full-size
+crops before finalizing the mapping). Final mapping was inferred from
+gesture semantics matched against the exact keyword lists already in
+`mayaThumbnail.js` (`POSE_KEYWORDS`) — e.g. hands-on-cheeks-shocked →
+`surprised`, cross-legged mudra hands → `meditating`. Not independently
+verifiable against the live `public/maya/{pose}.png` files (never
+uploaded), so this mapping is inference, not certainty — worth a quick
+visual sanity check against the real base images once deployed.
+
+**Alignment couldn't be taken as-is.** Each of the 24 files was
+individually auto-cropped tight to its own content by Picsart's export
+— confirmed via alpha-channel bounding-box inspection (crop == full
+canvas on all but one file). Since a talk/blink swap changes the
+character's silhouette extent slightly (an open jaw or raised arm
+shifts the tight-crop box), the three variants for the same pose had
+canvas dimensions differing by as much as ~15–18% in aspect ratio.
+Left as-is, that would've made Maya visibly "pulse" in size every time
+the mouth flapped or she blinked — the opposite of the goal. Fixed by
+normalizing: for each pose, padded all three variants onto a shared
+canvas (the union of their tight-crop sizes), bottom-center anchored,
+so the character sits at an identical scale/position across every
+swap. Verified with a second labeled contact sheet plus a horizontal
+reference line at the canvas bottom before finalizing.
+
+**Code upgraded to a real 4-state system**, since the user provided
+the 4th combination that the original design had deliberately skipped
+for simplicity (see prior entry). `buildMayaOverlayChain()` now builds
+compound `enable=` expressions — `(talkCond)*(1-(blinkCond))` for the
+talk layer, `(blinkCond)*(1-(talkCond))` for blink, `(talkCond)*(blinkCond)`
+for the new talk-blink layer — so at any instant exactly one state
+shows, correctly, instead of a blink ever wrongly closing a mouth that
+should be open mid-word. True/false arithmetic works here because
+FFmpeg's `eval` comparisons already return 1/0. Falls back to the
+simpler non-compound conditions automatically when `-talk-blink` isn't
+present for a given pose (checked independently per pose, same
+`fs.existsSync` gate as the other two).
+
+**Delivered:** the 24 normalized, correctly-named PNGs (ready to drop
+straight into `public/maya/`), plus the `videoRender.js` update above.
+
+**Files:** `lib/videoRender.js` (`buildMayaOverlayChain` 4-state logic,
+input-loop now also loads `{pose}-talk-blink.png` when present);
+`public/maya/{pose}-talk.png`, `{pose}-blink.png`, `{pose}-talk-blink.png`
+for all 8 poses (24 files, new).
 
 ### 2026-08-09 — Phase 6: Maya isn't a frozen cutout anymore
 User wants Maya to feel like a "living 2D character" instead of one

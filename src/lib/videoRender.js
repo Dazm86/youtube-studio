@@ -154,16 +154,22 @@ function getMayaRole(index, total) {
 // تغییر رد می‌کنه — دقیقاً همین رفتار باعث می‌شه لایه‌چینی کار کنه):
 //   ۱) لایه‌ی base — همیشه روشن، با یک نوسانِ ملایمِ x/y (نفس‌کشیدن/تاب‌
 //      خوردن) به‌جای موقعیتِ کاملاً ثابت.
-//   ۲) لایه‌ی «-talk» (اگه فایلش موجود باشه) — با ریتم دهان‌بازوبسته‌ی
-//      دوره‌ای، شبیه تکنیکِ فلپِ دهانِ ویدیوهای ارزونِ توضیحی/وی‌تیوبری؛
-//      تحلیل واقعیِ دامنه‌ی صدا نیست (پیچیدگی/هزینه‌ی رندر بیشتر برای
-//      این پروژه‌ی تک‌نفره ارزشش رو نداره)، ولی چون تقریباً کل مدتی که
-//      مایا رو صفحه‌ست دارن صحبت می‌کنن، خروجیش قانع‌کننده‌ست.
-//   ۳) لایه‌ی «-blink» (اگه فایلش موجود باشه) — بالاترین اولویت (روی
-//      لایه‌ی دهان هم می‌شینه)، هر ۳.۵ تا ۵.۵ ثانیه یک‌بار برای ~۱۳۰
-//      میلی‌ثانیه.
-// اگه یک پوز فایل -talk/-blink نداشته باشه، همون لایه ساخته نمی‌شه —
-// نتیجه سالمه، فقط اون پوزِ خاص بدون پلک/فلپِ دهان می‌مونه.
+//   ۲) لایه‌ی «-talk» (دهان‌باز) — با ریتم دوره‌ای، شبیه تکنیکِ فلپِ دهانِ
+//      ویدیوهای ارزونِ توضیحی/وی‌تیوبری؛ تحلیل واقعیِ دامنه‌ی صدا نیست
+//      (پیچیدگی/هزینه‌ی رندر بیشتر برای این پروژه‌ی تک‌نفره ارزشش رو
+//      نداره)، ولی چون تقریباً کل مدتی که مایا رو صفحه‌ست دارن صحبت
+//      می‌کنن، خروجیش قانع‌کننده‌ست.
+//   ۳) لایه‌ی «-blink» (چشم‌بسته/دهان‌بسته) — دوره‌ای، هر ۳.۵ تا ۵.۵
+//      ثانیه یک‌بار برای ~۱۳۰ میلی‌ثانیه.
+//   ۴) لایه‌ی «-talk-blink» (دهان‌باز + چشم‌بسته، برای لحظه‌ای که پلک‌زدن
+//      دقیقاً وسط یک فلپِ دهان‌باز بیفته) — اگه این فایل موجود باشه،
+//      شرط‌های ۲ و ۳ با هم AND/NOT ترکیب می‌شن (ضرب/تفریق تو عبارت eval
+//      فریمویرکِ FFmpeg، چون true=1 و false=0) تا هر لحظه دقیقاً یکی از
+//      چهار حالت نشون داده بشه، نه این‌که پلک‌زدن اشتباهی دهانِ بازِ
+//      وسطِ حرف‌زدن رو ببنده.
+// هر فایلی که موجود نباشه، همون لایه اصلاً ساخته نمی‌شه و منطق به‌صورت
+// خودکار به حالتِ ساده‌ترِ بدونِ اون لایه برمی‌گرده — نبودِ هیچ‌کدوم از
+// این فایل‌ها رندر رو نمی‌شکنه.
 function buildMayaOverlayChain({ i, H, isPresenter, maya, srcLabel, outLabel }) {
   const mayaH = Math.round(H * (isPresenter ? 0.88 : 0.28));
   const baseX = isPresenter ? "(W-w)/2" : "W-w-20";
@@ -179,25 +185,44 @@ function buildMayaOverlayChain({ i, H, isPresenter, maya, srcLabel, outLabel }) 
   let stack = `mstack0_${i}`;
   let stackN = 0;
 
-  if (maya.talkIdx != null) {
-    const flapPeriod = 0.2 + Math.random() * 0.08;
-    const flapOpen = flapPeriod * 0.6;
+  const flapPeriod = (0.2 + Math.random() * 0.08).toFixed(2);
+  const flapOpen = (parseFloat(flapPeriod) * 0.6).toFixed(2);
+  const talkCond = `mod(t,${flapPeriod})<${flapOpen}`;
+
+  const blinkPeriod = (3.5 + Math.random() * 2).toFixed(2);
+  const blinkOffset = (Math.random() * parseFloat(blinkPeriod)).toFixed(2);
+  const blinkCond = `mod(t+${blinkOffset},${blinkPeriod})<0.13`;
+
+  const hasTalk = maya.talkIdx != null;
+  const hasBlink = maya.blinkIdx != null;
+  const hasBoth = hasTalk && hasBlink && maya.talkBlinkIdx != null;
+
+  if (hasTalk) {
     stackN++;
+    const enable = hasBoth ? `(${talkCond})*(1-(${blinkCond}))` : talkCond;
     f += `[${maya.talkIdx}:v]scale=-1:${mayaH}[mayatalk${i}];`;
     f +=
       `[${stack}][mayatalk${i}]overlay=${mayaX}:${mayaY}:eval=frame:` +
-      `enable='mod(t,${flapPeriod.toFixed(2)})<${flapOpen.toFixed(2)}'[mstack${stackN}_${i}];`;
+      `enable='${enable}'[mstack${stackN}_${i}];`;
     stack = `mstack${stackN}_${i}`;
   }
 
-  if (maya.blinkIdx != null) {
-    const blinkPeriod = 3.5 + Math.random() * 2;
-    const blinkOffset = Math.random() * blinkPeriod;
+  if (hasBlink) {
     stackN++;
+    const enable = hasBoth ? `(${blinkCond})*(1-(${talkCond}))` : blinkCond;
     f += `[${maya.blinkIdx}:v]scale=-1:${mayaH}[mayablink${i}];`;
     f +=
       `[${stack}][mayablink${i}]overlay=${mayaX}:${mayaY}:eval=frame:` +
-      `enable='mod(t+${blinkOffset.toFixed(2)},${blinkPeriod.toFixed(2)})<0.13'[mstack${stackN}_${i}];`;
+      `enable='${enable}'[mstack${stackN}_${i}];`;
+    stack = `mstack${stackN}_${i}`;
+  }
+
+  if (hasBoth) {
+    stackN++;
+    f += `[${maya.talkBlinkIdx}:v]scale=-1:${mayaH}[mayatalkblink${i}];`;
+    f +=
+      `[${stack}][mayatalkblink${i}]overlay=${mayaX}:${mayaY}:eval=frame:` +
+      `enable='(${talkCond})*(${blinkCond})'[mstack${stackN}_${i}];`;
     stack = `mstack${stackN}_${i}`;
   }
 
@@ -233,12 +258,13 @@ async function renderBatch({
 
   // یک ورودیِ عکس مایا هم به ازای هر تکه‌ی محتوا اضافه می‌کنیم — پوزش بر اساس
   // حس‌وحال همون بخش از متن انتخاب می‌شه (همون منطق تامبنیل خودکار).
-  // اگه کنار عکسِ اصلیِ هر ژست، نسخه‌ی «-talk» (دهان‌باز) و/یا «-blink»
-  // (چشم‌بسته) هم موجود باشه، به‌عنوان لایه‌ی اضافه روی همون ژست سوار
-  // می‌شه (پایین‌تر) تا مایا به‌جای یک عکسِ کاملاً یخ‌زده، حرکتِ نرمِ
-  // بدن + پلک‌زدنِ دوره‌ای + فلپِ دهانِ هم‌ریتم با صحبت داشته باشه. نبودِ
-  // این فایل‌ها اصلاً رندر رو نمی‌شکنه — فقط همون ژستِ بدون اون لایه،
-  // ساکت/بی‌پلک می‌مونه (دقیقاً همون فلسفه‌ی «تخریب آرومِ» BGM/تامبنیل).
+  // اگه کنار عکسِ اصلیِ هر ژست، نسخه‌ی «-talk» (دهان‌باز)، «-blink»
+  // (چشم‌بسته)، و/یا «-talk-blink» (هر دو با هم) هم موجود باشه، به‌عنوان
+  // لایه‌ی اضافه روی همون ژست سوار می‌شه (پایین‌تر) تا مایا به‌جای یک
+  // عکسِ کاملاً یخ‌زده، حرکتِ نرمِ بدن + پلک‌زدنِ دوره‌ای + فلپِ دهانِ
+  // هم‌ریتم با صحبت داشته باشه. نبودِ هرکدوم از این فایل‌ها اصلاً رندر رو
+  // نمی‌شکنه — فقط همون ژستِ بدون اون لایه، ساده‌تر می‌مونه (دقیقاً همون
+  // فلسفه‌ی «تخریب آرومِ» BGM/تامبنیل).
   const mayaDir = path.join(process.cwd(), "public", "maya");
   const mayaInputs = [];
   let nextInputIdx = n;
@@ -263,6 +289,15 @@ async function renderBatch({
       if (fs.existsSync(blinkPath)) {
         args.push("-loop", "1", "-framerate", "25", "-t", batchDurations[i].toFixed(2), "-i", blinkPath);
         entry.blinkIdx = nextInputIdx++;
+      }
+
+      // حالتِ چهارم (اختیاری): دهان‌باز + چشم‌بسته با هم — برای لحظه‌ای که
+      // پلک‌زدن دقیقاً وسطِ یک فلپِ دهان‌باز بیفته. نبودش مشکلی نیست؛
+      // buildMayaOverlayChain خودش به حالتِ ساده‌ترِ سه‌حالته برمی‌گرده.
+      const talkBlinkPath = path.join(mayaDir, `${pose}-talk-blink.png`);
+      if (fs.existsSync(talkBlinkPath)) {
+        args.push("-loop", "1", "-framerate", "25", "-t", batchDurations[i].toFixed(2), "-i", talkBlinkPath);
+        entry.talkBlinkIdx = nextInputIdx++;
       }
     }
     mayaInputs.push(entry);
