@@ -255,6 +255,28 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-09 — Hotfix: Postgres "could not determine data type of parameter $1"
+Broke several parts of the site right after the Phase 5 deploy below.
+Root cause: `ensureBuiltInProviders()`'s two bootstrap queries had
+`WHERE $1 IS NOT NULL` as the *only* place `$1` appeared — nothing
+else in the query gives Postgres a type to infer for that parameter,
+which is exactly Postgres error 42P18. Fixed by adding an explicit
+`::text` cast (`WHERE $1::text IS NOT NULL`) on both.
+
+This hit harder than a normal query bug because of *where* it lives:
+`ensureSchema()` caches its setup work in a module-level `schemaReady`
+promise so it only runs once per process — but every single `db.js`
+function starts with `await ensureSchema()`. Once that promise
+rejected (on the very first DB-touching request after deploy), it
+stayed rejected for the process's entire lifetime, so *every* later
+call re-threw the same error — not just the new `/providers` page.
+Also hardened `ensureSchema()` itself while in there: on failure it
+now resets `schemaReady = null` before re-throwing, so the *next*
+request retries from scratch instead of the whole site staying down
+until a full redeploy — this exact failure mode shouldn't be able to
+wedge things this badly again, even for a future, different bug in
+here. File: `lib/db.js`.
+
 ### 2026-08-09 — Phase 5: pluggable API providers (replaces hardcoded Groq/Pexels/msedge-tts)
 User wants to add any AI API by just a name + key, have the app figure
 out on its own what it can do (text/image/video/audio), and route each

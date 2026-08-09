@@ -160,7 +160,14 @@ async function ensureSchema() {
         );
       `);
       await ensureBuiltInProviders();
-    })();
+    })().catch((err) => {
+      // اگه راه‌اندازیِ schema شکست بخوره، schemaReady رو null کن تا
+      // درخواستِ بعدی از اول امتحان کنه — نه این‌که برای همیشه (تا
+      // ری‌استارتِ کامل سرویس) با همین یک خطای قدیمی گیر کنه. دقیقاً
+      // همین چیزی که باعث شد یک باگِ SQL کل سایت رو تا ری‌دیپلوی خراب نگه داره.
+      schemaReady = null;
+      throw err;
+    });
   }
   await schemaReady;
 }
@@ -173,14 +180,14 @@ async function ensureBuiltInProviders() {
   await getPool().query(
     `INSERT INTO providers (name, service, api_key, capabilities, built_in)
      SELECT 'Groq (کلید قدیمی از env)', 'groq', NULL, ARRAY['text'], true
-     WHERE $1 IS NOT NULL
+     WHERE $1::text IS NOT NULL
        AND NOT EXISTS (SELECT 1 FROM providers WHERE service = 'groq' AND built_in = true)`,
     [process.env.GROQ_API_KEY || null]
   );
   await getPool().query(
     `INSERT INTO providers (name, service, api_key, capabilities, built_in)
      SELECT 'Pexels (کلید قدیمی از env)', 'pexels', NULL, ARRAY['image','video'], true
-     WHERE $1 IS NOT NULL
+     WHERE $1::text IS NOT NULL
        AND NOT EXISTS (SELECT 1 FROM providers WHERE service = 'pexels' AND built_in = true)`,
     [process.env.PEXELS_API_KEY || null]
   );
