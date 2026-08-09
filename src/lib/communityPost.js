@@ -2,11 +2,11 @@
 // پست کردن تو تب Community کانال نداره (نه communityPosts.insert، نه
 // معادلش) — این یک محدودیتِ شناخته‌شده‌ی خودِ API عمومیِ یوتیوبه، نه
 // چیزی که با تنظیمات یا اسکوپ OAuth بیشتر حل بشه. برای همین این ماژول
-// فقط متنِ آماده (پست‌کردنی) رو با Groq تولید می‌کنه؛ روتِ کنارش
-// (api/community-post) اون رو به‌عنوان پیش‌نویس ذخیره می‌کنه تا کاربر
-// خودش با یک کپی‌پیست تو اپ یوتیوب منتشرش کنه.
+// فقط متنِ آماده (پست‌کردنی) رو با provider «متن»یِ فعال تولید می‌کنه؛
+// روتِ کنارش (api/community-post) اون رو به‌عنوان پیش‌نویس ذخیره می‌کنه
+// تا کاربر خودش با یک کپی‌پیست تو اپ یوتیوب منتشرش کنه.
 
-const GROQ_MODEL = "llama-3.3-70b-versatile";
+import { generateText } from "./providers/router";
 
 export async function generateCommunityPost({ title, script }) {
   const prompt = `You write Community Tab posts for a YouTube mindfulness channel called "The Mindful Path", hosted by Maya (energetic, warm personality).
@@ -27,29 +27,11 @@ Rules:
 - If type is "poll", options must have 2-4 short entries. If type is "quote", options must be null.
 - Never mention "link in bio", "swipe up", or generic engagement-bait phrases ("comment below", "like this post") — let the content itself invite interaction.`;
 
-  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: GROQ_MODEL,
-      messages: [{ role: "user", content: prompt }],
-      response_format: { type: "json_object" },
-      temperature: 0.8,
-      max_tokens: 400,
-    }),
-  });
-
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data?.error?.message || "تولید پست کامیونیتی ناموفق بود");
-  }
+  const rawText = await generateText({ prompt, jsonMode: true, temperature: 0.8, maxTokens: 400 });
 
   let parsed;
   try {
-    parsed = JSON.parse(data?.choices?.[0]?.message?.content || "{}");
+    parsed = JSON.parse(rawText);
   } catch {
     throw new Error("پاسخ پست کامیونیتی یک JSON معتبر نبود");
   }

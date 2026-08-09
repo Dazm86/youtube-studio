@@ -1,16 +1,11 @@
 import { getRecentVideoTitles } from "./channelHistory";
 import { getTopPerformingVideos } from "./db";
+import { generateText } from "./providers/router";
 
 // این تابع دقیقاً همون منطقِ api/generate-script/route.js هست، فقط از
 // یک route جدا شده تا هم مسیر تعاملی (کاربر تو UI دکمه می‌زنه) و هم
 // زمان‌بند خودکار (بدون هیچ درخواست HTTP/کاربری) بتونن صداش بزنن.
 export async function generateScript({ topic, mode, accessToken }) {
-  if (!process.env.GROQ_API_KEY) {
-    throw new Error(
-      "کلید Groq تنظیم نشده. اول GROQ_API_KEY رو توی Render اضافه کن."
-    );
-  }
-
   const isShort = mode === "short";
 
   let topicInstruction;
@@ -84,31 +79,11 @@ Requirements:
 
 Respond with ONLY the narration text itself, nothing else.`;
 
-  const aiRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: "llama-3.3-70b-versatile",
-      messages: [{ role: "user", content: prompt }],
-      temperature: 1,
-      max_tokens: isShort ? 400 : 3000,
-    }),
+  const script = await generateText({
+    prompt,
+    temperature: 1,
+    maxTokens: isShort ? 400 : 3000,
   });
-
-  const aiData = await aiRes.json();
-
-  if (!aiRes.ok) {
-    console.error("Groq API error:", aiData);
-    throw new Error("خطا در ارتباط با Groq");
-  }
-
-  const script = (aiData?.choices?.[0]?.message?.content || "").trim();
-  if (!script) {
-    throw new Error("پاسخ خالی از هوش مصنوعی دریافت شد");
-  }
 
   return { script };
 }

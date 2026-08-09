@@ -19,13 +19,6 @@ export async function POST(req) {
     return NextResponse.json({ error: "videoId ارسال نشده" }, { status: 400 });
   }
 
-  if (!process.env.GROQ_API_KEY) {
-    return NextResponse.json(
-      { error: "کلید Groq تنظیم نشده (GROQ_API_KEY)." },
-      { status: 400 }
-    );
-  }
-
   try {
     let title = titleOverride;
     let script = scriptOverride;

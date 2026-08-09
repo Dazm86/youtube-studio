@@ -92,8 +92,15 @@ export async function buildMayaThumbnail({
   let bg = null;
   if (bgImageUrl) {
     try {
-      const res = await fetch(bgImageUrl);
-      const arrBuf = await res.arrayBuffer();
+      // bgImageUrl یا یک URL قابل‌دانلوده یا (وقتی provider تولیدکننده‌ی
+      // عکس بوده، نه استوک‌سرچ) از قبل بایت خام { buffer, ext }.
+      let arrBuf;
+      if (typeof bgImageUrl === "object" && bgImageUrl.buffer) {
+        arrBuf = bgImageUrl.buffer;
+      } else {
+        const res = await fetch(bgImageUrl);
+        arrBuf = await res.arrayBuffer();
+      }
       bg = await sharp(Buffer.from(arrBuf))
         .resize(CANVAS_W, CANVAS_H, { fit: "cover" })
         .modulate({ brightness: 0.55, saturation: grade.saturation, hue: grade.hue })

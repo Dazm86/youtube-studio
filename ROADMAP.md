@@ -31,22 +31,53 @@ video editor, no manual upload.
 | Framework | Next.js 16 (App Router), React 19 |
 | Hosting | Render.com, **free tier — 512MB RAM, shared CPU** |
 | Auth | NextAuth v4 + Google OAuth (YouTube scopes) |
-| Script/translation AI | Groq API, `llama-3.3-70b-versatile` |
-| Stock media | Pexels API (photos + video clips) |
-| Text-to-speech | `msedge-tts` (voice: `en-US-JennyNeural`) |
+| AI providers (text/image/video/audio) | **Pluggable — see "API providers" below.** Any of Groq/OpenAI/Anthropic/ElevenLabs/Stability AI/Pexels/msedge-tts, user-configured per task with automatic fallback |
 | Video render | Server-side FFmpeg (`@ffmpeg-installer/ffmpeg`) |
 | YouTube | `googleapis` (Data API v3 + Analytics API v2) |
 | Database | Postgres via `pg` (Supabase-hosted, raw connection string — not the Supabase SDK) |
 | Images | `sharp` (thumbnail compositing) |
 | Styling | Tailwind CSS 4 |
 
+## API providers *(Phase 5)*
+
+The pipeline no longer talks to Groq/Pexels/msedge-tts directly. Instead,
+`/providers` lets the user add any number of "name + API key" entries;
+`lib/providers/registry.js` tries a handful of known-service fingerprints
+(Groq, OpenAI, Anthropic, ElevenLabs, Stability AI, Pexels — a lightweight
+real API call per candidate, run in parallel) and tags the key with what
+it can do (`text`/`image`/`video`/`audio`). If nothing matches, the user
+picks the service manually from the same list. `msedge-tts` is always
+registered too, needs no key, and is the permanent zero-config fallback
+for `audio`.
+
+For each of the four task types, `lib/providers/router.js` asks the DB
+for the user's manually-ordered priority list (`/providers` page, ▲/▼
+buttons) and tries providers top-down, falling back to the next one on
+any failure — same "never let one flaky call break the whole run"
+philosophy as the rest of this app. `GROQ_API_KEY`/`PEXELS_API_KEY` (if
+still set in Render) are auto-registered as ordinary provider rows on
+first boot, so existing deployments keep working with zero config
+changes; the user can then re-prioritize or delete them from `/providers`
+like any other provider. API keys are stored AES-256-GCM-encrypted
+(`lib/providers/crypto.js`, key derived from `NEXTAUTH_SECRET` — no new
+secret needed), never returned to the client in plaintext.
+
+`video` currently only has one real adapter (Pexels stock search) —
+true AI video generation (Runway/Pika/Luma/Kling-style) is async/
+job-polling and would fight the 512MB/short-timeout constraints below,
+so it's deliberately not implemented yet. Adding one later is just a
+new `REGISTRY` entry in `registry.js`.
+
 ## Environment variables (set in Render dashboard)
 
 `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `NEXTAUTH_SECRET`,
-`NEXTAUTH_URL`, `GROQ_API_KEY`, `PEXELS_API_KEY`, `DATABASE_URL`,
-`CRON_SECRET` *(Phase 4 — shared secret an external cron pinger sends
-to `/api/scheduler/run`; that endpoint is disabled entirely if this
-isn't set)*
+`NEXTAUTH_URL`, `DATABASE_URL`, `CRON_SECRET` *(Phase 4 — shared secret
+an external cron pinger sends to `/api/scheduler/run`; that endpoint is
+disabled entirely if this isn't set)*
+
+`GROQ_API_KEY`, `PEXELS_API_KEY` *(optional as of Phase 5 — if set,
+auto-registered as provider rows on first boot; otherwise just add real
+providers from `/providers` instead)*
 
 ## Deployment workflow (Termux, Android)
 
@@ -72,13 +103,14 @@ git push
 ## Architecture / file map
 
 ### Pages (`src/app/`)
-- `page.js` — home: sign-in, then 4 section cards (long/short/analytics/api-check)
+- `page.js` — home: sign-in, then 5 section cards (long/short/**providers**/analytics/api-check)
 - `long/page.js`, `short/page.js` — render `VideoStudio` with `mode="long"` / `"short"`
 - `analytics/page.js` — renders `ChannelAnalytics`
 - `api-check/page.js` — renders `ApiStatus`
-- **`schedule/page.js`** *(new, Phase 4)* — renders `ScheduleSettings`
+- `schedule/page.js` *(Phase 4)* — renders `ScheduleSettings`
+- **`providers/page.js`** *(new, Phase 5)* — renders `ProviderManager`
 - `layout.js` — RTL Persian layout, Vazirmatn font
-- `providers.js` — NextAuth `SessionProvider` wrapper
+- `providers.js` — NextAuth `SessionProvider` wrapper (name collision with the `providers/` route folder above is coincidental — this one's the NextAuth context component, not an AI provider)
 
 ### API routes (`src/app/api/`)
 - **`generate-script/route.js`** — thin wrapper: auth check, then calls `lib/scriptGen.js`. *Phase 4: logic itself moved into the lib so the scheduler can call it without an HTTP round-trip; behavior/prompt unchanged.*
@@ -89,35 +121,44 @@ git push
 - `upload/route.js` — manual path: user uploads an already-made video file directly, still gets a Maya thumbnail. Does NOT have the long-render token-refresh logic (not needed — this path is short).
 - `sync-stats/route.js` — pulls views/subscribers/likes from YouTube Analytics into the DB
 - `videos/route.js` — lists recorded videos (analytics page)
-- `status/route.js`, `status/groq`, `status/pexels`, `status/youtube` — connectivity checks for the API-check page
+- `status/route.js`, `status/groq`, `status/pexels`, `status/youtube` — connectivity checks for the API-check page (still check the raw legacy env vars specifically — a separate, simpler concept from the Phase 5 provider system; see `providers/route.js` below for that)
 - `auth/[...nextauth]/route.js` + `auth/authOptions.js` — Google OAuth, JWT refresh logic (`refreshAccessToken` is exported for reuse). *Phase 4: `jwt` callback now also persists the Google `refresh_token` to the DB (`saveRefreshToken`) on every fresh sign-in — see Known constraints for why.*
-- `community-post/route.js` — generates + stores a Community Tab post draft (poll or quote) via Groq for a given `videoId`. Draft only — see Known constraints.
+- `community-post/route.js` — generates + stores a Community Tab post draft (poll or quote) via the configured "text" provider for a given `videoId`. Draft only — see Known constraints.
 - `ab-test/route.js` — switches the *live* title+thumbnail on a given video between stored variant A/B (`videos.update` + `thumbnails.set`). Sequential switch, not simultaneous split-testing — see Known constraints.
 - `repurpose-short/route.js` — accepts a source long-form video file (multipart) + its YouTube `videoId`, reads the retention curve from YouTube Analytics, crops the highest-retention window to 9:16 with animated captions, and either returns the `.mp4` or auto-uploads it as a Short.
 - **`scheduler/run/route.js`** *(new, Phase 4)* — the endpoint an external cron pinger hits (GET, `?secret=` or `x-cron-secret` header must match `CRON_SECRET`). Checks all enabled `schedules` against the current time in each one's own timezone; for anything due, claims it (`last_run_date`) and kicks off `generateScript` → `generateMetadata` → `runPipeline` in the background (fire-and-forget after responding, since this is a persistent Node process on Render, not serverless) — logs progress to `console.log` and the final result to `schedule_runs`. See Known constraints for the whole "why not just use setInterval" reasoning.
 - **`schedules/route.js`** *(new, Phase 4)* — CRUD (GET/POST/PUT/DELETE) for schedule configs, used by `ScheduleSettings.js`. Requires a normal logged-in session (unlike `scheduler/run`, which uses the cron secret instead since it has no browser session).
+- **`providers/route.js`** *(new, Phase 5)* — GET lists all providers + their manual priority order + the known-service registry (for the UI's dropdowns); POST adds one (`name`+`apiKey`, runs `detectService` unless a manual `service` is given).
+- **`providers/[id]/route.js`** *(new, Phase 5)* — PUT (rename/enable/disable/reassign service/replace key), DELETE for one provider.
+- **`providers/[id]/check/route.js`** *(new, Phase 5)* — POST re-runs that provider's connectivity probe on demand and records the result.
+- **`providers/priority/route.js`** *(new, Phase 5)* — PUT saves the manually-reordered provider list for one task type (`text`/`image`/`video`/`audio`).
 
 ### Lib (`src/lib/`)
-- **`videoRender.js`** — FFmpeg orchestration. One segment per FFmpeg process (`BATCH_SIZE = 1`, deliberately, to stay inside 512MB RAM — kept intact through every phase), 300s timeout per segment (throws and stops the whole render on failure — no retry). Maya appears large/centered ("presenter" role) only on the first and last segment; alternates small-corner-cameo/fully-hidden for body segments. Backdrop blur uses a downscale→blur→upscale trick for speed. Final audio mix picks a local mood-matched BGM track (`public/audio/bgm/`, mapped from `pickMayaPose`) and ducks it under narration via `sidechaincompress` (falls back to the old synthetic tone if no BGM file exists — never fails the render). Also exports `renderVerticalShortFromSource` (crop-to-9:16 + animated burned-in captions for Shorts) and `probeDurationSec`/`probeHasAudioStream` (read straight from ffmpeg's own stderr — no ffprobe dependency in this project).
+- **`videoRender.js`** — FFmpeg orchestration. One segment per FFmpeg process (`BATCH_SIZE = 1`, deliberately, to stay inside 512MB RAM — kept intact through every phase), 300s timeout per segment (throws and stops the whole render on failure — no retry). Maya appears large/centered ("presenter" role) only on the first and last segment; alternates small-corner-cameo/fully-hidden for body segments. Backdrop blur uses a downscale→blur→upscale trick for speed. Final audio mix picks a local mood-matched BGM track (`public/audio/bgm/`, mapped from `pickMayaPose`) and ducks it under narration via `sidechaincompress` (falls back to the old synthetic tone if no BGM file exists — never fails the render). Also exports `renderVerticalShortFromSource` (crop-to-9:16 + animated burned-in captions for Shorts) and `probeDurationSec`/`probeHasAudioStream` (read straight from ffmpeg's own stderr — no ffprobe dependency in this project). *Phase 5: `estimateAudioDurationSec` is now async and reuses `probeDurationSec` on a temp-written copy of the audio buffer, instead of assuming a fixed 48kbps bitrate — that assumption only held for msedge-tts and silently desynced captions/media timing whenever a different "audio" provider (different bitrate) was prioritized. The media-download loop and `mayaThumbnail.js`'s background-image fetch also now accept either a URL string (stock search) or a `{buffer, ext}` object (AI-generated image providers, which return raw bytes, not a link) — both shapes flow out of `lib/providers/registry.js`'s image adapters.*
 - **`scriptTiming.js`** — splits the flat script into N timed buckets (`distributeDurations`) and builds SRT files (`buildSrt`) from any (captions, durations) pair — reused for every caption language.
-- `media.js` — Pexels search (`fetchImages`/`fetchClips`); auto-extracts keywords from text when no manual keyword is given.
-- **`translateCaptions.js`** — Groq call that translates the caption array into another language, 1:1 index-preserving (required so `buildSrt` timing still lines up with the video).
-- `mayaThumbnail.js` — composites the YouTube thumbnail (Maya + blurred background + title text); picks Maya's pose by keyword-matching segment text against 7 moods + a default (`pickMayaPose`, built on `pickMayaPoseRanked` — full ranking, not just top pick). `buildMayaThumbnail` takes a `variant` ('A'/'B') that changes the color grade (purple-orange vs. teal-blue) and picks the 2nd-ranked pose for B; `buildMayaThumbnailVariants` builds both in one call.
+- `media.js` — *(Phase 5: rewritten)* thin wrapper re-exporting `fetchImages`/`fetchClips` from `lib/providers/router.js` and `extractKeywords` from `lib/providers/textUtils.js` — same exact signatures as before, so every caller is unchanged; only the implementation moved.
+- **`translateCaptions.js`** — calls the configured "text" provider to translate the caption array into another language, 1:1 index-preserving (required so `buildSrt` timing still lines up with the video). *Phase 5: routed through `lib/providers/router.js` instead of a hardcoded Groq fetch; prompt/behavior unchanged.*
+- `mayaThumbnail.js` — composites the YouTube thumbnail (Maya + blurred background + title text); picks Maya's pose by keyword-matching segment text against 7 moods + a default (`pickMayaPose`, built on `pickMayaPoseRanked` — full ranking, not just top pick). `buildMayaThumbnail` takes a `variant` ('A'/'B') that changes the color grade (purple-orange vs. teal-blue) and picks the 2nd-ranked pose for B; `buildMayaThumbnailVariants` builds both in one call. *Phase 5: `bgImageUrl` now accepts either a URL string or a `{buffer, ext}` object, same reasoning as `videoRender.js` above.*
 - `channelHistory.js` — pulls recent video titles from YouTube itself, used as "memory" so new scripts don't repeat topics
 - `youtubeAnalytics.js` — batch stats fetch for `sync-stats`
-- `db.js` — Postgres pool + `videos` table (auto-created on first use), plus `title_a/title_b/thumbnail_text_a/thumbnail_text_b/active_variant` columns, `community_posts` and `repurposed_shorts` tables. *Phase 4:* new `channel_auth` table (single row, holds the persisted Google `refresh_token`), `schedules` table, `schedule_runs` table, and all their CRUD/log functions.
+- `db.js` — Postgres pool + `videos` table (auto-created on first use), plus `title_a/title_b/thumbnail_text_a/thumbnail_text_b/active_variant` columns, `community_posts` and `repurposed_shorts` tables. *Phase 4:* `channel_auth` table (single row, holds the persisted Google `refresh_token`), `schedules` table, `schedule_runs` table, and all their CRUD/log functions. *Phase 5:* new `providers` table (name, service, encrypted `api_key`, `capabilities[]`, enabled, connectivity-check result) and `provider_priority` table (per-task-type manual ordering); `ensureBuiltInProviders()` auto-registers the legacy `GROQ_API_KEY`/`PEXELS_API_KEY` env vars (if set) plus `msedge-tts` as ordinary provider rows on first boot, idempotently.
 - `repurpose.js` — `getRetentionCurve` (YouTube Analytics `elapsedVideoTimeRatio`) + `findBestRetentionWindow` (picks the highest-retention slice of a given target length; falls back to a documented heuristic window for videos too new to have retention data yet).
-- `communityPost.js` — Groq call that writes one Community Tab post draft (poll or quote) for a video.
-- **`scriptGen.js`** *(new, Phase 4)* — script-generation logic extracted out of `generate-script/route.js` (`generateScript({topic, mode, accessToken})`), so both the interactive route and the scheduler call the exact same code path instead of two copies drifting apart.
-- **`metadataGen.js`** *(new, Phase 4)* — title/description/tags/A-B-variant generation extracted out of `suggest-metadata/route.js` (`generateMetadata(script)`), same reasoning as `scriptGen.js`.
-- **`pipeline.js`** *(new, Phase 4)* — the entire TTS→media→render→upload→thumbnail→captions→community-post sequence extracted out of `generate-and-upload/route.js` into `runPipeline(params, {emit})`. `emit(obj)` has the exact same `{status, progress}` shape the old inline `send()` had. The upload-time access-token refresh is caller-supplied (`getUploadAccessToken`) rather than hardcoded, since the interactive route refreshes from the NextAuth cookie while the scheduler refreshes from the DB-stored refresh token — `pipeline.js` itself stays agnostic of which.
+- `communityPost.js` — calls the configured "text" provider to write one Community Tab post draft (poll or quote) for a video. *Phase 5: routed through the router instead of a hardcoded Groq fetch.*
+- **`scriptGen.js`** *(Phase 4)* — script-generation logic extracted out of `generate-script/route.js` (`generateScript({topic, mode, accessToken})`), so both the interactive route and the scheduler call the exact same code path instead of two copies drifting apart. *Phase 5: the hardcoded `GROQ_API_KEY` pre-check is gone — it now calls `generateText()` from the router, which throws its own clear error if no "text" provider is configured at all.*
+- **`metadataGen.js`** *(Phase 4)* — title/description/tags/A-B-variant generation extracted out of `suggest-metadata/route.js` (`generateMetadata(script)`), same reasoning as `scriptGen.js`. *Phase 5: routed through the router; unchanged fallback-to-heuristic behavior on any failure.*
+- **`pipeline.js`** *(Phase 4)* — the entire TTS→media→render→upload→thumbnail→captions→community-post sequence extracted out of `generate-and-upload/route.js` into `runPipeline(params, {emit})`. `emit(obj)` has the exact same `{status, progress}` shape the old inline `send()` had. The upload-time access-token refresh is caller-supplied (`getUploadAccessToken`) rather than hardcoded, since the interactive route refreshes from the NextAuth cookie while the scheduler refreshes from the DB-stored refresh token — `pipeline.js` itself stays agnostic of which. *Phase 5: step 1 (TTS) now calls `synthesizeSpeech()` from the router instead of constructing `MsEdgeTTS` directly; the community-post step's `GROQ_API_KEY` gate was removed (same reasoning as `scriptGen.js`).*
+- **`providers/crypto.js`** *(new, Phase 5)* — `encrypt`/`decrypt` for provider API keys at rest (AES-256-GCM, key derived from `NEXTAUTH_SECRET` via SHA-256 — no new secret needed).
+- **`providers/textUtils.js`** *(new, Phase 5)* — `extractKeywords`, moved out of the old `media.js` so both `media.js` and `providers/registry.js` can use it without a circular import.
+- **`providers/registry.js`** *(new, Phase 5)* — the known-service "dictionary": for each of Groq/OpenAI/Anthropic/ElevenLabs/Stability AI/Pexels/msedge-tts, its capabilities, a connectivity `detect(apiKey)` probe, and per-capability adapter functions (`text`/`image`/`video`/`audio`) with the actual `fetch()` calls. `detectService(apiKey)` runs every `detect()` in parallel and returns the first match (or `'unknown'`). Adding a new provider = one new entry here; nothing else needs to change.
+- **`providers/router.js`** *(new, Phase 5)* — `generateText`/`fetchImages`/`fetchClips`/`synthesizeSpeech`: for each, loads the user's priority-ordered provider list for that task from the DB and tries them top-down, falling back to the next on any failure, throwing a clear aggregated Persian error only if all of them fail (or none are configured).
 
 ### Components (`src/components/`)
-- `VideoStudio.js` — the whole long/short creation UI + the streaming-fetch client for `generate-and-upload`
+- `VideoStudio.js` — the whole long/short creation UI + the streaming-fetch client for `generate-and-upload`. *Phase 5: the voice-preview call to `/api/tts` no longer hardcodes `voice: "en-US-JennyNeural"` (that's an Edge-only voice name, meaningless to OpenAI/ElevenLabs) — it now sends no `voice` at all and lets whichever provider is prioritized use its own default.*
 - `ChannelAnalytics.js` — video list + stats, per-video community-post-draft button, and A/B title switch buttons (bold = currently live variant)
-- `ApiStatus.js` — as named
-- `NavBar.js` — as named (also auto-signs-out on an unrecoverable token-refresh error). *Phase 4: added the "⏰ زمان‌بندی خودکار" nav link.*
-- **`ScheduleSettings.js`** *(new, Phase 4)* — lists/creates/edits/deletes schedules, shows the external-cron setup instructions (with the exact URL to paste into cron-job.org, minus the secret value itself), and shows a log of recent scheduled runs (status/videoId/error).
+- `ApiStatus.js` — as named (still Groq/Pexels/YouTube/DB env-var checks — see `providers/route.js` above for the Phase 5 provider system's own connectivity checks)
+- `NavBar.js` — as named (also auto-signs-out on an unrecoverable token-refresh error). *Phase 4: added the "⏰ زمان‌بندی خودکار" nav link. Phase 5: added the "🔌 ارائه‌دهنده‌های API" nav link.*
+- `ScheduleSettings.js` *(Phase 4)* — lists/creates/edits/deletes schedules, shows the external-cron setup instructions (with the exact URL to paste into cron-job.org, minus the secret value itself), and shows a log of recent scheduled runs (status/videoId/error).
+- **`ProviderManager.js`** *(new, Phase 5)* — add-provider form (name + key → auto-detect, or manual service picker if unrecognized), table of configured providers (capability badges, enable toggle, connectivity-test button, delete), and a ▲/▼ reorderable priority list per task type (text/image/video/audio) that saves immediately on each move.
 - `HomeDashboard.js` — **unused/legacy**, superseded by the inline dashboard in `app/page.js`. Safe to ignore or delete.
 
 ## Known constraints
@@ -192,10 +233,86 @@ git push
   stops returning a `refresh_token` on a given sign-in (it only does
   so reliably on first consent per app+account), the old one already
   in the DB is kept as-is rather than overwritten with nothing.
+- **API provider keys are encrypted at rest but not secret-manager-grade**
+  — AES-256-GCM with a key derived from `NEXTAUTH_SECRET`, not a
+  dedicated KMS. Anyone with `DATABASE_URL` *and* `NEXTAUTH_SECRET`
+  could decrypt them; this is a reasonable bar for a single-user app on
+  a free-tier host, not a multi-tenant security boundary.
+- **`video` capability has exactly one adapter (Pexels stock search)** —
+  real AI video generation (Runway/Pika/Luma/Kling-style) is async and
+  job-polling by nature (often minutes per clip), which doesn't fit this
+  app's request/response pipeline or the 512MB RAM ceiling without a
+  much bigger redesign (job queue, webhook or polling loop, temp storage
+  for in-progress renders). Left out deliberately rather than shipped
+  half-working; the registry is structured so adding one later is a
+  single new entry in `providers/registry.js`, no other file changes.
+- **Provider model choices are hardcoded, not user-configurable** — e.g.
+  the OpenAI text adapter always uses `gpt-4o-mini`, Anthropic always
+  `claude-sonnet-5`. Picking a specific model per provider (not just
+  per capability) would need its own UI; out of scope for Phase 5.
 
 ## Changelog
 
 Newest first. Add new entries above the top one — date, what, why, files.
+
+### 2026-08-09 — Phase 5: pluggable API providers (replaces hardcoded Groq/Pexels/msedge-tts)
+User wants to add any AI API by just a name + key, have the app figure
+out on its own what it can do (text/image/video/audio), and route each
+task to whichever configured provider is prioritized for it — instead
+of the pipeline being wired to exactly one hardcoded service per task.
+
+**Design decisions (confirmed with user before building):** (1) full
+replacement — the whole pipeline routes through the new system, not an
+opt-in side feature; (2) hybrid detection — try known-service
+fingerprints automatically first, ask the user to pick manually only if
+nothing matches; (3) manual priority — the user orders providers per
+task type themselves (▲/▼ list), not an automatic cost/quality ranking.
+
+**Architecture:** `lib/providers/registry.js` is the single source of
+truth for known services (Groq, OpenAI, Anthropic, ElevenLabs, Stability
+AI, Pexels, msedge-tts) — capabilities, a connectivity probe, and
+per-capability adapter functions. `lib/providers/router.js` is the one
+entry point the rest of the app calls (`generateText`/`fetchImages`/
+`fetchClips`/`synthesizeSpeech`) — it loads the priority-ordered
+provider list for that task from Postgres and tries them top-down,
+falling back to the next on any failure. New `providers`/
+`provider_priority` tables in `db.js`; `GROQ_API_KEY`/`PEXELS_API_KEY`
+(if still set) are auto-registered as ordinary provider rows on first
+boot so existing deployments don't break. Keys are AES-256-GCM-encrypted
+(`lib/providers/crypto.js`, derived from `NEXTAUTH_SECRET`) before
+hitting Postgres. New `/providers` page (`ProviderManager.js`) for
+adding providers and reordering priority per task type.
+
+**Bug found and fixed while integrating this:** `estimateAudioDurationSec`
+computed duration from raw byte size assuming a fixed 48kbps bitrate —
+only true for msedge-tts. With other "audio" providers now pluggable
+(different bitrates), that assumption would've silently desynced every
+caption/media-switch timing whenever someone prioritized, say,
+ElevenLabs. Fixed by making it async and reusing the existing
+`probeDurationSec` (ffmpeg-stderr-based, no ffprobe dependency) on a
+temp-written copy of the buffer instead of guessing from size.
+
+**Verified:** all new/changed files pass `node --check` (plain JS) and
+`esbuild` (JSX) syntax validation; traced every import path by hand;
+grepped the whole repo afterward to confirm no leftover direct
+Groq/Pexels/msedge-tts calls remained outside `registry.js` (except the
+legacy `/api-check` status routes, which intentionally still check the
+raw env vars as a separate, simpler concept). Not yet tested against a
+live deploy — first real run on Render is the actual test.
+
+**Files:** new — `lib/providers/{registry,router,crypto,textUtils}.js`,
+`app/api/providers/route.js`, `app/api/providers/[id]/route.js`,
+`app/api/providers/[id]/check/route.js`, `app/api/providers/priority/route.js`,
+`app/providers/page.js`, `components/ProviderManager.js`. Changed —
+`lib/db.js` (schema + CRUD), `lib/media.js` (now a thin wrapper),
+`lib/scriptGen.js`, `lib/metadataGen.js`, `lib/translateCaptions.js`,
+`lib/communityPost.js`, `lib/pipeline.js`, `app/api/tts/route.js`,
+`app/api/community-post/route.js` (removed stale `GROQ_API_KEY` guard),
+`lib/videoRender.js` (async `estimateAudioDurationSec`, buffer-or-URL
+media items), `lib/mayaThumbnail.js` (buffer-or-URL `bgImageUrl`),
+`components/VideoStudio.js` (voice-preview no longer hardcodes an
+Edge-only voice name), `components/NavBar.js`, `app/page.js` (nav link
++ home card).
 
 ### 2026-08-08 — Phase 4: fully automatic scheduled uploads
 User wants zero-touch publishing: a short every day at a set time, a

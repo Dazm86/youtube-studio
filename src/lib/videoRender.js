@@ -41,10 +41,28 @@ function pickBgmPath(fullScriptText) {
 // سنگین‌تری اضافه بشه)؛ در آخر همه‌ی تکه‌ها به‌هم می‌چسبن.
 const BATCH_SIZE = 1;
 
-// msedge-tts is requested at a fixed 48kbps CBR mono mp3, so duration can be
-// computed directly from the file size without needing ffprobe.
-export function estimateAudioDurationSec(audioBuffer) {
-  return audioBuffer.length / 6000; // 48000 bits/s = 6000 bytes/s
+// مدت زمانِ واقعیِ فایل صوتی رو اندازه می‌گیره — همون تکنیکِ probeDurationSec
+// (پایین‌تر، برای فایل‌های ویدیویی) رو برای یک بافرِ صوتی هم به کار می‌بره:
+// بافر رو یک لحظه رو دیسک می‌نویسه، بعد از خروجیِ stderr خودِ ffmpeg
+// می‌خونتش. قبلاً این عدد فقط از رویِ اندازه‌ی بایت با فرضِ ثابتِ ۴۸kbps
+// (خروجیِ همیشگیِ msedge-tts) حساب می‌شد؛ از وقتی provider های صوتیِ دیگه
+// (OpenAI، ElevenLabs — هرکدوم با بیت‌ریتِ متفاوت) هم ممکنه فعال باشن،
+// اون فرض دیگه درست نیست و باعثِ به‌هم‌ریختنِ زمان‌بندیِ زیرنویس/رسانه
+// می‌شد؛ اگه probe به هر دلیلی شکست بخوره (فرمت غیرمنتظره)، رندر کامل
+// نمی‌شکنه — به همون فرضِ قدیمی به‌عنوان آخرین راه‌چاره برمی‌گردیم.
+export async function estimateAudioDurationSec(audioBuffer) {
+  const tmpFile = path.join(
+    os.tmpdir(),
+    `probe-${Date.now()}-${Math.random().toString(36).slice(2)}.mp3`
+  );
+  await fsp.writeFile(tmpFile, audioBuffer);
+  try {
+    return await probeDurationSec(tmpFile);
+  } catch {
+    return audioBuffer.length / 6000; // آخرین راه‌چاره، فرضِ ۴۸kbps
+  } finally {
+    fsp.unlink(tmpFile).catch(() => {});
+  }
 }
 
 function parseTimeToSeconds(str) {
@@ -259,16 +277,25 @@ export async function renderVideo({
     const H = isShort ? 1280 : 720;
     const N = mediaItems.length;
 
-    const audioDurationSec = estimateAudioDurationSec(audioBuffer);
+    const audioDurationSec = await estimateAudioDurationSec(audioBuffer);
     const perImageDurations = durations;
 
     onStatus && onStatus(`در حال دانلود ${N} فایل رسانه...`);
     const mediaExt = useVideoClips ? "mp4" : "jpg";
     const mediaPaths = [];
     for (let i = 0; i < N; i++) {
-      const res = await fetch(mediaItems[i]);
-      if (!res.ok) throw new Error(`دانلود رسانه ${i + 1} ناموفق بود`);
-      const buf = Buffer.from(await res.arrayBuffer());
+      const item = mediaItems[i];
+      // آیتم یا یک URL قابل‌دانلوده (سرویس‌های استوک مثل Pexels) یا از قبل
+      // بایت خامه (سرویس‌های تولیدکننده‌ی عکس مثل OpenAI/Stability که
+      // base64 برمی‌گردونن، نه لینک).
+      let buf;
+      if (item && typeof item === "object" && item.buffer) {
+        buf = item.buffer;
+      } else {
+        const res = await fetch(item);
+        if (!res.ok) throw new Error(`دانلود رسانه ${i + 1} ناموفق بود`);
+        buf = Buffer.from(await res.arrayBuffer());
+      }
       const filePath = path.join(tmpDir, `media${i}.${mediaExt}`);
       await fsp.writeFile(filePath, buf);
       mediaPaths.push(filePath);

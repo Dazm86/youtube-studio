@@ -1,4 +1,5 @@
 import { Pool } from "pg";
+import { encrypt } from "./providers/crypto";
 
 let pool = null;
 let schemaReady = null;
@@ -127,9 +128,178 @@ async function ensureSchema() {
           finished_at TIMESTAMPTZ
         );
       `);
+
+      // فاز ۵ — ارائه‌دهنده‌های API: کاربر یک اسم + کلید می‌ده، سیستم خودش
+      // (با تست عملیِ چند endpoint شناخته‌شده) تشخیص می‌ده این کلید مال کدوم
+      // سرویسه و چیکار می‌تونه بکنه (متن/عکس/ویدیو/صدا)، و کل پایپ‌لاین از
+      // این جدول به‌جای مقادیر هاردکدِ env var می‌خونه. api_key رمزنگاری‌شده
+      // (AES-256-GCM با کلیدی از NEXTAUTH_SECRET) ذخیره می‌شه؛ NULL یعنی
+      // «از env var قدیمی استفاده کن» (ردیف‌های bootstrap) یا اصلاً کلید
+      // لازم نداره (msedge-tts).
+      await getPool().query(`
+        CREATE TABLE IF NOT EXISTS providers (
+          id SERIAL PRIMARY KEY,
+          name TEXT NOT NULL,
+          service TEXT NOT NULL,
+          api_key TEXT,
+          capabilities TEXT[] NOT NULL DEFAULT '{}',
+          enabled BOOLEAN NOT NULL DEFAULT true,
+          built_in BOOLEAN NOT NULL DEFAULT false,
+          last_check_ok BOOLEAN,
+          last_check_message TEXT,
+          last_checked_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ DEFAULT now()
+        );
+      `);
+      await getPool().query(`
+        CREATE TABLE IF NOT EXISTS provider_priority (
+          task_type TEXT NOT NULL,
+          provider_id INTEGER NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+          priority INTEGER NOT NULL,
+          PRIMARY KEY (task_type, provider_id)
+        );
+      `);
+      await ensureBuiltInProviders();
     })();
   }
   await schemaReady;
+}
+
+// ثبت خودکارِ provider های قدیمی (که تا الان env var هاردکد بودن) به‌عنوان
+// ردیف‌های عادی تو همون جدول — تا هم چیزی برای دیپلوی‌های موجود خراب نشه،
+// هم کاربر بتونه بعداً از همون صفحه‌ی مدیریت اولویتشون رو عوض کنه یا
+// حذفشون کنه. idempotent: هر بار فقط اگه قبلاً ساخته نشده باشن اضافه می‌شن.
+async function ensureBuiltInProviders() {
+  await getPool().query(
+    `INSERT INTO providers (name, service, api_key, capabilities, built_in)
+     SELECT 'Groq (کلید قدیمی از env)', 'groq', NULL, ARRAY['text'], true
+     WHERE $1 IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM providers WHERE service = 'groq' AND built_in = true)`,
+    [process.env.GROQ_API_KEY || null]
+  );
+  await getPool().query(
+    `INSERT INTO providers (name, service, api_key, capabilities, built_in)
+     SELECT 'Pexels (کلید قدیمی از env)', 'pexels', NULL, ARRAY['image','video'], true
+     WHERE $1 IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM providers WHERE service = 'pexels' AND built_in = true)`,
+    [process.env.PEXELS_API_KEY || null]
+  );
+  await getPool().query(
+    `INSERT INTO providers (name, service, api_key, capabilities, built_in)
+     SELECT 'msedge-tts (رایگان، بدون کلید)', 'msedge-tts', NULL, ARRAY['audio'], true
+     WHERE NOT EXISTS (SELECT 1 FROM providers WHERE service = 'msedge-tts' AND built_in = true)`
+  );
+}
+
+// --- فاز ۵: ارائه‌دهنده‌های API ---
+
+export async function listProviders() {
+  await ensureSchema();
+  const res = await getPool().query(
+    `SELECT id, name, service, capabilities, enabled, built_in,
+            last_check_ok, last_check_message, last_checked_at, created_at,
+            (api_key IS NOT NULL) AS has_custom_key
+     FROM providers ORDER BY id ASC`
+  );
+  return res.rows;
+}
+
+export async function getProviderById(id) {
+  await ensureSchema();
+  const res = await getPool().query(
+    `SELECT id, name, service, api_key, capabilities, enabled, built_in FROM providers WHERE id = $1`,
+    [id]
+  );
+  return res.rows[0] || null;
+}
+
+export async function createProvider({ name, service, apiKey, capabilities, builtIn }) {
+  await ensureSchema();
+  const encrypted = apiKey ? encrypt(apiKey) : null;
+  const res = await getPool().query(
+    `INSERT INTO providers (name, service, api_key, capabilities, built_in)
+     VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+    [name, service, encrypted, capabilities || [], !!builtIn]
+  );
+  return res.rows[0].id;
+}
+
+export async function updateProvider(id, { name, service, apiKey, capabilities, enabled }) {
+  await ensureSchema();
+  const encrypted = apiKey ? encrypt(apiKey) : null;
+  await getPool().query(
+    `UPDATE providers SET
+       name = COALESCE($2, name),
+       service = COALESCE($3, service),
+       api_key = COALESCE($4, api_key),
+       capabilities = COALESCE($5, capabilities),
+       enabled = COALESCE($6, enabled)
+     WHERE id = $1`,
+    [id, name || null, service || null, encrypted, capabilities || null, enabled ?? null]
+  );
+}
+
+export async function deleteProvider(id) {
+  await ensureSchema();
+  await getPool().query(`DELETE FROM providers WHERE id = $1`, [id]);
+}
+
+export async function recordProviderCheck(id, { ok, message }) {
+  await ensureSchema();
+  await getPool().query(
+    `UPDATE providers SET last_check_ok = $2, last_check_message = $3, last_checked_at = now() WHERE id = $1`,
+    [id, !!ok, message || null]
+  );
+}
+
+// provider های فعال و دارای یک قابلیت خاص، به ترتیب اولویتِ دستیِ کاربر
+// (تنظیم‌نشده‌ها بعد از تنظیم‌شده‌ها، به ترتیب id). این تابع همون چیزیه که
+// lib/providers/router.js صدا می‌زنه.
+export async function getProvidersForCapability(taskType) {
+  await ensureSchema();
+  const res = await getPool().query(
+    `SELECT p.id, p.name, p.service, p.api_key, p.capabilities
+     FROM providers p
+     LEFT JOIN provider_priority pp ON pp.provider_id = p.id AND pp.task_type = $1
+     WHERE p.enabled = true AND $1 = ANY(p.capabilities)
+     ORDER BY COALESCE(pp.priority, 999999) ASC, p.id ASC`,
+    [taskType]
+  );
+  return res.rows;
+}
+
+export async function getAllPriorities() {
+  await ensureSchema();
+  const res = await getPool().query(
+    `SELECT task_type, provider_id FROM provider_priority ORDER BY task_type, priority ASC`
+  );
+  const map = {};
+  for (const row of res.rows) {
+    if (!map[row.task_type]) map[row.task_type] = [];
+    map[row.task_type].push(row.provider_id);
+  }
+  return map;
+}
+
+export async function setPriorityOrder(taskType, orderedProviderIds) {
+  await ensureSchema();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`DELETE FROM provider_priority WHERE task_type = $1`, [taskType]);
+    for (let i = 0; i < orderedProviderIds.length; i++) {
+      await client.query(
+        `INSERT INTO provider_priority (task_type, provider_id, priority) VALUES ($1, $2, $3)`,
+        [taskType, orderedProviderIds[i], i]
+      );
+    }
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 export async function getDbStatus() {

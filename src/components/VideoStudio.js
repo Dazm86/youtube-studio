@@ -108,7 +108,7 @@ export default function VideoStudio({ mode }) {
       const res = await fetch("/api/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: script, voice: "en-US-JennyNeural" }),
+        body: JSON.stringify({ text: script }),
       });
 
       if (!res.ok) {

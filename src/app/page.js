@@ -24,6 +24,12 @@ const sections = [
   },
   {
     index: "04",
+    href: "/providers",
+    title: "ارائه‌دهنده‌های API",
+    desc: "یک کلید بده، خودش تشخیص می‌ده چیکار می‌تونه بکنه و اولویتش رو تنظیم کن",
+  },
+  {
+    index: "05",
     href: "/api-check",
     title: "بررسی API ها",
     desc: "وضعیت اتصال Pexels، Groq، یوتیوب، دیتابیس",

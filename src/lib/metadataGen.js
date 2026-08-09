@@ -1,3 +1,5 @@
+import { generateText } from "./providers/router";
+
 const STOPWORDS = new Set([
   "the", "a", "an", "and", "or", "but", "is", "are", "was", "were", "be",
   "been", "being", "to", "of", "in", "on", "at", "for", "with", "by", "from",
@@ -64,10 +66,6 @@ function heuristicMetadata(script) {
 // هیچ‌وقت throw نمی‌کنه — هر مسیر شکست به heuristicMetadata برمی‌گرده،
 // دقیقاً مثل رفتار قبلیِ route.
 export async function generateMetadata(script) {
-  if (!process.env.GROQ_API_KEY) {
-    return heuristicMetadata(script);
-  }
-
   const prompt = `You are helping write YouTube upload metadata for a short motivational/mindfulness video on a channel called "The Mindful Path", hosted by an animated character named Maya.
 
 Video script:
@@ -85,25 +83,7 @@ Rules:
 - tags: 10-15 short relevant keywords/phrases for YouTube SEO (lowercase, no # symbol)`;
 
   try {
-    const aiRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
-
-    const aiData = await aiRes.json();
-    if (!aiRes.ok) {
-      console.error("Groq API error:", aiData);
-      return heuristicMetadata(script);
-    }
-
-    const rawText = aiData?.choices?.[0]?.message?.content || "";
+    const rawText = await generateText({ prompt, jsonMode: true });
     const cleaned = rawText.replace(/```json|```/g, "").trim();
 
     let parsed;

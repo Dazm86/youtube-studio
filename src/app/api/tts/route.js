@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "../auth/authOptions";
-import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
+import { synthesizeSpeech } from "../../../lib/providers/router";
 
 export async function POST(req) {
   const session = await getServerSession(authOptions);
@@ -17,23 +17,14 @@ export async function POST(req) {
   }
 
   try {
-    const tts = new MsEdgeTTS();
-    await tts.setMetadata(
-      voice || "en-US-JennyNeural",
-      OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3
-    );
+    // voice اختیاریه — هر ارائه‌دهنده‌ی صدا (msedge-tts، OpenAI،
+    // ElevenLabs...) فضای اسم صدای خودش رو داره، پس اگه فرستاده نشه
+    // همون پیش‌فرض provider انتخاب‌شده استفاده می‌شه.
+    const { buffer, mimeType } = await synthesizeSpeech({ text, voice });
 
-    const { audioStream } = await tts.toStream(text);
-
-    const chunks = [];
-    for await (const chunk of audioStream) {
-      chunks.push(chunk);
-    }
-    const audioBuffer = Buffer.concat(chunks);
-
-    return new NextResponse(audioBuffer, {
+    return new NextResponse(buffer, {
       headers: {
-        "Content-Type": "audio/mpeg",
+        "Content-Type": mimeType || "audio/mpeg",
         "Content-Disposition": "attachment; filename=narration.mp3",
       },
     });

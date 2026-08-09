@@ -1,6 +1,6 @@
 import { google } from "googleapis";
 import { Readable } from "stream";
-import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
+import { synthesizeSpeech } from "./providers/router";
 import { fetchImages, fetchClips } from "./media";
 import { renderVideo, estimateAudioDurationSec } from "./videoRender";
 import { distributeDurations, buildSrt } from "./scriptTiming";
@@ -48,17 +48,12 @@ export async function runPipeline(
 
   // --- ۱. ساخت صدا ---
   emit({ status: "مرحله ۱ از ۵: در حال ساخت صدا...", progress: 2 });
-  const tts = new MsEdgeTTS();
-  await tts.setMetadata("en-US-JennyNeural", OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
-  const { audioStream } = await tts.toStream(script);
-  const chunks = [];
-  for await (const chunk of audioStream) chunks.push(chunk);
-  const audioBuffer = Buffer.concat(chunks);
+  const { buffer: audioBuffer } = await synthesizeSpeech({ text: script });
   emit({ status: "صدا ساخته شد ✅", progress: 8 });
 
   // --- ۲. تقسیم اسکریپت به بخش‌های زمان‌بندی‌شده + گرفتن عکس/کلیپ مخصوص هر بخش ---
   const isShort = videoMode === "short";
-  const audioDurationSec = estimateAudioDurationSec(audioBuffer);
+  const audioDurationSec = await estimateAudioDurationSec(audioBuffer);
   const mediaCount = isShort
     ? Math.min(30, Math.max(8, Math.ceil(audioDurationSec / 2.5)))
     : Math.min(80, Math.max(6, Math.ceil(audioDurationSec / 6.5)));
@@ -231,7 +226,7 @@ export async function runPipeline(
   // --- ۸. پیش‌نویس پست کامیونیتی (فقط برای ویدیوهای لانگ) ---
   let communityPostStatus = "skipped";
   let communityPostDraft = null;
-  if (!isShort && process.env.GROQ_API_KEY) {
+  if (!isShort) {
     try {
       emit({ status: "در حال ساخت پیش‌نویس پست کامیونیتی...", progress: 98 });
       communityPostDraft = await generateCommunityPost({ title, script });
