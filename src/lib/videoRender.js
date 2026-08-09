@@ -147,6 +147,64 @@ function getMayaRole(index, total) {
   return bodyIndex % 2 === 0 ? "cameo" : "hidden";
 }
 
+// مایا رو به‌جای یک عکسِ کاملاً ساکت، با چند لایه‌ی روی‌همِ اختیاری زنده
+// می‌کنه — همه‌شون از رویِ همون عکس‌های PNG (بدون نیاز به موتور انیمیشن
+// واقعی)، با overlay‌های پی‌درپیِ FFmpeg که هرکدوم enable=<شرط زمانی>
+// دارن (وقتی enable قسمت غیرفعاله، اون overlay فقط فریمِ ورودیش رو بدون
+// تغییر رد می‌کنه — دقیقاً همین رفتار باعث می‌شه لایه‌چینی کار کنه):
+//   ۱) لایه‌ی base — همیشه روشن، با یک نوسانِ ملایمِ x/y (نفس‌کشیدن/تاب‌
+//      خوردن) به‌جای موقعیتِ کاملاً ثابت.
+//   ۲) لایه‌ی «-talk» (اگه فایلش موجود باشه) — با ریتم دهان‌بازوبسته‌ی
+//      دوره‌ای، شبیه تکنیکِ فلپِ دهانِ ویدیوهای ارزونِ توضیحی/وی‌تیوبری؛
+//      تحلیل واقعیِ دامنه‌ی صدا نیست (پیچیدگی/هزینه‌ی رندر بیشتر برای
+//      این پروژه‌ی تک‌نفره ارزشش رو نداره)، ولی چون تقریباً کل مدتی که
+//      مایا رو صفحه‌ست دارن صحبت می‌کنن، خروجیش قانع‌کننده‌ست.
+//   ۳) لایه‌ی «-blink» (اگه فایلش موجود باشه) — بالاترین اولویت (روی
+//      لایه‌ی دهان هم می‌شینه)، هر ۳.۵ تا ۵.۵ ثانیه یک‌بار برای ~۱۳۰
+//      میلی‌ثانیه.
+// اگه یک پوز فایل -talk/-blink نداشته باشه، همون لایه ساخته نمی‌شه —
+// نتیجه سالمه، فقط اون پوزِ خاص بدون پلک/فلپِ دهان می‌مونه.
+function buildMayaOverlayChain({ i, H, isPresenter, maya, srcLabel, outLabel }) {
+  const mayaH = Math.round(H * (isPresenter ? 0.88 : 0.28));
+  const baseX = isPresenter ? "(W-w)/2" : "W-w-20";
+  const baseY = isPresenter ? "H-h" : "20";
+  const bobAmpX = isPresenter ? 3 : 1.5;
+  const bobAmpY = isPresenter ? 4 : 2;
+  const phase = Math.random() * 6.28;
+  const mayaX = `${baseX}+${bobAmpX}*sin(2*PI*t/5+${phase.toFixed(2)})`;
+  const mayaY = `${baseY}+${bobAmpY}*sin(2*PI*t/3.2+${((phase * 1.6) % 6.28).toFixed(2)})`;
+
+  let f = `[${maya.baseIdx}:v]scale=-1:${mayaH}[mayabase${i}];`;
+  f += `[${srcLabel}][mayabase${i}]overlay=${mayaX}:${mayaY}:eval=frame[mstack0_${i}];`;
+  let stack = `mstack0_${i}`;
+  let stackN = 0;
+
+  if (maya.talkIdx != null) {
+    const flapPeriod = 0.2 + Math.random() * 0.08;
+    const flapOpen = flapPeriod * 0.6;
+    stackN++;
+    f += `[${maya.talkIdx}:v]scale=-1:${mayaH}[mayatalk${i}];`;
+    f +=
+      `[${stack}][mayatalk${i}]overlay=${mayaX}:${mayaY}:eval=frame:` +
+      `enable='mod(t,${flapPeriod.toFixed(2)})<${flapOpen.toFixed(2)}'[mstack${stackN}_${i}];`;
+    stack = `mstack${stackN}_${i}`;
+  }
+
+  if (maya.blinkIdx != null) {
+    const blinkPeriod = 3.5 + Math.random() * 2;
+    const blinkOffset = Math.random() * blinkPeriod;
+    stackN++;
+    f += `[${maya.blinkIdx}:v]scale=-1:${mayaH}[mayablink${i}];`;
+    f +=
+      `[${stack}][mayablink${i}]overlay=${mayaX}:${mayaY}:eval=frame:` +
+      `enable='mod(t+${blinkOffset.toFixed(2)},${blinkPeriod.toFixed(2)})<0.13'[mstack${stackN}_${i}];`;
+    stack = `mstack${stackN}_${i}`;
+  }
+
+  f += `[${stack}]null[${outLabel}];`;
+  return f;
+}
+
 // یک تکه (batch) از عکس‌ها/کلیپ‌ها رو بدون صدا به یک ویدیوی کوچیک تبدیل می‌کنه.
 async function renderBatch({
   batchPaths,
@@ -175,19 +233,44 @@ async function renderBatch({
 
   // یک ورودیِ عکس مایا هم به ازای هر تکه‌ی محتوا اضافه می‌کنیم — پوزش بر اساس
   // حس‌وحال همون بخش از متن انتخاب می‌شه (همون منطق تامبنیل خودکار).
+  // اگه کنار عکسِ اصلیِ هر ژست، نسخه‌ی «-talk» (دهان‌باز) و/یا «-blink»
+  // (چشم‌بسته) هم موجود باشه، به‌عنوان لایه‌ی اضافه روی همون ژست سوار
+  // می‌شه (پایین‌تر) تا مایا به‌جای یک عکسِ کاملاً یخ‌زده، حرکتِ نرمِ
+  // بدن + پلک‌زدنِ دوره‌ای + فلپِ دهانِ هم‌ریتم با صحبت داشته باشه. نبودِ
+  // این فایل‌ها اصلاً رندر رو نمی‌شکنه — فقط همون ژستِ بدون اون لایه،
+  // ساکت/بی‌پلک می‌مونه (دقیقاً همون فلسفه‌ی «تخریب آرومِ» BGM/تامبنیل).
   const mayaDir = path.join(process.cwd(), "public", "maya");
-  for (let i = 0; i < n; i++) {
-    const pose = pickMayaPose(batchCaptions[i] || "");
-    const mayaPath = path.join(mayaDir, `${pose}.png`);
-    args.push("-loop", "1", "-framerate", "25", "-t", batchDurations[i].toFixed(2), "-i", mayaPath);
-  }
-  const mayaInputStart = n;
-
-  let filter = "";
+  const mayaInputs = [];
+  let nextInputIdx = n;
   for (let i = 0; i < n; i++) {
     const globalIndex = batchStartIndex + i;
     const role = getMayaRole(globalIndex, totalSegments);
-    const isPresenter = role === "presenter";
+    const entry = { role, isPresenter: role === "presenter" };
+
+    if (role !== "hidden") {
+      const pose = pickMayaPose(batchCaptions[i] || "");
+      const basePath = path.join(mayaDir, `${pose}.png`);
+      args.push("-loop", "1", "-framerate", "25", "-t", batchDurations[i].toFixed(2), "-i", basePath);
+      entry.baseIdx = nextInputIdx++;
+
+      const talkPath = path.join(mayaDir, `${pose}-talk.png`);
+      if (fs.existsSync(talkPath)) {
+        args.push("-loop", "1", "-framerate", "25", "-t", batchDurations[i].toFixed(2), "-i", talkPath);
+        entry.talkIdx = nextInputIdx++;
+      }
+
+      const blinkPath = path.join(mayaDir, `${pose}-blink.png`);
+      if (fs.existsSync(blinkPath)) {
+        args.push("-loop", "1", "-framerate", "25", "-t", batchDurations[i].toFixed(2), "-i", blinkPath);
+        entry.blinkIdx = nextInputIdx++;
+      }
+    }
+    mayaInputs.push(entry);
+  }
+
+  let filter = "";
+  for (let i = 0; i < n; i++) {
+    const { role, isPresenter } = mayaInputs[i];
 
     const coverW = skipZoom ? W : 900;
     const coverH = skipZoom ? H : 1600;
@@ -227,17 +310,18 @@ async function renderBatch({
       `drawtext=fontfile=${fontPath}:text='The Mindful Path':fontsize=26:` +
       `fontcolor=white@0.85:borderw=2:bordercolor=black@0.6:x=20:y=20[capped${i}];`;
 
-    const mayaIdx = mayaInputStart + i;
-
     if (role === "hidden") {
       // این بخش، مایا داخل قاب نیست — رسانه خودش قاب رو پر می‌کنه.
       filter += `[capped${i}]null[v${i}];`;
     } else {
-      const mayaH = Math.round(H * (isPresenter ? 0.88 : 0.28));
-      const mayaOverlayPos = isPresenter ? "(W-w)/2:H-h" : "W-w-20:20";
-      filter +=
-        `[${mayaIdx}:v]scale=-1:${mayaH}[mayascaled${i}];` +
-        `[capped${i}][mayascaled${i}]overlay=${mayaOverlayPos}[v${i}];`;
+      filter += buildMayaOverlayChain({
+        i,
+        H,
+        isPresenter,
+        maya: mayaInputs[i],
+        srcLabel: `capped${i}`,
+        outLabel: `v${i}`,
+      });
     }
   }
 

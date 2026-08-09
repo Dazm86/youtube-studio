@@ -134,7 +134,7 @@ git push
 - **`providers/priority/route.js`** *(new, Phase 5)* — PUT saves the manually-reordered provider list for one task type (`text`/`image`/`video`/`audio`).
 
 ### Lib (`src/lib/`)
-- **`videoRender.js`** — FFmpeg orchestration. One segment per FFmpeg process (`BATCH_SIZE = 1`, deliberately, to stay inside 512MB RAM — kept intact through every phase), 300s timeout per segment (throws and stops the whole render on failure — no retry). Maya appears large/centered ("presenter" role) only on the first and last segment; alternates small-corner-cameo/fully-hidden for body segments. Backdrop blur uses a downscale→blur→upscale trick for speed. Final audio mix picks a local mood-matched BGM track (`public/audio/bgm/`, mapped from `pickMayaPose`) and ducks it under narration via `sidechaincompress` (falls back to the old synthetic tone if no BGM file exists — never fails the render). Also exports `renderVerticalShortFromSource` (crop-to-9:16 + animated burned-in captions for Shorts) and `probeDurationSec`/`probeHasAudioStream` (read straight from ffmpeg's own stderr — no ffprobe dependency in this project). *Phase 5: `estimateAudioDurationSec` is now async and reuses `probeDurationSec` on a temp-written copy of the audio buffer, instead of assuming a fixed 48kbps bitrate — that assumption only held for msedge-tts and silently desynced captions/media timing whenever a different "audio" provider (different bitrate) was prioritized. The media-download loop and `mayaThumbnail.js`'s background-image fetch also now accept either a URL string (stock search) or a `{buffer, ext}` object (AI-generated image providers, which return raw bytes, not a link) — both shapes flow out of `lib/providers/registry.js`'s image adapters.*
+- **`videoRender.js`** — FFmpeg orchestration. One segment per FFmpeg process (`BATCH_SIZE = 1`, deliberately, to stay inside 512MB RAM — kept intact through every phase), 300s timeout per segment (throws and stops the whole render on failure — no retry). Maya appears large/centered ("presenter" role) only on the first and last segment; alternates small-corner-cameo/fully-hidden for body segments. Backdrop blur uses a downscale→blur→upscale trick for speed. Final audio mix picks a local mood-matched BGM track (`public/audio/bgm/`, mapped from `pickMayaPose`) and ducks it under narration via `sidechaincompress` (falls back to the old synthetic tone if no BGM file exists — never fails the render). Also exports `renderVerticalShortFromSource` (crop-to-9:16 + animated burned-in captions for Shorts) and `probeDurationSec`/`probeHasAudioStream` (read straight from ffmpeg's own stderr — no ffprobe dependency in this project). *Phase 5: `estimateAudioDurationSec` is now async and reuses `probeDurationSec` on a temp-written copy of the audio buffer, instead of assuming a fixed 48kbps bitrate — that assumption only held for msedge-tts and silently desynced captions/media timing whenever a different "audio" provider (different bitrate) was prioritized. The media-download loop and `mayaThumbnail.js`'s background-image fetch also now accept either a URL string (stock search) or a `{buffer, ext}` object (AI-generated image providers, which return raw bytes, not a link) — both shapes flow out of `lib/providers/registry.js`'s image adapters.* *Phase 6: Maya's overlay is no longer one static frame — `buildMayaOverlayChain()` layers a continuous idle sway (sine-wave x/y drift via FFmpeg's `t`, needs no new art) plus two optional sprite-swap layers, `{pose}-talk.png` (rhythmic mouth-flap) and `{pose}-blink.png` (periodic blink), each independently skipped via `fs.existsSync` if that pose's variant doesn't exist yet. "Hidden"-role segments now skip loading any Maya asset at all (previously loaded one unused input every time).*
 - **`scriptTiming.js`** — splits the flat script into N timed buckets (`distributeDurations`) and builds SRT files (`buildSrt`) from any (captions, durations) pair — reused for every caption language.
 - `media.js` — *(Phase 5: rewritten)* thin wrapper re-exporting `fetchImages`/`fetchClips` from `lib/providers/router.js` and `extractKeywords` from `lib/providers/textUtils.js` — same exact signatures as before, so every caller is unchanged; only the implementation moved.
 - **`translateCaptions.js`** — calls the configured "text" provider to translate the caption array into another language, 1:1 index-preserving (required so `buildSrt` timing still lines up with the video). *Phase 5: routed through `lib/providers/router.js` instead of a hardcoded Groq fetch; prompt/behavior unchanged.*
@@ -250,32 +250,79 @@ git push
   the OpenAI text adapter always uses `gpt-4o-mini`, Anthropic always
   `claude-sonnet-5`. Picking a specific model per provider (not just
   per capability) would need its own UI; out of scope for Phase 5.
+- **Maya's mouth movement is a rhythmic flap, not real lip-sync** — it
+  doesn't analyze the narration audio's amplitude at all, just cycles
+  the `-talk` frame on a fixed ~4-5Hz beat for as long as she's on
+  screen. A real amplitude-driven version is possible (ffmpeg `astats`/
+  `ametadata` to extract a volume envelope, build the `enable=` windows
+  from that instead of a fixed period) but adds a whole extra
+  ffmpeg pre-pass and much longer filter expressions for a difference
+  most viewers won't consciously notice — not worth it unless it turns
+  out to look wrong in practice.
+- **`{pose}-talk.png`/`{pose}-blink.png` must exactly match the base
+  file's canvas size and character position** — the animation code
+  overlays them at the identical coordinates every frame; if the art
+  shifts even a few pixels between variants, swapping will visibly
+  jump instead of reading as a mouth/eye change.
 
 ## Changelog
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
-### 2026-08-09 — Hotfix: Postgres "could not determine data type of parameter $1"
-Broke several parts of the site right after the Phase 5 deploy below.
-Root cause: `ensureBuiltInProviders()`'s two bootstrap queries had
-`WHERE $1 IS NOT NULL` as the *only* place `$1` appeared — nothing
-else in the query gives Postgres a type to infer for that parameter,
-which is exactly Postgres error 42P18. Fixed by adding an explicit
-`::text` cast (`WHERE $1::text IS NOT NULL`) on both.
+### 2026-08-09 — Phase 6: Maya isn't a frozen cutout anymore
+User wants Maya to feel like a "living 2D character" instead of one
+static PNG frozen for the whole segment.
 
-This hit harder than a normal query bug because of *where* it lives:
-`ensureSchema()` caches its setup work in a module-level `schemaReady`
-promise so it only runs once per process — but every single `db.js`
-function starts with `await ensureSchema()`. Once that promise
-rejected (on the very first DB-touching request after deploy), it
-stayed rejected for the process's entire lifetime, so *every* later
-call re-threw the same error — not just the new `/providers` page.
-Also hardened `ensureSchema()` itself while in there: on failure it
-now resets `schemaReady = null` before re-throwing, so the *next*
-request retries from scratch instead of the whole site staying down
-until a full redeploy — this exact failure mode shouldn't be able to
-wedge things this badly again, even for a future, different bug in
-here. File: `lib/db.js`.
+**Reality check given first:** this project has no animation engine
+(no Live2D/Spine/browser-canvas rendering) — only FFmpeg + sharp. A
+real rig was never on the table; what's actually deliverable is
+sprite-swap tricks layered on top of the same static art, the same
+technique cheap explainer/VTuber content has always used. Asked the
+user up front whether they could produce 2 extra frames per pose
+(mouth-open, eyes-closed) before building anything — confirmed yes.
+
+**What ships without any new art (works today):** every "presenter"/
+"cameo" appearance of Maya now has a continuous subtle sway — a few
+pixels of sine-wave x/y drift (`overlay=...:eval=frame`, using FFmpeg's
+own `t` variable) instead of a bolted-down static position. Breathing/
+idle-shift, zero new files needed.
+
+**What ships once the new art exists:** `renderBatch()` in
+`videoRender.js` now looks for two optional extra files per pose —
+`{pose}-talk.png` (mouth open) and `{pose}-blink.png` (eyes closed) —
+next to the existing `public/maya/{pose}.png`. If found, they're
+layered on top via chained FFmpeg `overlay`s with `enable=` timeline
+expressions: `-talk` flaps on/off at a ~4-5Hz rhythmic cadence for as
+long as Maya's on screen (not real audio-amplitude analysis — decided
+against that: narration is continuous prose with no real pauses to
+detect, so a rhythmic flap is nearly as convincing for a fraction of
+the complexity and zero extra ffmpeg passes), `-blink` pulses a ~130ms
+window every 3.5–5.5s (randomized phase per segment) and sits on the
+top layer so it wins if it ever overlaps a mouth-open frame. Missing
+either file for a given pose just skips that pose's extra layer —
+same "never break the render over an optional asset" pattern as BGM/
+thumbnail fallbacks; partial rollout (a couple poses first) is fine.
+
+**Exact asset spec (for whoever's drawing these):** 16 new PNGs in
+`public/maya/`, transparent background, **same exact canvas size and
+same exact character position as the matching base file** — only the
+mouth or eyes should differ, everything else pixel-identical, or the
+swap will visibly jump:
+`excited-talk.png`, `excited-blink.png`, `thinking-talk.png`,
+`thinking-blink.png`, `meditating-talk.png`, `meditating-blink.png`,
+`caring-talk.png`, `caring-blink.png`, `surprised-talk.png`,
+`surprised-blink.png`, `teaching-talk.png`, `teaching-blink.png`,
+`confident-talk.png`, `confident-blink.png`, `greeting-talk.png`,
+`greeting-blink.png`.
+
+**Files:** `lib/videoRender.js` only — `renderBatch()`'s Maya-input
+loop now conditionally adds the `-talk`/`-blink` inputs per segment
+(`fs.existsSync` gated), skips loading any Maya asset at all for
+"hidden"-role segments (a pre-existing minor waste, fixed along the
+way), and a new `buildMayaOverlayChain()` helper builds the layered
+`overlay` chain with the sway/flap/blink timeline expressions.
+`mayaThumbnail.js` untouched — thumbnails are a single static frame,
+motion doesn't apply there.
 
 ### 2026-08-09 — Phase 5: pluggable API providers (replaces hardcoded Groq/Pexels/msedge-tts)
 User wants to add any AI API by just a name + key, have the app figure
