@@ -5,6 +5,14 @@
 // صفحه‌ی /providers مرتب‌شون می‌کنه)؛ اگه اولی شکست خورد، خودکار میره
 // سراغ بعدی — دقیقاً همون فلسفه‌ی «تخریب آرومِ» بقیه‌ی این پروژه (مثلاً
 // fallback موسیقی/heuristic متادیتا).
+//
+// یک استثنا: خطای rate-limit روی همون provider رو فوری «شکست» حساب
+// نمی‌کنیم — چون خودِ پیام خطا معمولاً می‌گه چند ثانیه دیگه صبر کن،
+// همون‌قدر صبر می‌کنیم و همون provider رو دوباره امتحان می‌کنیم (حداکثر
+// چند بار) قبل از این‌که بریم سراغ provider بعدی یا شکست نهایی. بدون
+// این، وقتی فقط یک provider تنظیم شده، چند فراخوانی پشت‌سرهم (مثل ترجمه‌ی
+// زیرنویس به ۵ زبان) به‌محض برخورد اول به سقف TPM همه‌شون زنجیره‌ای fail
+// می‌شدن.
 
 import { getProvidersForCapability } from "../db";
 import { REGISTRY, TASK_LABELS } from "./registry";
@@ -30,6 +38,23 @@ export function resolveApiKey(providerRow) {
   return envFn ? envFn() : null;
 }
 
+const MAX_RATE_LIMIT_RETRIES = 2;
+
+// خیلی از providerهای متنی (مثلاً Groq) وقتی به rate limit می‌خورن، دقیقاً
+// می‌گن چند ثانیه دیگه صبر کن — مثلاً «Please try again in 7.02s». همون
+// عدد رو استخراج می‌کنیم به‌جای یک تاخیر ثابت حدسی.
+function extractRetryAfterMs(message) {
+  const match = /try again in ([\d.]+)\s*s/i.exec(message || "");
+  if (!match) return null;
+  const seconds = parseFloat(match[1]);
+  if (!Number.isFinite(seconds) || seconds <= 0) return null;
+  return Math.ceil(seconds * 1000) + 500; // یه کم بیشتر صبر کن تا مطمئن شیم پنجره رد شده
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function tryProviders(taskType, invoke) {
   const providers = await getProvidersForCapability(taskType);
   const label = TASK_LABELS[taskType] || taskType;
@@ -41,6 +66,7 @@ async function tryProviders(taskType, invoke) {
   }
 
   const errors = [];
+
   for (const p of providers) {
     const entry = REGISTRY[p.service];
     if (!entry || !entry.adapters[taskType]) continue; // داده‌ی ناسازگار (مثلاً سرویس حذف‌شده)، رد شو
@@ -51,11 +77,26 @@ async function tryProviders(taskType, invoke) {
       continue;
     }
 
-    try {
-      return await invoke(entry, apiKey);
-    } catch (err) {
-      console.error(`provider "${p.name}" (${p.service}) در «${label}» شکست خورد:`, err.message);
-      errors.push(`${p.name}: ${err.message}`);
+    let rateLimitRetries = 0;
+    for (;;) {
+      try {
+        return await invoke(entry, apiKey);
+      } catch (err) {
+        const waitMs = extractRetryAfterMs(err.message);
+        if (waitMs && rateLimitRetries < MAX_RATE_LIMIT_RETRIES) {
+          rateLimitRetries++;
+          console.warn(
+            `provider "${p.name}" (${p.service}) در «${label}» به rate limit خورد — ${(waitMs / 1000).toFixed(
+              1
+            )} ثانیه صبر و تلاش دوباره (${rateLimitRetries}/${MAX_RATE_LIMIT_RETRIES})`
+          );
+          await sleep(waitMs);
+          continue; // همون provider رو دوباره امتحان کن
+        }
+        console.error(`provider "${p.name}" (${p.service}) در «${label}» شکست خورد:`, err.message);
+        errors.push(`${p.name}: ${err.message}`);
+        break; // برو سراغ provider بعدی
+      }
     }
   }
 

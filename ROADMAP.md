@@ -137,7 +137,7 @@ git push
 - **`videoRender.js`** — FFmpeg orchestration. One segment per FFmpeg process (`BATCH_SIZE = 1`, deliberately, to stay inside 512MB RAM — kept intact through every phase), 300s timeout per segment (throws and stops the whole render on failure — no retry). Maya appears large/centered ("presenter" role) only on the first and last segment; alternates small-corner-cameo/fully-hidden for body segments. Backdrop blur uses a downscale→blur→upscale trick for speed. Final audio mix picks a local mood-matched BGM track (`public/audio/bgm/`, mapped from `pickMayaPose`) and ducks it under narration via `sidechaincompress` (falls back to the old synthetic tone if no BGM file exists — never fails the render). Also exports `renderVerticalShortFromSource` (crop-to-9:16 + animated burned-in captions for Shorts) and `probeDurationSec`/`probeHasAudioStream` (read straight from ffmpeg's own stderr — no ffprobe dependency in this project). *Phase 5: `estimateAudioDurationSec` is now async and reuses `probeDurationSec` on a temp-written copy of the audio buffer, instead of assuming a fixed 48kbps bitrate — that assumption only held for msedge-tts and silently desynced captions/media timing whenever a different "audio" provider (different bitrate) was prioritized. The media-download loop and `mayaThumbnail.js`'s background-image fetch also now accept either a URL string (stock search) or a `{buffer, ext}` object (AI-generated image providers, which return raw bytes, not a link) — both shapes flow out of `lib/providers/registry.js`'s image adapters.* *Phase 6: Maya's overlay is no longer one static frame — `buildMayaOverlayChain()` layers a continuous idle sway (sine-wave x/y drift via FFmpeg's `t`, needs no new art) plus two optional sprite-swap layers, `{pose}-talk.png` (rhythmic mouth-flap) and `{pose}-blink.png` (periodic blink), each independently skipped via `fs.existsSync` if that pose's variant doesn't exist yet. "Hidden"-role segments now skip loading any Maya asset at all (previously loaded one unused input every time).*
 - **`scriptTiming.js`** — splits the flat script into N timed buckets (`distributeDurations`) and builds SRT files (`buildSrt`) from any (captions, durations) pair — reused for every caption language.
 - `media.js` — *(Phase 5: rewritten)* thin wrapper re-exporting `fetchImages`/`fetchClips` from `lib/providers/router.js` and `extractKeywords` from `lib/providers/textUtils.js` — same exact signatures as before, so every caller is unchanged; only the implementation moved.
-- **`translateCaptions.js`** — calls the configured "text" provider to translate the caption array into another language, 1:1 index-preserving (required so `buildSrt` timing still lines up with the video). *Phase 5: routed through `lib/providers/router.js` instead of a hardcoded Groq fetch; prompt/behavior unchanged.*
+- **`translateCaptions.js`** — calls the configured "text" provider to translate the caption array into another language, 1:1 index-preserving (required so `buildSrt` timing still lines up with the video). *Phase 5: routed through `lib/providers/router.js` instead of a hardcoded Groq fetch; prompt/behavior unchanged.* *2026-08-10 fix: retries once with a stricter, lower-temperature prompt if the model returns the wrong segment count, instead of failing that language outright.*
 - `mayaThumbnail.js` — composites the YouTube thumbnail (Maya + blurred background + title text); picks Maya's pose by keyword-matching segment text against 7 moods + a default (`pickMayaPose`, built on `pickMayaPoseRanked` — full ranking, not just top pick). `buildMayaThumbnail` takes a `variant` ('A'/'B') that changes the color grade (purple-orange vs. teal-blue) and picks the 2nd-ranked pose for B; `buildMayaThumbnailVariants` builds both in one call. *Phase 5: `bgImageUrl` now accepts either a URL string or a `{buffer, ext}` object, same reasoning as `videoRender.js` above.*
 - `channelHistory.js` — pulls recent video titles from YouTube itself, used as "memory" so new scripts don't repeat topics
 - `youtubeAnalytics.js` — batch stats fetch for `sync-stats`
@@ -150,7 +150,7 @@ git push
 - **`providers/crypto.js`** *(new, Phase 5)* — `encrypt`/`decrypt` for provider API keys at rest (AES-256-GCM, key derived from `NEXTAUTH_SECRET` via SHA-256 — no new secret needed).
 - **`providers/textUtils.js`** *(new, Phase 5)* — `extractKeywords`, moved out of the old `media.js` so both `media.js` and `providers/registry.js` can use it without a circular import.
 - **`providers/registry.js`** *(new, Phase 5)* — the known-service "dictionary": for each of Groq/OpenAI/Anthropic/ElevenLabs/Stability AI/Pexels/msedge-tts, its capabilities, a connectivity `detect(apiKey)` probe, and per-capability adapter functions (`text`/`image`/`video`/`audio`) with the actual `fetch()` calls. `detectService(apiKey)` runs every `detect()` in parallel and returns the first match (or `'unknown'`). Adding a new provider = one new entry here; nothing else needs to change.
-- **`providers/router.js`** *(new, Phase 5)* — `generateText`/`fetchImages`/`fetchClips`/`synthesizeSpeech`: for each, loads the user's priority-ordered provider list for that task from the DB and tries them top-down, falling back to the next on any failure, throwing a clear aggregated Persian error only if all of them fail (or none are configured).
+- **`providers/router.js`** *(new, Phase 5)* — `generateText`/`fetchImages`/`fetchClips`/`synthesizeSpeech`: for each, loads the user's priority-ordered provider list for that task from the DB and tries them top-down, falling back to the next on any failure, throwing a clear aggregated Persian error only if all of them fail (or none are configured). *2026-08-10 fix: a rate-limit error (message contains "try again in Xs") no longer counts as an immediate failure — waits that long and retries the same provider (up to 2x) before falling through to the next provider or failing.*
 
 ### Components (`src/components/`)
 - `VideoStudio.js` — the whole long/short creation UI + the streaming-fetch client for `generate-and-upload`. *Phase 5: the voice-preview call to `/api/tts` no longer hardcodes `voice: "en-US-JennyNeural"` (that's an Edge-only voice name, meaningless to OpenAI/ElevenLabs) — it now sends no `voice` at all and lets whichever provider is prioritized use its own default.*
@@ -293,6 +293,44 @@ git push
 ## Changelog
 
 Newest first. Add new entries above the top one — date, what, why, files.
+
+### 2026-08-10 — Fix: cascading multi-language caption failures (rate limit + segment-count mismatch)
+User reported all 5 caption languages failing on one render, with two distinct
+errors stacked in the log.
+
+**Bug 1 — es/pt: real translation bug, not rate limiting.** The model
+returned 19 segments instead of 20 for a 20-line script. `translateCaptions()`
+had zero tolerance for this — any count mismatch failed that language
+outright, with no retry, even though an off-by-one merge/drop is exactly the
+kind of thing a second attempt with a stricter prompt usually fixes (same
+pattern already used for the 8-minute script-length safety net).
+
+**Bug 2 — ar/hi/fa: a real cascade, caused by only one text provider being
+configured.** With just "Groq (کلید قدیمی از env)" active, five back-to-back
+~4300-4400-token translation calls for a long-form (1200-1500 word, Phase 7)
+script pushed cumulative usage past Groq's free-tier 12,000 TPM cap inside
+the same one-minute window. `providers/router.js` had no rate-limit handling
+at all — a 429 was treated exactly like any other failure and immediately
+propagated, even though Groq's own error text said the fix was to wait ~7s.
+
+**Fixed:**
+- `lib/translateCaptions.js`: on an invalid segment count or bad JSON, now
+  retries once with a stricter, lower-temperature prompt (explicit "translate
+  every segment separately, never merge" warning) before giving up.
+- `lib/providers/router.js`: `tryProviders()` now parses "try again in Xs"
+  out of a provider's own error message and, when present, waits that long
+  and retries the *same* provider (up to 2x) before falling through to the
+  next provider or failing for good. This is a router-level change, so it
+  helps every caller — `scriptGen.js`, `metadataGen.js`,
+  `translateCaptions.js`, `communityPost.js` — not just captions.
+
+**Still recommended, not done here:** add a second text provider from
+`/providers` so there's a real fallback once Groq's TPM cap is hit
+repeatedly — the retry buys time by waiting out the cooldown, it doesn't
+raise the ceiling. Worth doing especially now that scripts run
+1200-1500 words (Phase 7) and get translated 5x per long-form video.
+
+Files: `lib/translateCaptions.js`, `lib/providers/router.js`.
 
 ### 2026-08-10 — Hotfix: short render crashed on every video with talk/blink assets
 Every Maya overlay with an active `-talk`/`-blink`/`-talk-blink` layer

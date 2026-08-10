@@ -5,13 +5,22 @@
 // must match the input exactly, since the translated text gets zipped back
 // with the *same* `durations` array to build that language's SRT — a
 // mismatched length would misalign every subtitle after the first difference.
+//
+// If the model returns the wrong segment count on the first try, we retry
+// once with a stricter prompt (lower temperature, explicit warning) before
+// giving up — same "give it one more focused shot" pattern used for the
+// 8-minute script-length safety net in scriptGen.js.
 
 import { generateText } from "./providers/router";
 
-export async function translateCaptions(captions, languageName) {
+async function requestTranslation(captions, languageName, strict) {
+  const strictNote = strict
+    ? `\n\nIMPORTANT: a previous attempt returned the wrong number of segments. Double-check before answering: the output array must have exactly one entry per input entry, in the same order. Never merge two input segments into one output entry, never split one into two, never skip a short/odd-looking segment — translate every single one on its own.`
+    : "";
+
   const prompt = `Translate this list of ${captions.length} video subtitle segments into ${languageName}. This is spoken narration from an energetic, warm host — translate for natural spoken tone in ${languageName}, not a stiff literal translation.
 
-Critical: return EXACTLY ${captions.length} items, in the same order, each the translation of the input item at that same index. Never merge, split, drop, or reorder segments, even if that makes one run a little long or short.
+Critical: return EXACTLY ${captions.length} items, in the same order, each the translation of the input item at that same index. Never merge, split, drop, or reorder segments, even if that makes one run a little long or short.${strictNote}
 
 Return ONLY this JSON shape, nothing else:
 {"segments": ["...", "..."]}
@@ -22,7 +31,7 @@ ${JSON.stringify(captions)}`;
   const rawText = await generateText({
     prompt,
     jsonMode: true,
-    temperature: 0.3,
+    temperature: strict ? 0.1 : 0.3,
     maxTokens: 4000,
   });
 
@@ -43,4 +52,21 @@ ${JSON.stringify(captions)}`;
   }
 
   return segments;
+}
+
+export async function translateCaptions(captions, languageName) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      return await requestTranslation(captions, languageName, attempt > 1);
+    } catch (err) {
+      lastError = err;
+      if (attempt === 1) {
+        console.warn(
+          `ترجمه‌ی ${languageName} بار اول شکست خورد (${err.message}) — یک تلاش دیگه با prompt سخت‌گیرانه‌تر...`
+        );
+      }
+    }
+  }
+  throw lastError;
 }
