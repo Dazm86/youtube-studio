@@ -187,11 +187,15 @@ function buildMayaOverlayChain({ i, H, isPresenter, maya, srcLabel, outLabel }) 
 
   const flapPeriod = (0.2 + Math.random() * 0.08).toFixed(2);
   const flapOpen = (parseFloat(flapPeriod) * 0.6).toFixed(2);
-  const talkCond = `mod(t,${flapPeriod})<${flapOpen}`;
+  // نکته‌ی مهم: عبارت‌های eval فریمورک خودِ FFmpeg اصلاً عملگرهای مقایسه‌ای
+  // خام `<`/`>` رو نمی‌شناسه (فقط + - * / ^ باینری هست) — مقایسه باید با
+  // توابعِ lt(x,y)/gt(x,y) نوشته بشه، وگرنه با خطای مبهمِ parse شکست
+  // می‌خوره («Missing ')'» با این‌که پرانتزها بالانسن).
+  const talkCond = `lt(mod(t,${flapPeriod}),${flapOpen})`;
 
   const blinkPeriod = (3.5 + Math.random() * 2).toFixed(2);
   const blinkOffset = (Math.random() * parseFloat(blinkPeriod)).toFixed(2);
-  const blinkCond = `mod(t+${blinkOffset},${blinkPeriod})<0.13`;
+  const blinkCond = `lt(mod(t+${blinkOffset},${blinkPeriod}),0.13)`;
 
   const hasTalk = maya.talkIdx != null;
   const hasBlink = maya.blinkIdx != null;

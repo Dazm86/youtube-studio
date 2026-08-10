@@ -294,6 +294,44 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-10 — Hotfix: short render crashed on every video with talk/blink assets
+Every Maya overlay with an active `-talk`/`-blink`/`-talk-blink` layer
+(so: any render touching a pose that has those files) failed with
+`ffmpeg exited with code 1` and `Missing ')' in '(mod(t,0.23)<0.14)*...'`
+— reported by the user on a shorts render, confirmed same root cause
+would hit long-form too.
+
+**Root cause:** FFmpeg's `eval` expression engine (used for `enable=`)
+does not have `<`/`>` as operators at all — its binary operator set is
+only `+ - * / ^`; comparisons must go through the named functions
+`lt(x,y)`/`gt(x,y)`/etc. Phase 6's `buildMayaOverlayChain()` wrote
+`mod(t,P)<D` directly, which isn't valid FFmpeg eval syntax — the
+parser fails with a somewhat unhelpful "Missing ')'" rather than an
+"unknown operator" message, which is what actually shipped in Phase 6
+without being run against real ffmpeg first.
+
+**Fixed by** rewriting both `talkCond`/`blinkCond` to use `lt(mod(...),D)`
+instead of `mod(...)<D`. Structurally nothing else changed — the same
+multiply/subtract compound-condition logic from Phase 6b still applies
+on top of these, since `lt(...)` returns a normal 0/1 value that
+arithmetic can operate on just like the old (invalid) comparison would
+have if it had worked.
+
+**Verified this time, not just reasoned about:** reproduced the exact
+user-reported error against real ffmpeg with the old syntax (byte-for-
+byte identical error message), then confirmed the fixed syntax renders
+successfully end-to-end (real ffmpeg process, exit code 0, valid output
+file) with 4 dummy PNG inputs mimicking the base/talk/blink/talk-blink
+layers — not just a syntax-check of the JS. Phase 6/6b's filter-graph
+code was never actually run through ffmpeg before this, since building
+it happened without ffmpeg available in that session — a gap worth
+remembering: FFmpeg filter *expression* syntax (as opposed to overall
+JS syntax) needs to be checked against real ffmpeg, not inferred from
+general familiarity with `eval`-style syntax elsewhere.
+
+**Files:** `lib/videoRender.js` only (`buildMayaOverlayChain`'s
+`talkCond`/`blinkCond` construction).
+
 ### 2026-08-09 — Phase 7: engagement CTAs, bolder titles, and an actual 8-minute floor
 User wants three growth levers pulled at once: (1) comment engagement,
 (2) a subscribe ask that doesn't feel like a subscribe ask, (3) bigger-
