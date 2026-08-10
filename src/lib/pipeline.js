@@ -54,6 +54,17 @@ export async function runPipeline(
   // --- ۲. تقسیم اسکریپت به بخش‌های زمان‌بندی‌شده + گرفتن عکس/کلیپ مخصوص هر بخش ---
   const isShort = videoMode === "short";
   const audioDurationSec = await estimateAudioDurationSec(audioBuffer);
+  if (!isShort && audioDurationSec < 480) {
+    // هدفِ پرامپتِ اسکریپت (scriptGen.js) رد شدن از ۸ دقیقه‌ست، چون زیرِ
+    // این آستانه یوتیوب اجازه‌ی چند تبلیغِ میان‌ویدیو نمی‌ده — این فقط یک
+    // هشدارِ قابل‌پیگیریه، رندر رو متوقف نمی‌کنه (شبکه‌ی ایمنیِ کلمه‌شمار
+    // تو خودِ scriptGen.js از قبل تلاششو کرده).
+    console.warn(
+      `runPipeline: ویدیوی لانگ ~${Math.round(audioDurationSec / 60)} دقیقه (${Math.round(
+        audioDurationSec
+      )} ثانیه) دراومد — زیرِ آستانه‌ی ۸ دقیقه‌ی یوتیوب برای تبلیغِ میان‌ویدیو.`
+    );
+  }
   const mediaCount = isShort
     ? Math.min(30, Math.max(8, Math.ceil(audioDurationSec / 2.5)))
     : Math.min(80, Math.max(6, Math.ceil(audioDurationSec / 6.5)));

@@ -279,10 +279,69 @@ git push
   against `mayaThumbnail.js`'s `POSE_KEYWORDS`, not certainty. Worth a
   quick visual check against the live `public/maya/{pose}.png` files
   after any such batch lands.
+- **The 8-minute floor is enforced by word count, not real duration**
+  — `generateScript()`'s safety net counts words and assumes ~140wpm
+  for mindful-paced narration; it can't know the actual TTS duration
+  until *after* audio synthesis (which happens later, in the
+  pipeline, per-provider). If actual narration consistently comes out
+  faster/slower than that estimate across many videos, the 1150-word
+  retry trigger should be recalibrated — `runPipeline()`'s post-TTS
+  warning log is exactly there to catch that drift, so check Render's
+  logs occasionally for it rather than assuming the word-count proxy
+  stays accurate forever.
 
 ## Changelog
 
 Newest first. Add new entries above the top one — date, what, why, files.
+
+### 2026-08-09 — Phase 7: engagement CTAs, bolder titles, and an actual 8-minute floor
+User wants three growth levers pulled at once: (1) comment engagement,
+(2) a subscribe ask that doesn't feel like a subscribe ask, (3) bigger-
+promise titles, (4) long-form videos reliably past YouTube's 8-minute
+mid-roll-ad threshold (confirmed still the current rule as of 2026 —
+under 8:00 only gets pre/post-roll, not the higher-earning mid-rolls).
+
+**Turned out two of these were already half-built.** `scriptGen.js`'s
+prompt already had a specific, non-generic comment-question closing
+beat, and already said "target 1200-1500 words, never fewer than
+1200" for long-form (≈8.5+ min at a ~140wpm mindful-narration pace) —
+just with nothing verifying either actually happened. And the
+subscribe ask wasn't just missing, it was explicitly *forbidden*
+("Not a call to subscribe") in the existing prompt — a deliberate
+choice from whenever that was written, now reversed.
+
+**Subscribe, done as psychology, not a script line.** Added an
+instruction with three concrete reframes to choose from per video
+(continuation/tease — "subscribing means not missing the next piece";
+identity — "if you're someone who's tired of X, this is where you
+belong"; ongoing relationship — "I'll be here every week") — the model
+picks and rewords one per video rather than reusing a fixed line, and
+is told explicitly never to use the bare phrase "like and subscribe."
+Applied to both short and long structures, sized to fit each (a single
+clause for shorts given the 30-60s runway, a sentence or two for
+long-form's more spacious closing).
+
+**Titles pushed toward bigger, specific promises** (concrete numbers/
+timeframes/hidden-cause framing) while keeping the existing "must
+actually pay off" constraint load-bearing — an unearned promise hurts
+more than it helps once watch-time (not clicks) is what the algorithm
+and YouTube's own native A/B testing both optimize for.
+
+**The 8-minute target got an actual enforcement layer**, since a
+prompt instruction alone doesn't guarantee an LLM hits a word-count
+floor. `generateScript()` now counts words after generating; if
+clearly short (<1150 words), it retries once with a sharper, more
+explicit instruction naming which sections to expand; if still short,
+it proceeds anyway (never blocks the pipeline over this) but logs a
+clear warning. `runPipeline()` adds a second, independent check after
+real TTS synthesis — if a long-form video's *actual* audio comes out
+under 480s despite all that, it's logged too, so a persistent miss is
+visible in Render's logs rather than silently invisible.
+
+**Files:** `lib/scriptGen.js` (subscribe-CTA instructions in both
+structures, word-count retry safety net), `lib/metadataGen.js` (bolder
+title-promise instruction), `lib/pipeline.js` (post-TTS duration
+warning).
 
 ### 2026-08-09 — Phase 6b: the actual Maya art arrived — normalized + wired in, plus a 4th state
 User made the art (3 zips: mouth-open, eyes-closed, and — beyond what

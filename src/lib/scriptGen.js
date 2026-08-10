@@ -27,13 +27,17 @@ export async function generateScript({ topic, mode, accessToken }) {
 1. Hook (first ~3 seconds): one line that immediately grabs attention — a surprising claim, a "you've probably felt this" moment, or a direct question.
 2. Empathy (next ~10 seconds): show you understand the viewer's struggle, in their own words.
 3. Insight (next ~30 seconds): the core reframe or unexpected angle — the heart of the video, not just a slogan.
-4. Closing (final ~15-20 seconds): end with one specific, personal question tied directly to this video's topic, then explicitly invite viewers to answer in the comments (in the spirit of: "What's a memory you can't seem to shake? Tell me in the comments." — always reworded and specific to this video's actual topic, never a generic "what do you think?"). Not a call to subscribe.`
+4. Closing (final ~15-20 seconds): end with one specific, personal question tied directly to this video's topic, then explicitly invite viewers to answer in the comments (in the spirit of: "What's a memory you can't seem to shake? Tell me in the comments." — always reworded and specific to this video's actual topic, never a generic "what do you think?" — the easier it is to answer in just a few words, the better, since friction kills comments). Woven into that same closing breath (not a separate beat), add one quick, natural nudge toward subscribing — never the bare phrase "like and subscribe"; instead make the viewer feel they'd be missing something specific if they scrolled past, not that they'd be doing Maya a favor (e.g. hinting this is one piece of something ongoing). One clause is enough — it should feel like part of the goodbye, not an ad break.`
     : `Write a spoken narration script for a long-form video that MUST run past the 8-minute mark when read aloud — target 1200-1500 words, never fewer than 1200. Structure it around 3-4 deep sub-sections that each get real room to breathe (a few hundred words each, packed with concrete detail — this is a deep dive, not a quick overview):
 1. Hook + Root Cause: open with a question or short story that pulls the viewer in, then dig into WHY this problem actually happens — the real, underlying cause most people never examine.
 2. Symptoms / How It Shows Up: describe, specifically and relatably, how this plays out in someone's actual daily life — enough detail that the viewer recognizes themselves in it.
 3. Real Story: one real-feeling story, experience, or scenario — a specific character or moment, not an abstraction — that makes it concrete.
 4. Actionable Steps: 3-5 concrete, specific steps the viewer can actually take, each explained enough to be genuinely useful, not just listed in passing.
-Close with a brief, inspiring wrap-up that invites reflection, then end with one specific, personal question tied directly to this video's topic, explicitly inviting viewers to share their answer in the comments (in the spirit of: "What's a memory you can't seem to shake? Let me know in the comments." — always reworded and specific to this video's actual topic, never a generic "what do you think?"). Not just a request to subscribe.
+Close with a brief, inspiring wrap-up that invites reflection, then end with one specific, personal question tied directly to this video's topic, explicitly inviting viewers to share their answer in the comments (in the spirit of: "What's a memory you can't seem to shake? Let me know in the comments." — always reworded and specific to this video's actual topic, never a generic "what do you think?" — the easier it is to answer in a few words, the better). Somewhere in that same closing, weave in ONE reason to subscribe that makes the viewer feel it's for THEM, not a favor to the channel — pick whichever fits this video best, reworded fresh every time, never the bare phrase "like and subscribe":
+  (a) tease something specific and concrete coming in a future video that this one sets up, so subscribing means not missing the next piece;
+  (b) name the kind of person who needs this channel ("if you're someone who's tired of X, this is where you belong") so subscribing feels like joining something, not doing a favor;
+  (c) speak to an ongoing relationship ("I'll be here every week working through this with you") rather than a one-time transaction.
+Choose ONE, keep it to a sentence or two, and it must feel like a continuation of her voice, not a tonal shift into ad-read mode.
 Vary sentence rhythm so it doesn't feel repetitive over the longer length. Do not rush any section to hit a shorter length — if a section feels thin, expand it with more concrete detail, examples, or explanation rather than moving on early.`;
 
   // حلقه‌ی بازخورد: بهترین ویدیوهای قبلی از نظر نگه‌داشت مخاطب (اگه داده‌ای
@@ -79,11 +83,34 @@ Requirements:
 
 Respond with ONLY the narration text itself, nothing else.`;
 
-  const script = await generateText({
+  let script = await generateText({
     prompt,
     temperature: 1,
     maxTokens: isShort ? 400 : 3000,
   });
+
+  // شبکه‌ی ایمنیِ طول: پرامپت بالا صراحتاً ۱۲۰۰+ کلمه می‌خواد (با فرضِ
+  // ~۱۴۰ کلمه در دقیقه برای روایتِ آروم، یعنی رد شدن از ۸ دقیقه — همون
+  // آستانه‌ای که یوتیوب برای گذاشتنِ چند تبلیغِ میان‌ویدیو لازم داره) —
+  // ولی مدل‌ها گاهی از هدفِ طول کوتاه می‌مونن، صرفِ نوشتنِ دستور تو پرامپت
+  // تضمین نیست. اگه اولین پیش‌نویس آشکارا کوتاه بود، یک تلاشِ دومِ
+  // صریح‌ترو امتحان می‌کنیم؛ اگه بازم کوتاه بود همون رو قبول می‌کنیم (کل
+  // پایپ‌لاین رو به‌خاطر یک شرطِ نرم متوقف نمی‌کنیم) ولی یک هشدارِ واضح
+  // لاگ می‌شه تا قابلِ پیگیری باشه.
+  if (!isShort) {
+    const wordCount = () => script.trim().split(/\s+/).filter(Boolean).length;
+    if (wordCount() < 1150) {
+      console.warn(`generateScript: اولین پیش‌نویس فقط ~${wordCount()} کلمه بود، با دستورِ طولِ قوی‌تر دوباره تلاش می‌کنیم`);
+      script = await generateText({
+        prompt: `${prompt}\n\nIMPORTANT: your previous draft was too short (~${wordCount()} words). The absolute requirement is 1200+ words. Do not summarize or rush any section — expand the "Symptoms / How It Shows Up" and "Actionable Steps" sections specifically with more concrete detail, examples, and elaboration until the full script comfortably clears 1200 words.`,
+        temperature: 1,
+        maxTokens: 3000,
+      });
+      if (wordCount() < 1150) {
+        console.warn(`generateScript: تلاشِ دوم هم کوتاه موند (~${wordCount()} کلمه) — با همین ادامه می‌دیم`);
+      }
+    }
+  }
 
   return { script };
 }
