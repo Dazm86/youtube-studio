@@ -3,7 +3,7 @@ import { Readable } from "stream";
 import { synthesizeSpeech } from "./providers/router";
 import { fetchImages, fetchClips } from "./media";
 import { renderVideo, estimateAudioDurationSec } from "./videoRender";
-import { distributeDurations, buildSrt } from "./scriptTiming";
+import { distributeDurations, buildSrt, regroupForSubtitles } from "./scriptTiming";
 import { translateCaptions } from "./translateCaptions";
 import { buildMayaThumbnail } from "./mayaThumbnail";
 import { generateCommunityPost } from "./communityPost";
@@ -185,10 +185,19 @@ export async function runPipeline(
     thumbnailStatus = "failed: " + thumbErr.message;
   }
 
+  // بخش‌های بالا (captions/durations) با تعداد آیتم‌های رسانه هماهنگن، نه با
+  // طول خوانا برای زیرنویس — قبل از ساختِ SRT به بلوک‌های ۵ تا ۱۰ ثانیه‌ای
+  // بازچینی می‌شن؛ segmentation رسانه/رندرِ بالا (mediaItems، renderVideo)
+  // دست‌نخورده می‌مونه.
+  const { captions: subtitleCaptions, durations: subtitleDurations } = regroupForSubtitles(
+    captions,
+    durations
+  );
+
   // --- ۶. زیرنویس انگلیسی ---
   let captionStatus = "skipped";
   try {
-    const srtContent = buildSrt(captions, durations);
+    const srtContent = buildSrt(subtitleCaptions, subtitleDurations);
     await youtube.captions.insert({
       part: ["snippet"],
       requestBody: { snippet: { videoId, language: "en", name: "English", isDraft: false } },
@@ -215,8 +224,8 @@ export async function runPipeline(
   for (const lang of CAPTION_LANGUAGES) {
     try {
       emit({ status: `در حال ترجمه و آپلود زیرنویس ${lang.name}...`, progress: 96 });
-      const translated = await translateCaptions(captions, lang.name);
-      const translatedSrt = buildSrt(translated, durations);
+      const translated = await translateCaptions(subtitleCaptions, lang.name);
+      const translatedSrt = buildSrt(translated, subtitleDurations);
       await youtube.captions.insert({
         part: ["snippet"],
         requestBody: {

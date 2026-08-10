@@ -71,6 +71,47 @@ export function buildSrt(captions, durations) {
   return blocks.join("\n");
 }
 
+// بخش‌های ریزِ (captions, durations) که از distributeDurations می‌آد برای
+// هماهنگی با تعداد آیتم‌های رسانه/رندر ساخته شدن (هر بخش = دقیقاً یک
+// عکس/کلیپ و یک اجرای FFmpeg) و به همین خاطر می‌تونن خیلی کوتاه باشن
+// (شورت: ~۲.۵ ثانیه) یا خیلی بلند (لانگ‌فرم‌های خیلی طولانی که به سقفِ
+// ۸۰ بخش خورده باشن). این تابع همون بخش‌ها رو — بدون دست‌زدن به
+// segmentationِ رسانه/رندرِ اصلی — برای خروجیِ SRT به بلوک‌های ۵ تا ۱۰
+// ثانیه‌ای (پیش‌فرض) بازچینی می‌کنه: بخش‌های پشت‌سرهم رو تا وقتی به
+// حداقل نرسیدن ادغام می‌کنه، و وقتی اضافه‌کردنِ بخشِ بعدی از سقف رد بشه
+// بلوک رو می‌بنده. اگه یک بخشِ منفرد از قبل بزرگ‌تر از سقف باشه (نادر،
+// فقط تو لانگ‌فرم‌های خیلی طولانی)، چون داده‌ی زمان‌بندی‌ای ریزتر از
+// خودِ بخش نداریم، همون‌طور تنها رها می‌شه — بهترین تلاشِ ممکنه، نه یک
+// تضمینِ سخت‌گیرانه.
+export function regroupForSubtitles(captions, durations, minSec = 5, maxSec = 10) {
+  const blocks = [];
+  let curTexts = [];
+  let curDuration = 0;
+
+  for (let i = 0; i < captions.length; i++) {
+    curTexts.push(captions[i]);
+    curDuration += durations[i];
+
+    const isLast = i === captions.length - 1;
+    const nextDuration = isLast ? 0 : durations[i + 1];
+
+    if (
+      isLast ||
+      curDuration >= maxSec ||
+      (curDuration >= minSec && curDuration + nextDuration > maxSec)
+    ) {
+      blocks.push({ text: curTexts.join(" ").trim(), duration: curDuration });
+      curTexts = [];
+      curDuration = 0;
+    }
+  }
+
+  return {
+    captions: blocks.map((b) => b.text),
+    durations: blocks.map((b) => b.duration),
+  };
+}
+
 export function wrapCaption(text, maxCharsPerLine) {
   const words = text.split(/\s+/).filter(Boolean);
   const lines = [];

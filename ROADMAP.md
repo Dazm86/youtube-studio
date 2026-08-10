@@ -294,6 +294,34 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-10 — Subtitles regrouped into 5-10s blocks (SRT only, media/render segmentation untouched)
+Requested: SRT subtitle blocks should read as 5-10 second chunks instead of
+whatever `distributeDurations()`'s per-media-item buckets happen to come out
+to (avg ~2.5s for shorts, ~6.5s for long-form — both well outside a
+comfortable subtitle-reading range, and either can drift further at the
+8/30/80-segment caps on very short or very long audio).
+
+`captions`/`durations` from `distributeDurations()` couldn't just be
+resegmented in place — that same array also drives the per-segment media
+search loop and `renderVideo()`'s one-FFmpeg-process-per-segment render, both
+upstream of the caption step in `runPipeline()`. Retimed those and every
+image/clip fetch call, Maya pose alternation, and the FFmpeg batch count
+would've shifted too.
+
+**Fixed:** added `scriptTiming.js: regroupForSubtitles(captions, durations,
+minSec=5, maxSec=10)` — greedily merges the existing fine-grained buckets
+into 5-10s blocks (flushes early if the next bucket would push it over 10s,
+keeps merging until it's at least 5s otherwise) without touching the
+original array. `pipeline.js` now calls this once, right before the caption
+steps, and feeds the regrouped `(subtitleCaptions, subtitleDurations)` to
+both `buildSrt()` calls and to `translateCaptions()` — media fetch and
+`renderVideo()` above it still use the original untouched `(captions,
+durations)`. A single original bucket longer than 10s (only possible on very
+long-form videos pinned at the 80-segment cap) is passed through as its own
+block rather than split — no sub-bucket timing data exists to split it with.
+
+Files: `lib/scriptTiming.js`, `lib/pipeline.js`.
+
 ### 2026-08-10 — Fix: cascading multi-language caption failures (rate limit + segment-count mismatch)
 User reported all 5 caption languages failing on one render, with two distinct
 errors stacked in the log.
