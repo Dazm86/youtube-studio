@@ -4,6 +4,7 @@ import fsp from "fs/promises";
 import os from "os";
 import path from "path";
 import ffmpegInstaller from "@ffmpeg-installer/ffmpeg";
+import sharp from "sharp";
 import { pickMayaPose } from "./mayaThumbnail";
 
 const ffmpegPath = ffmpegInstaller.path;
@@ -180,7 +181,25 @@ function buildMayaOverlayChain({ i, H, isPresenter, maya, srcLabel, outLabel }) 
   const mayaX = `${baseX}+${bobAmpX}*sin(2*PI*t/5+${phase.toFixed(2)})`;
   const mayaY = `${baseY}+${bobAmpY}*sin(2*PI*t/3.2+${((phase * 1.6) % 6.28).toFixed(2)})`;
 
-  let f = `[${maya.baseIdx}:v]scale=-1:${mayaH}[mayabase${i}];`;
+  // فایل‌های base/-talk/-blink/-talk-blink یک ژست جدا از هم ساخته/اکسپورت
+  // شدن، پس هیچ تضمینی نیست که همه دقیقاً هم‌ابعاد/هم‌نسبت باشن. قبلاً هر
+  // لایه با scale=-1:mayaH مستقل از بقیه اسکیل می‌شد — یعنی عرضِ نهایی هر
+  // کدوم به نسبتِ تصویرِ خودِ همون فایل بستگی داشت. اگه یکی از فایل‌ها
+  // (مثلاً pose-talk.png) کادربندی/عرضِ متفاوتی نسبت به base داشت، همون
+  // لحظه که اون لایه سوار می‌شد (فلپِ دهان یا پلک‌زدن) مایا برای یک لحظه
+  // به‌طرز محسوسی بزرگ‌تر/کوچیک‌تر می‌شد — دقیقاً همون پرشِ اندازه‌ای که
+  // تو ویدیوی رندرشده دیده شد. راه‌حل: ابعادِ واقعیِ فایلِ base رو با sharp
+  // می‌خونیم (mayaThumbnail.js هم همین‌جوری ازش استفاده می‌کنه) تا عرضِ
+  // دقیقِ mayaW رو حساب کنیم، و بقیه‌ی لایه‌ها رو مجبور می‌کنیم دقیقاً
+  // همون قابِ mayaW×mayaH رو پر کنن (fit + پدینگِ شفاف، نه کشیده‌شدن) —
+  // نه این‌که هرکدوم آزادانه به نسبتِ تصویرِ خودشون اسکیل بشن.
+  const mayaW = maya.baseAspect ? Math.round(mayaH * maya.baseAspect) : null;
+  const baseScale = mayaW ? `${mayaW}:${mayaH}` : `-1:${mayaH}`;
+  const layerScale = mayaW
+    ? `${mayaW}:${mayaH}:force_original_aspect_ratio=decrease,pad=${mayaW}:${mayaH}:(ow-iw)/2:(oh-ih)/2:color=black@0`
+    : `-1:${mayaH}`; // اگه خوندنِ ابعادِ base شکست خورده باشه، به رفتار قبلی برمی‌گردیم
+
+  let f = `[${maya.baseIdx}:v]scale=${baseScale}[mayabase${i}];`;
   f += `[${srcLabel}][mayabase${i}]overlay=${mayaX}:${mayaY}:eval=frame[mstack0_${i}];`;
   let stack = `mstack0_${i}`;
   let stackN = 0;
@@ -204,7 +223,7 @@ function buildMayaOverlayChain({ i, H, isPresenter, maya, srcLabel, outLabel }) 
   if (hasTalk) {
     stackN++;
     const enable = hasBoth ? `(${talkCond})*(1-(${blinkCond}))` : talkCond;
-    f += `[${maya.talkIdx}:v]scale=-1:${mayaH}[mayatalk${i}];`;
+    f += `[${maya.talkIdx}:v]scale=${layerScale}[mayatalk${i}];`;
     f +=
       `[${stack}][mayatalk${i}]overlay=${mayaX}:${mayaY}:eval=frame:` +
       `enable='${enable}'[mstack${stackN}_${i}];`;
@@ -214,7 +233,7 @@ function buildMayaOverlayChain({ i, H, isPresenter, maya, srcLabel, outLabel }) 
   if (hasBlink) {
     stackN++;
     const enable = hasBoth ? `(${blinkCond})*(1-(${talkCond}))` : blinkCond;
-    f += `[${maya.blinkIdx}:v]scale=-1:${mayaH}[mayablink${i}];`;
+    f += `[${maya.blinkIdx}:v]scale=${layerScale}[mayablink${i}];`;
     f +=
       `[${stack}][mayablink${i}]overlay=${mayaX}:${mayaY}:eval=frame:` +
       `enable='${enable}'[mstack${stackN}_${i}];`;
@@ -223,7 +242,7 @@ function buildMayaOverlayChain({ i, H, isPresenter, maya, srcLabel, outLabel }) 
 
   if (hasBoth) {
     stackN++;
-    f += `[${maya.talkBlinkIdx}:v]scale=-1:${mayaH}[mayatalkblink${i}];`;
+    f += `[${maya.talkBlinkIdx}:v]scale=${layerScale}[mayatalkblink${i}];`;
     f +=
       `[${stack}][mayatalkblink${i}]overlay=${mayaX}:${mayaY}:eval=frame:` +
       `enable='(${talkCond})*(${blinkCond})'[mstack${stackN}_${i}];`;
@@ -247,6 +266,7 @@ async function renderBatch({
   fontPath,
   useVideoClips,
   outputPath,
+  tmpDir,
   onProgress,
 }) {
   const n = batchPaths.length;
@@ -270,6 +290,36 @@ async function renderBatch({
   // نمی‌شکنه — فقط همون ژستِ بدون اون لایه، ساده‌تر می‌مونه (دقیقاً همون
   // فلسفه‌ی «تخریب آرومِ» BGM/تامبنیل).
   const mayaDir = path.join(process.cwd(), "public", "maya");
+  const mayaTrimDir = path.join(tmpDir, "maya-trim");
+  await fsp.mkdir(mayaTrimDir, { recursive: true });
+  let trimCounter = 0;
+
+  // فایل‌های base/-talk/-blink/-talk-blink یک ژست معمولاً جدا از هم تولید
+  // شدن (هر‌کدوم احتمالاً یک فراخوانیِ جداگانه‌ی هوش‌مصنوعیِ تصویر)، پس هیچ
+  // تضمینی نیست که کاراکتر با همون زوم/فریمینگ یا همون مقدار حاشیه‌ی شفاف
+  // دورش کشیده شده باشه. فقط اسکیل‌کردنِ همه به یک ارتفاعِ ثابت (کاری که
+  // کدِ قبلی می‌کرد) اندازه‌ی *کانواس* رو یکی می‌کنه، نه اندازه‌ی *خودِ
+  // کاراکتر* — اگه یکی از فایل‌ها حاشیه‌ی کمتر/کاراکترِ بزرگ‌تری داخلِ
+  // همون کانواس داشته باشه، همچنان لحظه‌ای که اون لایه سوار می‌شه (پلک‌زدن
+  // یا فلپِ دهان) مایا به‌طرز محسوسی بزرگ/کوچیک‌تر به‌نظر می‌رسه — دقیقاً
+  // همون پرشِ اندازه‌ای که تو ویدیوی رندرشده دیده شد. راه‌حل: قبل از دادنِ
+  // هر فایل به FFmpeg، با sharp حاشیه‌ی شفافِ اطرافِ کاراکتر رو trim
+  // می‌کنیم (خروجی = یک PNG موقت که تقریباً دقیقاً هم‌اندازه‌ی خودِ
+  // کاراکتره، نه هرچقدر حاشیه‌ای که فایلِ اصلی داشت) — بعد اسکیل‌کردنِ آن
+  // به ارتفاعِ ثابت باعث می‌شه اندازه‌ی *واقعیِ کاراکتر* بینِ همه‌ی لایه‌ها
+  // یکسان بمونه، نه فقط اندازه‌ی فایل. شکستِ trim (فایلِ غیرمنتظره) رندر
+  // رو نمی‌شکنه — همون فایلِ اصلیِ trim‌نشده استفاده می‌شه.
+  async function trimMayaAsset(srcPath) {
+    const destPath = path.join(mayaTrimDir, `trim${trimCounter++}.png`);
+    try {
+      const info = await sharp(srcPath).trim().png().toFile(destPath);
+      return { path: destPath, width: info.width, height: info.height };
+    } catch (trimErr) {
+      console.error(`trim عکسِ مایا شکست خورد (${srcPath}):`, trimErr.message);
+      return { path: srcPath, width: null, height: null };
+    }
+  }
+
   const mayaInputs = [];
   let nextInputIdx = n;
   for (let i = 0; i < n; i++) {
@@ -280,18 +330,23 @@ async function renderBatch({
     if (role !== "hidden") {
       const pose = pickMayaPose(batchCaptions[i] || "");
       const basePath = path.join(mayaDir, `${pose}.png`);
-      args.push("-loop", "1", "-framerate", "25", "-t", batchDurations[i].toFixed(2), "-i", basePath);
+      const baseTrim = await trimMayaAsset(basePath);
+      args.push("-loop", "1", "-framerate", "25", "-t", batchDurations[i].toFixed(2), "-i", baseTrim.path);
       entry.baseIdx = nextInputIdx++;
+      entry.baseAspect =
+        baseTrim.width && baseTrim.height ? baseTrim.width / baseTrim.height : null;
 
       const talkPath = path.join(mayaDir, `${pose}-talk.png`);
       if (fs.existsSync(talkPath)) {
-        args.push("-loop", "1", "-framerate", "25", "-t", batchDurations[i].toFixed(2), "-i", talkPath);
+        const talkTrim = await trimMayaAsset(talkPath);
+        args.push("-loop", "1", "-framerate", "25", "-t", batchDurations[i].toFixed(2), "-i", talkTrim.path);
         entry.talkIdx = nextInputIdx++;
       }
 
       const blinkPath = path.join(mayaDir, `${pose}-blink.png`);
       if (fs.existsSync(blinkPath)) {
-        args.push("-loop", "1", "-framerate", "25", "-t", batchDurations[i].toFixed(2), "-i", blinkPath);
+        const blinkTrim = await trimMayaAsset(blinkPath);
+        args.push("-loop", "1", "-framerate", "25", "-t", batchDurations[i].toFixed(2), "-i", blinkTrim.path);
         entry.blinkIdx = nextInputIdx++;
       }
 
@@ -300,7 +355,10 @@ async function renderBatch({
       // buildMayaOverlayChain خودش به حالتِ ساده‌ترِ سه‌حالته برمی‌گرده.
       const talkBlinkPath = path.join(mayaDir, `${pose}-talk-blink.png`);
       if (fs.existsSync(talkBlinkPath)) {
-        args.push("-loop", "1", "-framerate", "25", "-t", batchDurations[i].toFixed(2), "-i", talkBlinkPath);
+        const talkBlinkTrim = await trimMayaAsset(talkBlinkPath);
+        args.push(
+          "-loop", "1", "-framerate", "25", "-t", batchDurations[i].toFixed(2), "-i", talkBlinkTrim.path
+        );
         entry.talkBlinkIdx = nextInputIdx++;
       }
     }
@@ -457,6 +515,7 @@ export async function renderVideo({
         fontPath,
         useVideoClips,
         outputPath: batchOut,
+        tmpDir,
         onProgress: (p) => {
           const overallSec = doneSoFarSec + p * batchDurSec;
           onProgress && onProgress(0.15 + (overallSec / audioDurationSec) * 0.65);
