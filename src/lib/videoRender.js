@@ -195,8 +195,17 @@ function buildMayaOverlayChain({ i, H, isPresenter, maya, srcLabel, outLabel }) 
   // نه این‌که هرکدوم آزادانه به نسبتِ تصویرِ خودشون اسکیل بشن.
   const mayaW = maya.baseAspect ? Math.round(mayaH * maya.baseAspect) : null;
   const baseScale = mayaW ? `${mayaW}:${mayaH}` : `-1:${mayaH}`;
+  // force_divisible_by=2: بدونِ این، روی نسخه‌ی قدیمیِ استاتیکِ ffmpeg که
+  // Render باهاش رندر می‌کنه، scale+force_original_aspect_ratio=decrease
+  // گاهی یک پیکسل بزرگ‌تر از mayaW×mayaH حساب می‌کنه (باگِ گردکردنِ قدیمی،
+  // مخصوصاً وقتی نسبتِ ابعاعِ فایلِ talk/blink با baseAspect فرق داره —
+  // دقیقاً همینه که این چهار لایه رو از باقیِ اسکیل‌های پروژه جدا می‌کنه).
+  // pad بعدش با «Input area ... not within the padded area» شکست می‌خوره
+  // چون ورودی‌ای که ازش رسیده از قابِ pad بزرگ‌تره. force_divisible_by=2
+  // scale رو مجبور می‌کنه به یک عددِ زوجِ کوچیک‌ترِ مساوی گرد کنه، نه به
+  // بالا، پس همیشه داخلِ mayaW×mayaH جا می‌شه.
   const layerScale = mayaW
-    ? `${mayaW}:${mayaH}:force_original_aspect_ratio=decrease,pad=${mayaW}:${mayaH}:(ow-iw)/2:(oh-ih)/2:color=black@0`
+    ? `${mayaW}:${mayaH}:force_original_aspect_ratio=decrease:force_divisible_by=2,pad=${mayaW}:${mayaH}:(ow-iw)/2:(oh-ih)/2:color=black@0`
     : `-1:${mayaH}`; // اگه خوندنِ ابعادِ base شکست خورده باشه، به رفتار قبلی برمی‌گردیم
 
   let f = `[${maya.baseIdx}:v]scale=${baseScale}[mayabase${i}];`;
