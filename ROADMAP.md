@@ -294,6 +294,143 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-12 — Batch 1 of the 50-item content-quality checklist (script, audio, visuals, resilience, thumbnail)
+User pasted a 50-item Persian checklist (script/AI direction, audio/TTS/
+music, visual effects, technical pipeline, thumbnail/metadata) covering 5
+categories. Previous session reviewed all 50 with a verdict per item
+(already-done / good-and-feasible / needs-caution / not-really-feasible)
+without changing any code. This session implements every item marked
+"good and feasible" (👍) that didn't depend on a bigger architecture
+change flagged as out of scope (per-paragraph AI visual-hints for media
+search and anything downstream of it, word-level caption timing, exact
+TTS word-boundary sync, and SSML-timestamp-driven ducking — msedge-tts's
+SSML support is unreliable enough that the existing *reactive*
+sidechaincompress ducking, keyed off the real narration waveform, is
+already a better solution than what the checklist asked for). Two items
+turned out to already be exactly what the checklist wanted with zero
+changes needed: curiosity-gap titles and keyword-led descriptions were
+already in metadataGen.js's prompt. Everything below was individually
+syntax-checked, and anything touching FFmpeg filter graphs or sharp image
+compositing was verified with a live render/test before being considered
+done — two real bugs were caught and fixed this way (see below).
+
+**Audio (videoRender.js):**
+- Loudness normalized to -14 LUFS (`loudnorm`, single-pass) on the final
+  audio mix — YouTube's own playback-normalization target.
+- Soft fade-in/out at each segment boundary, **long-form only** (`W>H`).
+  Not a true crossfade — that would need re-architecting the segment
+  concatenation from the concat-demuxer to `xfade`, which requires
+  holding two segments in memory at once and touches the deliberately
+  memory-frugal one-segment-per-FFmpeg-process design (512MB Render free
+  tier). This is the lower-risk version: each segment fades to/from black
+  at its own edges, softening the cut once concatenated, without touching
+  that architecture. Skipped for Shorts — a fade at every 2-3s fast cut
+  would be more distracting than the hard cut it's replacing.
+- Synthesized "whoosh" SFX at clip transitions, **long-form only** (same
+  fast-cut-frequency reasoning as the fade). Fully synthesized (band-passed
+  pink noise burst, `anoisesrc`+`highpass`+`lowpass`+`afade`) — no external
+  SFX asset file needed, so it can't fail from a missing file. **Caught a
+  real bug via live test**: mixing all whoosh bursts together with
+  `amix=duration=first` truncated the whole burst-track to the *first*
+  whoosh's own natural length, silently dropping every later boundary's
+  sound — fixed with `duration=longest` for that sub-mix, `duration=first`
+  only for the final merge with narration+music so total length still
+  matches the narration exactly. Also added `normalize=0` on that sub-mix
+  since amix's default per-input gain reduction (to prevent clipping when
+  summing N inputs) would make each burst nearly inaudible on long videos
+  with many boundaries — safe here since the bursts are ~180ms and don't
+  meaningfully overlap.
+
+**Shorts captions (videoRender.js, `renderVerticalShortFromSource`):**
+- Semi-transparent black box behind each burned-in caption line for
+  readability. Fixed-width band (86% of frame width), not sized to each
+  line's actual text — `text_w`/`text_h` are only valid inside the
+  `drawtext` filter that computes them, a separate `drawbox` filter can't
+  read them, so a per-line-fitted box isn't possible without pre-measuring
+  text width in Node (not worth the complexity here).
+
+**Thumbnails (mayaThumbnail.js):**
+- Soft drop shadow behind Maya's cutout — built from her own resized
+  image's real alpha mask (not a guessed oval/box), scaled to 50% opacity
+  and blurred via `sharp`, offset (14px, 18px). Live-rendered and visually
+  confirmed before shipping.
+- Thumbnail text hard-capped to 4 words in code (`capThumbnailWords`) as
+  defense-in-depth — the AI prompt already asks for a word limit, but
+  nothing previously enforced it if the model ignored that.
+
+**Metadata (metadataGen.js):**
+- Thumbnail text prompt/fallback tightened from "4-6 words" to "3-4
+  words, extremely punchy" to match the checklist's rule (word-count target
+  in the prompt; the hard cap above is the enforcement backstop).
+- New `generateChapters(script)` — asks the AI for 3-5 natural chapter
+  breaks (`{title, firstWords}}`), used by pipeline.js (below).
+
+**Script prompt (scriptGen.js):**
+- Optional nature/sensory-metaphor guidance for describing emotional
+  states (storm instead of "overwhelmed", etc.) — framed explicitly as
+  occasional seasoning, not a rule, so it doesn't force awkward metaphors
+  into scripts where they don't fit.
+- New recurring verbal habit: a brief personal self-disclosure line in the
+  empathy beat ("I've been exactly there").
+- Shorts closing beat now also asks for a callback — the last line should
+  echo the opening hook's word/phrase/image, so a looped rewatch feels
+  connected rather than just stopping and restarting cold.
+- Punchy-sentence guidance sharpened from a vague personality trait into a
+  concrete instruction (break a landing point into 3-5 word bursts).
+
+**Resilience (providers/router.js):**
+- Timeout/network-error retry: the existing rate-limit retry (waits the
+  exact time the API tells it to, up to 2x) is joined by a separate
+  timeout/network-error retry (`ETIMEDOUT`/`ECONNRESET`/etc., up to 2x
+  with a fixed 1.5s backoff) before falling through to the next configured
+  provider — a plain timeout with only one provider configured previously
+  had zero retries.
+- Local backup-media fallback: `fetchImages`/`fetchClips` now fall back to
+  a random file from `public/fallback-media/{images,videos}/` if *every*
+  configured stock provider fails, instead of the whole render failing.
+  These folders ship empty (with a README) — actual stock assets aren't
+  something I can generate, so nothing changes until real files are added
+  there; until then this is a no-op and behavior is identical to before.
+
+**Captions (scriptTiming.js, pipeline.js):**
+- New `validateSrt(captions, durations)` — checks array-length match,
+  finite/positive durations (a stray `NaN` would previously have silently
+  produced a literal "NaN:NaN:NaN,NaN" timecode in the uploaded SRT), and
+  non-empty text. Wired in before both the English caption upload and each
+  translated-language upload in pipeline.js; a failure is treated the same
+  as any other per-language caption failure (skipped, logged, doesn't
+  block the other languages or the video itself). Not a new bug fix — the
+  2026-08-10 segment-count-mismatch fix already covers translateCaptions'
+  own retry — this is a structural safety net in case a *different* bug
+  produces bad timing data in the future.
+
+**Auto chapters (pipeline.js), long-form only:**
+- After `generateChapters()` returns `{title, firstWords}` pairs,
+  `findWordOffset()` locates each chapter's position by matching its first
+  4-6 words against the script's own word array (not a raw string search,
+  since the AI's quoted text can differ slightly in punctuation/spacing),
+  then converts that word-position ratio × `audioDurationSec` into a real
+  timestamp — the same proportional-timing model `distributeDurations`
+  already uses for media/render segmentation, so chapter times stay
+  consistent with actual video timing without needing real TTS
+  word-boundary data. YouTube's own chapter rules are enforced after that:
+  first chapter forced to exactly 0:00, any chapter within 10s of the
+  previous one is dropped (not merged — simpler, and YouTube requires
+  10s minimum spacing), and the whole block is discarded (video uploads
+  with its description exactly as given, no chapters) if fewer than 3
+  valid chapters survive — verified via direct test, including both of
+  these degrade-gracefully edge cases. Runs before the video upload step
+  so the chapter block can be appended to `description` before
+  `videos.insert`; failure anywhere in this step (AI call, JSON parse,
+  &lt;3 survivors) is caught and logged, never blocks the upload.
+
+**Still deferred** (from the "good and feasible" list, genuinely needs its
+own session): AI-generated per-paragraph visual-search hints (checklist
+#9) and the two items downstream of it (#24/#25, color-mood-driven search
+terms) — this needs restructuring scriptGen's output from prose into
+`{text, visualHint}` pairs and changing how pipeline.js consumes it, a
+real architecture change rather than a self-contained patch.
+
 ### 2026-08-11 — Fix: Maya visibly jumps size when blink/talk sprite layer swaps in
 User asked whether the "Maya isn't the same size on both" glitch (visible in
 the same uploaded short as the cuts issue above) had also been fixed — it
