@@ -43,9 +43,9 @@ function heuristicMetadata(script) {
   const titleB = `Why ${topKeyword} Feels So Hard (And What Helps) | The Mindful Path`;
 
   const thumbnailTextA =
-    firstSentence.split(/\s+/).slice(0, 5).join(" ") || topKeyword;
+    firstSentence.split(/\s+/).slice(0, 4).join(" ") || topKeyword;
   const thumbnailTextB =
-    (secondSentence || firstSentence).split(/\s+/).slice(0, 5).join(" ") ||
+    (secondSentence || firstSentence).split(/\s+/).slice(0, 4).join(" ") ||
     topKeyword;
 
   return {
@@ -59,6 +59,39 @@ function heuristicMetadata(script) {
     tags: keywords,
     source: "heuristic",
   };
+}
+
+// فصل‌بندیِ خودکار (Chapters) برای توضیحاتِ ویدیوهای بلند. این تابع فقط
+// نشانه‌های متنی (عنوانِ فصل + چند کلمه‌ی اولِ همون فصل تو اسکریپت) رو
+// برمی‌گردونه، نه زمان‌بندیِ واقعی — چون در لحظه‌ی صدازدنِ این تابع (پیش‌
+// نمایشِ متادیتا تو UI) هنوز audioDurationSec معلوم نیست؛ محاسبه‌ی
+// تایم‌استمپِ واقعی (بر اساسِ همون مدلِ نسبت‌به‌موقعیتِ کلمه که
+// scriptTiming.js/distributeDurations هم استفاده می‌کنه) توی pipeline.js
+// بعد از ساختِ صدا انجام می‌شه.
+export async function generateChapters(script) {
+  const prompt = `Here is a spoken video script:
+"""
+${script}
+"""
+
+Identify 3 to 5 natural chapter breaks in this script — points where the topic/focus genuinely shifts (e.g. moving from explaining a problem to telling a story, or from a story to actionable steps). This is for YouTube chapter markers.
+
+Respond with ONLY a JSON object, nothing else:
+{"chapters": [{"title": "...", "firstWords": "..."}, ...]}
+
+Rules:
+- 3 to 5 chapters total, listed in the order they occur in the script.
+- The FIRST chapter must start at the very beginning — its "firstWords" must be the first few words of the script itself, copied verbatim.
+- "title": a short (2-5 word) label describing what that chapter covers (e.g. "Why This Happens", "A Real Story", "3 Steps to Fix It") — a clear label, not a full sentence, not clickbait.
+- "firstWords": the exact first 4-6 words of the sentence where that chapter begins, copied verbatim from the script (so its position can be located later) — never paraphrased.`;
+
+  const rawText = await generateText({ prompt, jsonMode: true, temperature: 0.3, maxTokens: 500 });
+  const cleaned = rawText.replace(/```json|```/g, "").trim();
+  const parsed = JSON.parse(cleaned);
+  if (!Array.isArray(parsed.chapters) || parsed.chapters.length < 3) {
+    throw new Error(`تعداد فصلِ نامعتبر برگشت (${parsed.chapters?.length ?? "نامعتبر"})`);
+  }
+  return parsed.chapters;
 }
 
 // دقیقاً همون منطقِ api/suggest-metadata/route.js، از یک route جدا شده
@@ -78,7 +111,7 @@ Respond with ONLY a JSON object (no markdown, no code fences, no explanation) in
 
 Rules:
 - titleA and titleB: TWO distinct title options for an A/B test — same video, genuinely different hooks/angles (e.g. one framed as a direct "why" problem+solution, the other as a number/list framing, or a curiosity-gap question), not just two rewordings of the same sentence. Each MUST present a concrete problem and promise a solution — this is the most important rule and overrides any pull toward something clever-sounding. Push the promise as big and specific as the script honestly supports — a bold claim about a concrete timeframe, a specific number, or a surprising hidden cause earns far more clicks than a mild description (e.g. "The Real Reason You Can't Focus (It's Not What You Think)", "I Fixed My Anxiety In One Week Doing This", "3 Signs You're About to Burn Out"). The bigger the promise, the more the script must actually pay it off — never promise something the video doesn't deliver, since YouTube ranks on watch time, not clicks, so an unearned promise costs more than it gains. Strictly forbidden: artistic, poetic, vague, or abstract titles (never something like "Memory Echoes" or "The Weight We Carry") — a viewer must understand exactly what problem this video solves within one glance. Prefer the pattern "[Problem statement or question] (And How to [Solution/Fix])" (e.g. "Why You Can't Let Go of the Past (And How to Stop)", "5 Signs You're Burning Out (And What Actually Helps)") — a number or a direct why/how framing both work as the opening hook, but each title must always resolve toward a solution being promised, never just name a feeling. Follow the hook with the rest of the title, then end with exactly " | The Mindful Path". Keep everything before that suffix under ~52 characters so the full title stays under ~72.
-- thumbnailTextA and thumbnailTextB: 4-6 words each, written to sit as bold text on a thumbnail image (short, punchy, high-curiosity). Each must pair with its matching title (A with A, B with B) but must NOT restate or shorten that title — give it a different angle or emotional beat from the same topic. No trailing punctuation. The two thumbnail texts should also read differently from each other.
+- thumbnailTextA and thumbnailTextB: STRICTLY 3-4 words each (never more — this is a hard limit, not a target), written to sit as large bold text on a thumbnail image (short, punchy, high-curiosity — think of the biggest, simplest words that would work shouted across a room). Each must pair with its matching title (A with A, B with B) but must NOT restate or shorten that title — give it a different angle or emotional beat from the same topic. No trailing punctuation. The two thumbnail texts should also read differently from each other.
 - description: the FIRST LINE must open directly with the video's main keyword/topic — no "Hey!", "Welcome", "In this video" or similar greetings, since that first line is all viewers see before "Show more". After that keyword-led opening line, add 2-3 more warm sentences summarizing the video's message, ending with 3-5 relevant hashtags.
 - tags: 10-15 short relevant keywords/phrases for YouTube SEO (lowercase, no # symbol)`;
 

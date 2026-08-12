@@ -5,27 +5,32 @@ export function splitSentences(text) {
 }
 
 export function distributeDurations(script, imageCount, totalDuration) {
-  const sentences = splitSentences(script);
-  const wordCounts = sentences.map(
-    (s) => s.split(/\s+/).filter(Boolean).length || 1
-  );
-  const totalWords = wordCounts.reduce((a, b) => a + b, 0) || 1;
+  const words = (script || "").split(/\s+/).filter(Boolean);
+  const totalWords = words.length || 1;
 
   const buckets = new Array(imageCount).fill(0);
   const bucketText = new Array(imageCount).fill("");
-  let acc = 0;
-  let bucketIndex = 0;
-  for (let i = 0; i < sentences.length; i++) {
-    acc += wordCounts[i];
-    buckets[bucketIndex] += wordCounts[i];
-    bucketText[bucketIndex] += (bucketText[bucketIndex] ? " " : "") + sentences[i];
-    const shareSoFar = acc / totalWords;
-    if (
-      shareSoFar >= (bucketIndex + 1) / imageCount &&
-      bucketIndex < imageCount - 1
-    ) {
-      bucketIndex++;
-    }
+
+  // هر کلمه‌ی اسکریپت رو بر اساس موقعیتش تو کل متن به یکی از imageCount
+  // بخش نگاشت می‌کنیم — نه بر اساس جمله. روش قبلی هر جمله رو یک‌جا به
+  // بخشِ جاری اضافه می‌کرد و فقط حداکثر یک‌بار به‌ازای هر جمله جلو
+  // می‌رفت؛ نتیجه این بود که وقتی تعداد جمله‌ها از imageCount کمتر بود
+  // (طبیعیِ یک اسکریپتِ کوتاهِ شورت با تعداد بخشِ بالا برای «برشِ سریع»
+  // هر ۲ تا ۳ ثانیه) یا یک جمله به‌تنهایی سهمِ چند بخش رو پر می‌کرد،
+  // خیلی از بخش‌های آخر اصلاً متنی نمی‌گرفتن (bucketText خالی می‌موند).
+  // جستجوی رسانه‌ی هر بخش (pipeline.js) برای متنِ خالی به کلیدواژه‌ی
+  // عمومیِ fallback ("nature" در registry.js) می‌افتاد و چون این fallback
+  // برای چند بخشِ پشت‌سرهم عملاً یکی بود، نتیجه‌ی نهایی چند بخشِ پیاپی با
+  // همون تصویر/کلیپِ ثابت و اغلب نامرتبط با موضوعِ اسکریپت بود — دقیقاً
+  // برعکسِ هدفِ Phase 2 (برش هر ۲ تا ۳ ثانیه برای شورت‌ها). توزیعِ
+  // کلمه‌به‌کلمه تضمین می‌کنه (تا وقتی کلِ اسکریپت حداقل imageCount کلمه
+  // داشته باشه، که همیشه همینه) هر بخش متنِ خاصِ خودش رو بگیره، پس هر
+  // بخش جستجوی رسانه‌ی مجزا و مرتبط با همون تکه از اسکریپت داره.
+  for (let w = 0; w < words.length; w++) {
+    let bucketIndex = Math.floor((w / totalWords) * imageCount);
+    if (bucketIndex >= imageCount) bucketIndex = imageCount - 1;
+    buckets[bucketIndex] += 1;
+    bucketText[bucketIndex] += (bucketText[bucketIndex] ? " " : "") + words[w];
   }
 
   const minShare = 0.4 / imageCount;
@@ -69,6 +74,39 @@ export function buildSrt(captions, durations) {
     return `${i + 1}\n${formatSrtTime(start)} --> ${formatSrtTime(end)}\n${(text || "").trim()}\n`;
   });
   return blocks.join("\n");
+}
+
+// اعتبارسنجیِ ساختاریِ زیرنویس *قبل* از آپلود — نه یک تضمینِ ترجمه‌ی
+// درست (اون کارِ translateCaptions.js با retry روی تعدادِ بخش‌هاست، از
+// ۲۰۲۶-۰۸-۱۰)، بلکه یک لایه‌ی آخر برای رد نشدنِ داده‌ی ساختاریِ خراب به
+// یوتیوب: طولِ نامنطبقِ captions/durations، duration غیرِعددی یا صفر/منفی
+// (که formatSrtTime رو به "NaN:NaN:NaN,NaN" می‌شکونه)، یا متنِ کاملاً خالی.
+// اینا معمولاً نباید اتفاق بیفتن، ولی اگه یه باگِ دیگه (شبیهِ همونی که تو
+// ۲۰۲۶-۰۸-۱۰ فیکس شد) دوباره پیش بیاد، بهتره همینجا با یک خطای واضح رد
+// بشیم تا این‌که یوتیوب یه پیامِ مبهم برگردونه یا زیرنویسِ خراب رو ساکت
+// قبول کنه.
+export function validateSrt(captions, durations) {
+  const errors = [];
+  if (!Array.isArray(captions) || !Array.isArray(durations)) {
+    return { valid: false, errors: ["captions/durations آرایه نیستن"] };
+  }
+  if (captions.length !== durations.length) {
+    errors.push(`طول captions (${captions.length}) با durations (${durations.length}) یکی نیست`);
+    return { valid: false, errors }; // بقیه‌ی چک‌ها بی‌معنی می‌شن، همین‌جا برگرد
+  }
+  if (captions.length === 0) {
+    errors.push("هیچ بخشی برای زیرنویس وجود نداره");
+  }
+  captions.forEach((text, i) => {
+    const d = durations[i];
+    if (typeof d !== "number" || !Number.isFinite(d) || d <= 0) {
+      errors.push(`بخش ${i + 1}: مدت‌زمانِ نامعتبر (${d})`);
+    }
+    if (!text || !String(text).trim()) {
+      errors.push(`بخش ${i + 1}: متنِ خالی`);
+    }
+  });
+  return { valid: errors.length === 0, errors };
 }
 
 // بخش‌های ریزِ (captions, durations) که از distributeDurations می‌آد برای

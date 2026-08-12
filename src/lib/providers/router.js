@@ -14,6 +14,8 @@
 // زیرنویس به ۵ زبان) به‌محض برخورد اول به سقف TPM همه‌شون زنجیره‌ای fail
 // می‌شدن.
 
+import fs from "fs";
+import path from "path";
 import { getProvidersForCapability } from "../db";
 import { REGISTRY, TASK_LABELS } from "./registry";
 import { decrypt } from "./crypto";
@@ -39,6 +41,20 @@ export function resolveApiKey(providerRow) {
 }
 
 const MAX_RATE_LIMIT_RETRIES = 2;
+// تایم‌اوت با rate-limit فرق داره: rate-limit عمداً منتظر می‌مونه چون
+// دقیقاً می‌دونیم کِی پنجره رد می‌شه؛ تایم‌اوت/قطعیِ شبکه معمولاً یک اتفاقِ
+// گذرا و کوتاه‌مدته که یک یا دو تلاشِ فوریِ دیگه (با یک فاصله‌ی کوتاه، نه
+// صبرِ طولانی) اغلب حلش می‌کنه — پس همون provider رو تا ۳ بار (۱ اصلی + ۲
+// تلاشِ مجدد) امتحان می‌کنیم قبل از این‌که بی‌خیالش بشیم و بریم سراغ
+// provider بعدی.
+const MAX_TIMEOUT_RETRIES = 2;
+const TIMEOUT_RETRY_DELAY_MS = 1500;
+
+function isTimeoutOrNetworkError(message) {
+  return /timeout|timed out|ETIMEDOUT|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|network error|fetch failed/i.test(
+    message || ""
+  );
+}
 
 // خیلی از providerهای متنی (مثلاً Groq) وقتی به rate limit می‌خورن، دقیقاً
 // می‌گن چند ثانیه دیگه صبر کن — مثلاً «Please try again in 7.02s». همون
@@ -53,6 +69,50 @@ function extractRetryAfterMs(message) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// آخرین خط دفاع وقتی *همه‌ی* provider های استوک (Pexels و هرچی بعدش
+// تنظیم شده) شکست خوردن — نه یک تلاشِ دیگه برای یک provider، بلکه یک
+// پوشه‌ی محلیِ عکس/کلیپِ ثابت که همیشه تو دیسک هست، پس رندر کاملاً
+// متوقف نمی‌شه. عمداً خالیه (فقط یک README) چون فایل‌های واقعیِ استوک
+// asset ـن، نه چیزی که از کد قابل‌تولید باشه — کاربر باید خودش چندتا
+// عکس/کلیپِ پیش‌فرضِ بی‌ربط-به-موضوع (مثلاً چشم‌انداز طبیعت، آسمان,...)
+// اونجا بذاره. نبودِ فایل تو پوشه یعنی fallback هم در دسترس نیست، پس
+// خطای اصلی همون‌طور که بود throw می‌شه — این هیچ رفتاری رو بدتر نمی‌کنه،
+// فقط وقتی فایل باشه یک راهِ نجاتِ اضافه می‌ده.
+const LOCAL_FALLBACK_DIR = {
+  images: path.join(process.cwd(), "public", "fallback-media", "images"),
+  videos: path.join(process.cwd(), "public", "fallback-media", "videos"),
+};
+
+function listLocalFallbackFiles(kind) {
+  const dir = LOCAL_FALLBACK_DIR[kind];
+  try {
+    return fs
+      .readdirSync(dir)
+      .filter((f) => !f.startsWith(".") && f.toLowerCase() !== "readme.md")
+      .map((f) => path.join(dir, f));
+  } catch {
+    return []; // پوشه اصلاً وجود نداره یا خالیه — بی‌سروصدا یعنی «fallback در دسترس نیست»
+  }
+}
+
+function localFallbackItems(kind, count) {
+  const files = listLocalFallbackFiles(kind);
+  if (files.length === 0) return null;
+  const n = Math.max(1, count || 1);
+  const items = [];
+  for (let i = 0; i < n; i++) {
+    // اگه فایل‌های محلی از تعدادِ درخواستی کمتر بود، می‌چرخیم روی همون‌ها —
+    // بهتر از این‌که رندر به‌خاطرِ کمبودِ asset متوقف بشه.
+    const filePath = files[i % files.length];
+    try {
+      items.push({ buffer: fs.readFileSync(filePath) });
+    } catch (readErr) {
+      console.error(`خوندنِ فایلِ fallback شکست خورد (${filePath}):`, readErr.message);
+    }
+  }
+  return items.length > 0 ? items : null;
 }
 
 async function tryProviders(taskType, invoke) {
@@ -78,6 +138,7 @@ async function tryProviders(taskType, invoke) {
     }
 
     let rateLimitRetries = 0;
+    let timeoutRetries = 0;
     for (;;) {
       try {
         return await invoke(entry, apiKey);
@@ -91,6 +152,14 @@ async function tryProviders(taskType, invoke) {
             )} ثانیه صبر و تلاش دوباره (${rateLimitRetries}/${MAX_RATE_LIMIT_RETRIES})`
           );
           await sleep(waitMs);
+          continue; // همون provider رو دوباره امتحان کن
+        }
+        if (!waitMs && isTimeoutOrNetworkError(err.message) && timeoutRetries < MAX_TIMEOUT_RETRIES) {
+          timeoutRetries++;
+          console.warn(
+            `provider "${p.name}" (${p.service}) در «${label}» تایم‌اوت/خطای شبکه خورد — تلاش دوباره (${timeoutRetries}/${MAX_TIMEOUT_RETRIES})`
+          );
+          await sleep(TIMEOUT_RETRY_DELAY_MS);
           continue; // همون provider رو دوباره امتحان کن
         }
         console.error(`provider "${p.name}" (${p.service}) در «${label}» شکست خورد:`, err.message);
@@ -112,15 +181,33 @@ export async function generateText({ prompt, maxTokens, temperature, jsonMode })
 }
 
 export async function fetchImages({ text, keyword, count, orientation }) {
-  return tryProviders("image", (entry, apiKey) =>
-    entry.adapters.image({ apiKey, text, keyword, count, orientation })
-  );
+  try {
+    return await tryProviders("image", (entry, apiKey) =>
+      entry.adapters.image({ apiKey, text, keyword, count, orientation })
+    );
+  } catch (err) {
+    const items = localFallbackItems("images", count);
+    if (!items) throw err;
+    console.warn(
+      `fetchImages: همه‌ی ارائه‌دهنده‌ها شکست خوردن (${err.message}) — از پوشه‌ی محلیِ fallback-media استفاده شد`
+    );
+    return { images: items };
+  }
 }
 
 export async function fetchClips({ text, keyword, count, orientation }) {
-  return tryProviders("video", (entry, apiKey) =>
-    entry.adapters.video({ apiKey, text, keyword, count, orientation })
-  );
+  try {
+    return await tryProviders("video", (entry, apiKey) =>
+      entry.adapters.video({ apiKey, text, keyword, count, orientation })
+    );
+  } catch (err) {
+    const items = localFallbackItems("videos", count);
+    if (!items) throw err;
+    console.warn(
+      `fetchClips: همه‌ی ارائه‌دهنده‌ها شکست خوردن (${err.message}) — از پوشه‌ی محلیِ fallback-media استفاده شد`
+    );
+    return { clips: items };
+  }
 }
 
 export async function synthesizeSpeech({ text, voice }) {

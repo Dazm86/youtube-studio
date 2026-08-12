@@ -65,6 +65,16 @@ function wrapText(text, maxCharsPerLine, maxLines) {
   return lines;
 }
 
+// سقفِ سخت‌گیرانه‌ی «حداکثر N کلمه» رو خودِ کد هم اعمال می‌کنه، نه فقط
+// پرامپتِ AI (metadataGen.js) — چون هیچ تضمینی نیست خروجیِ AI همیشه دقیقاً
+// به همون قانون پایبند بمونه؛ این یک لایه‌ی دفاعیِ اضافه‌ست، نه جایگزینِ
+// پرامپت.
+function capThumbnailWords(text, maxWords) {
+  const words = String(text || "New Video").trim().split(/\s+/).filter(Boolean);
+  if (words.length <= maxWords) return words.join(" ");
+  return words.slice(0, maxWords).join(" ");
+}
+
 // دو کانسپت رنگی برای تست A/B. A همون گرید بنفش-نارنجیِ برند فعلیه؛
 // B یک گرید سردتر آبی-فیروزه‌ای (پس‌زمینه هم modulate hue می‌گیره)، تا
 // دو نسخه از نظر بصری واقعاً قابل تمایز باشن، نه فقط متن‌شون فرق کنه.
@@ -81,7 +91,7 @@ export async function buildMayaThumbnail({
   variant = "A",
   posePool,
 }) {
-  const displayText = thumbnailText || title;
+  const displayText = capThumbnailWords(thumbnailText || title, 4);
   const grade = VARIANT_GRADES[variant] || VARIANT_GRADES.A;
   const ranked = posePool || pickMayaPoseRanked(script || title || "");
   const pose = variant === "B" ? ranked[1] || ranked[0] : ranked[0];
@@ -131,10 +141,39 @@ export async function buildMayaThumbnail({
   const mayaX = CANVAS_W - mayaMeta.width - 10;
   const mayaY = CANVAS_H - mayaMeta.height;
 
+  // --- سایه‌ی نرمِ پشتِ مایا — یک سیلوئتِ مشکیِ کم‌شفاف و بلورشده از همون
+  // ماسکِ آلفای عکسِ مایا (نه یک بیضی/جعبه‌ی حدسی)، یک‌کم افست‌شده — تا
+  // مایا از پس‌زمینه (چه گرادیانِ برند، چه عکسِ بلورشده) بیشتر جدا دیده
+  // بشه، حسِ عمق بگیره.
+  let mayaShadow = null;
+  try {
+    const mayaMask = await sharp(mayaResized).extractChannel(3).toBuffer();
+    const shadowAlpha = await sharp(mayaMask).linear(0.5, 0).blur(16).toBuffer();
+    const blackRgb = await sharp({
+      create: {
+        width: mayaMeta.width,
+        height: mayaMeta.height,
+        channels: 3,
+        background: { r: 0, g: 0, b: 0 },
+      },
+    })
+      .png()
+      .toBuffer();
+    mayaShadow = await sharp(blackRgb).joinChannel(shadowAlpha).png().toBuffer();
+  } catch (shadowErr) {
+    // شکستِ ساختِ سایه (فرمتِ غیرمنتظره‌ی فایلِ pose) نباید کلِ تامنیل رو
+    // بشکنه — فقط بدونِ سایه ادامه می‌دیم.
+    console.error("ساختِ سایه‌ی مایا شکست خورد:", shadowErr.message);
+    mayaShadow = null;
+  }
+  const SHADOW_DX = 14;
+  const SHADOW_DY = 18;
+
   // --- Thumbnail text (SVG, bold with outline for contrast) ---
-  // متن کوتاه‌تره (۴-۶ کلمه) پس فونت کوچیک‌تر و فقط ۲ خط کافیه؛ به‌جای
-  // چسبیدن به لبه‌ی چپ (x=56)، هر خط داخل فضای موجود قبل از مایا
-  // (از ۰ تا mayaX) به‌صورت افقی وسط‌چین می‌شه — موضع مرکزیِ واضح‌تر.
+  // متن حداکثر ۴ کلمه‌ست (capThumbnailWords بالاتر تضمینش می‌کنه)، پس
+  // فونت کوچیک‌تر و فقط ۲ خط کافیه؛ به‌جای چسبیدن به لبه‌ی چپ (x=56)، هر
+  // خط داخل فضای موجود قبل از مایا (از ۰ تا mayaX) به‌صورت افقی وسط‌چین
+  // می‌شه — موضع مرکزیِ واضح‌تر.
   const lines = wrapText(displayText, 22, 2);
   const fontSize = 62;
   const lineHeight = 74;
@@ -158,6 +197,9 @@ export async function buildMayaThumbnail({
   const finalImage = await sharp(bg)
     .resize(CANVAS_W, CANVAS_H)
     .composite([
+      ...(mayaShadow
+        ? [{ input: mayaShadow, left: mayaX + SHADOW_DX, top: mayaY + SHADOW_DY }]
+        : []),
       { input: mayaResized, left: mayaX, top: mayaY },
       { input: textBuffer, left: 0, top: 0 },
     ])

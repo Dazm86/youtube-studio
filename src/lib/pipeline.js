@@ -3,11 +3,88 @@ import { Readable } from "stream";
 import { synthesizeSpeech } from "./providers/router";
 import { fetchImages, fetchClips } from "./media";
 import { renderVideo, estimateAudioDurationSec } from "./videoRender";
-import { distributeDurations, buildSrt, regroupForSubtitles } from "./scriptTiming";
+import { distributeDurations, buildSrt, validateSrt, regroupForSubtitles } from "./scriptTiming";
 import { translateCaptions } from "./translateCaptions";
 import { buildMayaThumbnail } from "./mayaThumbnail";
+import { generateChapters } from "./metadataGen";
 import { generateCommunityPost } from "./communityPost";
 import { recordVideo, recordCommunityPost } from "./db";
+
+function formatChapterTime(sec) {
+  const s = Math.max(0, Math.round(sec));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = s % 60;
+  const pad = (n) => String(n).padStart(2, "0");
+  return h > 0 ? `${h}:${pad(m)}:${pad(ss)}` : `${m}:${pad(ss)}`;
+}
+
+// دنبالِ اولین وقوعِ چند-کلمه‌ی firstWords (که generateChapters برگردونده)
+// تو آرایه‌ی کلمه‌های خودِ اسکریپت می‌گرده تا موقعیتِ آن فصل رو به‌عنوانِ
+// اندیسِ کلمه پیدا کنه — نه یک indexOf خامِ رشته‌ای، چون فاصله‌گذاری/
+// نقطه‌گذاریِ خروجیِ AI ممکنه دقیقاً با متنِ اصلی یکی نباشه؛ کلمه‌به‌کلمه و
+// بدونِ علائمِ نگارشی مقایسه می‌کنیم تا این تفاوت‌های جزئی مشکل نسازن.
+function findWordOffset(scriptWords, firstWords) {
+  const clean = (w) => w.toLowerCase().replace(/[^\w']/g, "");
+  const needle = String(firstWords || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 5)
+    .map(clean)
+    .filter(Boolean);
+  if (needle.length === 0) return null;
+  const hay = scriptWords.map(clean);
+  for (let i = 0; i <= hay.length - needle.length; i++) {
+    let match = true;
+    for (let j = 0; j < needle.length; j++) {
+      if (hay[i + j] !== needle[j]) {
+        match = false;
+        break;
+      }
+    }
+    if (match) return i;
+  }
+  // اگه کلِ عبارت پیدا نشد، حداقل با اولین کلمه‌ش تطبیق بده — بهتر از
+  // این‌که کل فصل رو بی‌خیال بشیم.
+  const idx = hay.findIndex((w) => w === needle[0]);
+  return idx >= 0 ? idx : null;
+}
+
+// نشانه‌های متنیِ generateChapters (عنوان + چند کلمه‌ی اول) رو به
+// تایم‌استمپِ واقعی تبدیل می‌کنه — با همون مدلِ «نسبتِ موقعیتِ کلمه از کلِ
+// اسکریپت × audioDurationSec» که distributeDurations هم برای هماهنگیِ
+// رسانه/رندر استفاده می‌کنه، پس با تایمینگِ واقعیِ ویدیو هم‌خونی داره. بعد
+// قوانینِ خودِ یوتیوب رو اعمال می‌کنه: فصلِ اول باید دقیقاً ۰:۰۰ باشه، هر
+// فصل حداقل ۱۰ ثانیه از قبلی فاصله داشته باشه، و حداقل ۳ فصل معتبر بمونه
+// وگرنه یوتیوب اصلاً فصل‌بندی رو نشون نمی‌ده (در این حالت null برمی‌گردونه
+// و توضیحات بدونِ فصل‌بندی می‌مونه — شکستِ این ویژگی نباید آپلود رو بگیره).
+function buildChapterBlock(script, chapters, audioDurationSec) {
+  const scriptWords = (script || "").split(/\s+/).filter(Boolean);
+  const totalWords = scriptWords.length || 1;
+  const entries = [];
+  for (const ch of chapters) {
+    const offset = findWordOffset(scriptWords, ch.firstWords);
+    if (offset == null) continue;
+    entries.push({
+      title: String(ch.title || "").trim() || "بخش بعدی",
+      sec: audioDurationSec * (offset / totalWords),
+    });
+  }
+  if (entries.length === 0) return null;
+  entries.sort((a, b) => a.sec - b.sec);
+  entries[0].sec = 0;
+
+  const filtered = [entries[0]];
+  for (let i = 1; i < entries.length; i++) {
+    if (entries[i].sec - filtered[filtered.length - 1].sec >= 10) {
+      filtered.push(entries[i]);
+    }
+  }
+  if (filtered.length < 3) return null;
+
+  return filtered.map((e) => `${formatChapterTime(e.sec)} ${e.title}`).join("\n");
+}
 
 // این تابع دقیقاً همون پایپ‌لاینِ قبلیِ api/generate-and-upload/route.js
 // هست — TTS → رسانه → رندر → آپلود → تامبنیل → زیرنویس → پست کامیونیتی
@@ -69,6 +146,24 @@ export async function runPipeline(
     ? Math.min(30, Math.max(8, Math.ceil(audioDurationSec / 2.5)))
     : Math.min(80, Math.max(6, Math.ceil(audioDurationSec / 6.5)));
   const { durations, captions } = distributeDurations(script, mediaCount, audioDurationSec);
+
+  // --- فصل‌بندیِ خودکار (Chapters) — فقط ویدیوهای بلند، چون Shorts نه
+  // جایی برای نشون‌دادنِ فصل‌ها دارن نه اصلاً به این حدِ طول می‌رسن. شکستِ
+  // این قدم (AI جواب نداد، یا کمتر از ۳ فصلِ معتبر بعدِ اعمالِ قوانینِ
+  // یوتیوب باقی موند) نباید آپلود رو بگیره — description همون‌طور که
+  // کاربر نوشته باقی می‌مونه، فقط بدونِ فصل‌بندی.
+  let finalDescription = description || "";
+  if (!isShort) {
+    try {
+      const chapters = await generateChapters(script);
+      const chapterBlock = buildChapterBlock(script, chapters, audioDurationSec);
+      if (chapterBlock) {
+        finalDescription = `${finalDescription}\n\n${chapterBlock}`.trim();
+      }
+    } catch (chErr) {
+      console.error("chapter generation failed (continuing without chapters):", chErr.message);
+    }
+  }
 
   const orientation = isShort ? "portrait" : "landscape";
   const hasManualKeyword = imageKeyword && imageKeyword.trim();
@@ -143,7 +238,7 @@ export async function runPipeline(
   const uploadRes = await youtube.videos.insert({
     part: ["snippet", "status"],
     requestBody: {
-      snippet: { title: title || "بدون عنوان", description: description || "", tags },
+      snippet: { title: title || "بدون عنوان", description: finalDescription, tags },
       status: publishAt
         ? { privacyStatus: "private", publishAt: new Date(publishAt).toISOString() }
         : { privacyStatus: privacyStatus || "private" },
@@ -197,6 +292,10 @@ export async function runPipeline(
   // --- ۶. زیرنویس انگلیسی ---
   let captionStatus = "skipped";
   try {
+    const check = validateSrt(subtitleCaptions, subtitleDurations);
+    if (!check.valid) {
+      throw new Error(`ساختار زیرنویس نامعتبره: ${check.errors.join("؛ ")}`);
+    }
     const srtContent = buildSrt(subtitleCaptions, subtitleDurations);
     await youtube.captions.insert({
       part: ["snippet"],
@@ -225,6 +324,10 @@ export async function runPipeline(
     try {
       emit({ status: `در حال ترجمه و آپلود زیرنویس ${lang.name}...`, progress: 96 });
       const translated = await translateCaptions(subtitleCaptions, lang.name);
+      const check = validateSrt(translated, subtitleDurations);
+      if (!check.valid) {
+        throw new Error(`ساختار زیرنویسِ ترجمه‌شده نامعتبره: ${check.errors.join("؛ ")}`);
+      }
       const translatedSrt = buildSrt(translated, subtitleDurations);
       await youtube.captions.insert({
         part: ["snippet"],

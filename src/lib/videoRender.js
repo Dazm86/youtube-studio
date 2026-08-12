@@ -409,7 +409,7 @@ async function renderBatch({
 
     if (role === "hidden") {
       // این بخش، مایا داخل قاب نیست — رسانه خودش قاب رو پر می‌کنه.
-      filter += `[capped${i}]null[v${i}];`;
+      filter += `[capped${i}]null[pf${i}];`;
     } else {
       filter += buildMayaOverlayChain({
         i,
@@ -417,8 +417,31 @@ async function renderBatch({
         isPresenter,
         maya: mayaInputs[i],
         srcLabel: `capped${i}`,
-        outLabel: `v${i}`,
+        outLabel: `pf${i}`,
       });
+    }
+
+    // ترانزیشنِ نرم به‌جای برشِ کاملاً ناگهانی — فقط برای ویدیوهای بلند
+    // (W>H، افقی). Shorts عمداً دست‌نخورده می‌مونن چون ریتمِ «برشِ هر ۲ تا
+    // ۳ ثانیه» با فیدِ ورود/خروجِ حتی کوتاه توی اون بازه‌ی زمانیِ فشرده
+    // محسوس/مزاحم می‌شه. توجه: این یک کراس‌فیدِ واقعی بینِ دو کلیپِ مجاور
+    // نیست — چون هر سگمنت طبقِ معماریِ فعلی (BATCH_SIZE=۱) کاملاً مستقل و
+    // تو یک پردازشِ FFmpeg جدا رندر می‌شه، و تغییرِ این معماری به سمتِ
+    // xfade (که نیاز به دیدنِ دو سگمنت هم‌زمان داره) هم پیچیدگی و هم
+    // مصرفِ رمِ رندر رو بالا می‌بره — دقیقاً همون قیدِ سخت‌گیرانه‌ی ۵۱۲مگابایتیِ
+    // Render که تا الان با احتیاط حفظ شده. راه‌حلِ کم‌ریسک‌تر: خودِ هر
+    // سگمنت در ابتدا/انتهاش کمی محو می‌شه (fade به/از مشکی) — وقتی پشتِ
+    // سرِ هم با concat می‌چسبن، حسِ برشِ سختِ ناگهانی به‌مقدارِ زیادی نرم
+    // می‌شه، بدون دست‌زدن به معماریِ پایدارِ چسباندن.
+    const isLongFormVideo = W > H;
+    if (isLongFormVideo) {
+      const fadeD = Math.min(0.35, batchDurations[i] / 4).toFixed(2);
+      const fadeOutStart = Math.max(0, batchDurations[i] - parseFloat(fadeD)).toFixed(2);
+      filter +=
+        `[pf${i}]fade=t=in:st=0:d=${fadeD},` +
+        `fade=t=out:st=${fadeOutStart}:d=${fadeD}[v${i}];`;
+    } else {
+      filter += `[pf${i}]null[v${i}];`;
     }
   }
 
@@ -582,6 +605,29 @@ export async function renderVideo({
       musicInputArgs = ["-f", "lavfi", "-i", musicFilter];
     }
 
+    // افکتِ صوتیِ بسیار ملایمِ «whoosh» سرِ هر تغییرِ کلیپ — فقط برای
+    // ویدیوهای بلند (isShort=false). تو Shorts با برشِ هر ۲ تا ۳ ثانیه،
+    // حتی صدای خیلی آرومِ تکراری هر چند ثانیه یک‌بار به‌جای «ظریف» به
+    // «مزاحم» تبدیل می‌شه؛ تو ویدیوهای بلند با فاصله‌ی ~۶.۵ ثانیه‌ای بینِ
+    // کات‌ها این مشکل نیست. صدا کاملاً سنتزی‌ست (نویزِ صورتیِ باندپس‌شده با
+    // فیدِ کوتاهِ ورود/خروج) — هیچ فایلِ صوتیِ خارجی لازم نداره، پس هیچ‌وقت
+    // به‌خاطرِ نبودِ assetِ SFX رندر نمی‌شکنه.
+    const whooshBoundaryCount =
+      !isShort && perImageDurations.length > 1 ? perImageDurations.length - 1 : 0;
+    const whooshInputArgs = [];
+    if (whooshBoundaryCount > 0) {
+      let acc = 0;
+      for (let k = 0; k < whooshBoundaryCount; k++) {
+        acc += perImageDurations[k];
+        const ms = Math.max(0, Math.round(acc * 1000));
+        whooshInputArgs.push(
+          "-f", "lavfi", "-i",
+          `anoisesrc=d=0.18:c=pink:r=44100:a=0.5,highpass=f=800,lowpass=f=4000,` +
+            `afade=t=in:st=0:d=0.05,afade=t=out:st=0.10:d=0.08,volume=0.3,adelay=${ms}|${ms}`
+        );
+      }
+    }
+
     // Audio ducking: به‌جای یک ولوم ثابت برای موزیک، sidechaincompress
     // موزیک رو زنده بر اساس بلندیِ لحظه‌ایِ خودِ صدای روایت (ورودی ۱)
     // فشرده می‌کنه — یعنی هر جا Maya حرف می‌زنه موزیک خودکار پایین
@@ -590,16 +636,49 @@ export async function renderVideo({
     // تشخیص می‌دیم، نه از روی تگ‌های از پیش‌نوشته) موزیک خودش کمی بالا
     // میاد — این دقیقاً هدف "duck زیر صحبت / بالا رفتن تو مکث‌ها"ست،
     // فقط واکنشیِ واقعی به جای وابسته به تایم‌استمپ‌های تخمینی.
-    const duckFilter = musicIsRealTrack
+    const finalVolume = musicIsRealTrack ? 1.6 : 2.0;
+    let duckFilter = musicIsRealTrack
       ? "[2:a][1:a]sidechaincompress=threshold=0.045:ratio=10:attack=15:release=350:makeup=1[music_ducked];" +
-        "[1:a][music_ducked]amix=inputs=2:duration=first:weights=1 0.8[premix];" +
-        "[premix]volume=1.6[aout]"
-      : "[1:a][2:a]amix=inputs=2:duration=first[premix];[premix]volume=2.0[aout]";
+        "[1:a][music_ducked]amix=inputs=2:duration=first:weights=1 0.8[premix]"
+      : "[1:a][2:a]amix=inputs=2:duration=first[premix]";
+
+    if (whooshBoundaryCount > 0) {
+      // ورودی‌های ۰=ویدیو، ۱=روایت، ۲=موزیک از قبل جا گرفتن، پس ورودی‌های
+      // whoosh از اندیسِ ۳ شروع می‌شن. نکته‌ی مهم: مرحله‌ی میکسِ خودِ
+      // whoosh‌ها باید duration=longest باشه، نه first — چون هر ورودیِ
+      // whoosh (بعدِ adelay) طولِ طبیعیِ خودش رو داره (تأخیر+طولِ صدا)، و
+      // اگه duration=first بود، طولِ کلِ میکس به طولِ همون اولین burst
+      // (کوتاه‌ترین تأخیر) کوتاه می‌شد و باقیِ whoosh‌های بعدی که دیرتر
+      // شروع می‌شن اصلاً شنیده نمی‌شدن — این باگ با یک تستِ سنتزی واقعاً
+      // رخ داد و تأیید شد؛ duration=longest حلش کرد. merge نهاییِ این
+      // whoosh_mix با premix هم‌چنان duration=first می‌مونه تا طولِ کلِ
+      // صدای خروجی دقیقاً هم‌طولِ روایت باقی بمونه، نه بلندتر به‌خاطرِ
+      // دنباله‌ی آخرین whoosh. normalize=0 هم لازمه چون amix به‌صورتِ
+      // پیش‌فرض هر ورودی رو با ۱/تعدادِ‌ورودی‌ها کم‌ولوم می‌کنه تا کلیپ
+      // نشه — برای ویدیوهای خیلی طولانی با whoosh زیاد این یعنی هر burst
+      // تقریباً بی‌صدا می‌شد؛ چون این burst‌ها روی محورِ زمان تقریباً
+      // هم‌پوشانی ندارن (هر کدوم فقط ۱۸۰ میلی‌ثانیه‌ست)، خاموش‌کردنِ این
+      // نرمال‌سازی خطرِ کلیپ‌شدن نداره.
+      const whooshRefs = Array.from(
+        { length: whooshBoundaryCount },
+        (_, k) => `[${3 + k}:a]`
+      ).join("");
+      duckFilter +=
+        `;${whooshRefs}amix=inputs=${whooshBoundaryCount}:duration=longest:dropout_transition=0:normalize=0[whoosh_mix]` +
+        `;[premix][whoosh_mix]amix=inputs=2:duration=first:weights=1 1[premix2]` +
+        `;[premix2]volume=${finalVolume},loudnorm=I=-14:TP=-1.5:LRA=11[aout]`;
+    } else {
+      duckFilter += `;[premix]volume=${finalVolume},loudnorm=I=-14:TP=-1.5:LRA=11[aout]`;
+    }
+    // نرمال‌سازیِ بلندیِ صدا به استانداردِ خودِ یوتیوب (~۱۴- LUFS) — تک‌پاس
+    // (نه دوپاس با تحلیلِ جداگانه) چون برای این حجم محتوا دقتِ تک‌پاس کافیه
+    // و نیازی به یک اجرای کاملِ دیگرِ FFmpeg فقط برای تحلیل نیست.
 
     const finalArgs = [
       "-i", silentFullPath,
       "-i", audioPath,
       ...musicInputArgs,
+      ...whooshInputArgs,
       "-filter_complex", duckFilter,
       "-map", "0:v",
       "-map", "[aout]",
@@ -667,6 +746,17 @@ export async function renderVerticalShortFromSource({
     // نشده، بلکه از پارامتر alpha خطیِ خودِ drawtext در بازه‌ی کوتاه
     // شروع/پایان استفاده می‌کنیم) تا حس "متحرک" داشته باشه، نه فقط ظاهر/
     // ناپدید شدنِ ناگهانی.
+    // یک جعبه‌ی نیمه‌شفافِ مشکی پشتِ هر خط، برای خوانایی روی پس‌زمینه‌های
+    // شلوغ/روشن (همون تکنیکِ استانداردِ زیرنویس تو اکثرِ پلتفرم‌ها). نکته‌ی
+    // فنی: عرضِ جعبه *ثابته*، نه بر اساسِ عرضِ واقعیِ متنِ هر خط — چون
+    // متغیرهای text_w/text_h فقط داخلِ پارامترهای خودِ همون drawtext قابل‌
+    // استفاده‌ان، فیلترِ drawbox (که یک فیلترِ جداست) بهشون دسترسی نداره؛
+    // پس یک باندِ عریض و ثابت (٪۸۶ عرضِ فریم، وسط‌چین) رو انتخاب کردیم که
+    // برای خط‌های کوتاه و بلندِ معمولی هردو جواب می‌ده.
+    const BOX_W = Math.round(W * 0.86);
+    const BOX_H = 78;
+    const BOX_X = Math.round((W - BOX_W) / 2);
+    const BOX_Y = H - 260 - 16;
     const FADE = 0.25;
     const captionFilters = (captionLines || [])
       .map((line, i) => {
@@ -678,11 +768,14 @@ export async function renderVerticalShortFromSource({
           `if(lt(t,${(s + FADE).toFixed(2)}),(t-${s})/${FADE},` +
           `if(lt(t,${(e - FADE).toFixed(2)}),1,` +
           `if(lt(t,${e}),(${e}-t)/${FADE},0))))`;
-        return (
+        const box =
+          `drawbox=x=${BOX_X}:y=${BOX_Y}:w=${BOX_W}:h=${BOX_H}:color=black@0.45:t=fill:` +
+          `enable='between(t,${s},${e})'`;
+        const text_ =
           `drawtext=fontfile=${fontPath}:text='${text}':fontsize=44:fontcolor=white:` +
           `borderw=3:bordercolor=black@0.8:x=(w-text_w)/2:y=h-260:` +
-          `enable='between(t,${s},${e})':alpha='${alphaExpr}'`
-        );
+          `enable='between(t,${s},${e})':alpha='${alphaExpr}'`;
+        return `${box},${text_}`;
       })
       .join(",");
 
