@@ -17,23 +17,31 @@ const ffmpegPath = ffmpegInstaller.path;
 // می‌شه؛ اگر فایل مربوطه هنوز اضافه نشده باشه (یا هیچ‌کدوم نباشه)، رندر
 // به‌جای شکست خوردن، به تُن سینوسیِ مصنوعیِ قبلی برمی‌گرده — پس این فیچر
 // هیچ‌وقت رندر رو خراب نمی‌کنه، فقط وقتی فایل هست کیفیت بهتری می‌ده.
+//
+// هر مود می‌تونه چند فایل داشته باشه (کاندید۱.mp3، کاندید۲.mp3، ...) —
+// یکی رندوم انتخاب می‌شه، تا بیننده‌ی پیوسته حسِ لوپِ عین‌هم رو نگیره.
+// فقط لیستِ اسمِ فایلِ اولی (بدونِ پسوندِ عددی) هم همیشه تو آرایه هست، پس
+// اگه فقط همون یک فایلِ قدیمی رو داری، دقیقاً همون رفتارِ قبلی می‌مونه.
 const BGM_DIR = path.join(process.cwd(), "public", "audio", "bgm");
 const MOOD_TO_BGM = {
-  meditating: "calm.mp3",
-  caring: "calm.mp3",
-  thinking: "reflective.mp3",
-  surprised: "reflective.mp3",
-  greeting: "hopeful.mp3",
-  teaching: "hopeful.mp3",
-  excited: "uplifting.mp3",
-  confident: "uplifting.mp3",
+  meditating: ["calm.mp3", "calm-2.mp3", "calm-3.mp3"],
+  caring: ["calm.mp3", "calm-2.mp3", "calm-3.mp3"],
+  thinking: ["reflective.mp3", "reflective-2.mp3", "reflective-3.mp3"],
+  surprised: ["reflective.mp3", "reflective-2.mp3", "reflective-3.mp3"],
+  greeting: ["hopeful.mp3", "hopeful-2.mp3", "hopeful-3.mp3"],
+  teaching: ["hopeful.mp3", "hopeful-2.mp3", "hopeful-3.mp3"],
+  excited: ["uplifting.mp3", "uplifting-2.mp3", "uplifting-3.mp3"],
+  confident: ["uplifting.mp3", "uplifting-2.mp3", "uplifting-3.mp3"],
 };
 
 function pickBgmPath(fullScriptText) {
   const mood = pickMayaPose(fullScriptText || "");
-  const filename = MOOD_TO_BGM[mood] || "hopeful.mp3";
-  const fullPath = path.join(BGM_DIR, filename);
-  return fs.existsSync(fullPath) ? fullPath : null;
+  const candidates = MOOD_TO_BGM[mood] || ["hopeful.mp3"];
+  const existing = candidates
+    .map((f) => path.join(BGM_DIR, f))
+    .filter((p) => fs.existsSync(p));
+  if (existing.length === 0) return null;
+  return existing[Math.floor(Math.random() * existing.length)];
 }
 
 // چون رم سرور محدوده (پلن رایگان Render، ۵۱۲ مگابایت)، هیچ‌وقت بیشتر از این
@@ -184,28 +192,23 @@ function buildMayaOverlayChain({ i, H, isPresenter, maya, srcLabel, outLabel }) 
   // فایل‌های base/-talk/-blink/-talk-blink یک ژست جدا از هم ساخته/اکسپورت
   // شدن، پس هیچ تضمینی نیست که همه دقیقاً هم‌ابعاد/هم‌نسبت باشن. قبلاً هر
   // لایه با scale=-1:mayaH مستقل از بقیه اسکیل می‌شد — یعنی عرضِ نهایی هر
-  // کدوم به نسبتِ تصویرِ خودِ همون فایل بستگی داشت. اگه یکی از فایل‌ها
-  // (مثلاً pose-talk.png) کادربندی/عرضِ متفاوتی نسبت به base داشت، همون
-  // لحظه که اون لایه سوار می‌شد (فلپِ دهان یا پلک‌زدن) مایا برای یک لحظه
-  // به‌طرز محسوسی بزرگ‌تر/کوچیک‌تر می‌شد — دقیقاً همون پرشِ اندازه‌ای که
-  // تو ویدیوی رندرشده دیده شد. راه‌حل: ابعادِ واقعیِ فایلِ base رو با sharp
-  // می‌خونیم (mayaThumbnail.js هم همین‌جوری ازش استفاده می‌کنه) تا عرضِ
-  // دقیقِ mayaW رو حساب کنیم، و بقیه‌ی لایه‌ها رو مجبور می‌کنیم دقیقاً
-  // همون قابِ mayaW×mayaH رو پر کنن (fit + پدینگِ شفاف، نه کشیده‌شدن) —
-  // نه این‌که هرکدوم آزادانه به نسبتِ تصویرِ خودشون اسکیل بشن.
-  const mayaW = maya.baseAspect ? Math.round(mayaH * maya.baseAspect) : null;
+  // نسبتِ تصویرِ واقعیِ فایلِ base رو با sharp خوندیم (mayaThumbnail.js هم
+  // همین‌جوری ازش استفاده می‌کنه) تا عرضِ دقیقِ mayaW رو حساب کنیم، و بقیه‌ی
+  // لایه‌ها رو مجبور کنیم دقیقاً همون قابِ mayaW×mayaH رو پر کنن (fit +
+  // پدینگِ شفاف، نه کشیده‌شدن) — نه این‌که هرکدوم آزادانه به نسبتِ تصویرِ
+  // خودشون اسکیل بشن. عرض رو عمداً به نزدیک‌ترین عددِ زوج گرد می‌کنیم —
+  // نه با گزینه‌ی مدرنِ scale=...:force_divisible_by=2 (که خیلی راحته
+  // وسوسه بشی ازش استفاده کنی، ولی نسخه‌ی خیلی قدیمیِ ffmpegِ باندل‌شده
+  // با این پروژه از طریق بسته‌ی npmِ @ffmpeg-installer/ffmpeg — یک
+  // build ثابتِ حدوداً ۲۰۱۸ — اصلاً این گزینه رو نمی‌شناسه و با «Option
+  // not found» کلِ رندر رو می‌شکنه)، بلکه با محاسبه‌ی خودِ عددِ زوج تو
+  // جاوااسکریپت قبل از ساختِ رشته‌ی فیلتر — این روش رو هر نسخه‌ای از
+  // ffmpeg، حتی خیلی قدیمی، بدونِ نیاز به هیچ گزینه‌ی خاصی پشتیبانی می‌کنه.
+  const rawMayaW = maya.baseAspect ? Math.round(mayaH * maya.baseAspect) : null;
+  const mayaW = rawMayaW ? Math.max(2, 2 * Math.round(rawMayaW / 2)) : null;
   const baseScale = mayaW ? `${mayaW}:${mayaH}` : `-1:${mayaH}`;
-  // force_divisible_by=2: بدونِ این، روی نسخه‌ی قدیمیِ استاتیکِ ffmpeg که
-  // Render باهاش رندر می‌کنه، scale+force_original_aspect_ratio=decrease
-  // گاهی یک پیکسل بزرگ‌تر از mayaW×mayaH حساب می‌کنه (باگِ گردکردنِ قدیمی،
-  // مخصوصاً وقتی نسبتِ ابعاعِ فایلِ talk/blink با baseAspect فرق داره —
-  // دقیقاً همینه که این چهار لایه رو از باقیِ اسکیل‌های پروژه جدا می‌کنه).
-  // pad بعدش با «Input area ... not within the padded area» شکست می‌خوره
-  // چون ورودی‌ای که ازش رسیده از قابِ pad بزرگ‌تره. force_divisible_by=2
-  // scale رو مجبور می‌کنه به یک عددِ زوجِ کوچیک‌ترِ مساوی گرد کنه، نه به
-  // بالا، پس همیشه داخلِ mayaW×mayaH جا می‌شه.
   const layerScale = mayaW
-    ? `${mayaW}:${mayaH}:force_original_aspect_ratio=decrease:force_divisible_by=2,pad=${mayaW}:${mayaH}:(ow-iw)/2:(oh-ih)/2:color=black@0`
+    ? `${mayaW}:${mayaH}:force_original_aspect_ratio=decrease,pad=${mayaW}:${mayaH}:(ow-iw)/2:(oh-ih)/2:color=black@0`
     : `-1:${mayaH}`; // اگه خوندنِ ابعادِ base شکست خورده باشه، به رفتار قبلی برمی‌گردیم
 
   let f = `[${maya.baseIdx}:v]scale=${baseScale}[mayabase${i}];`;
@@ -675,13 +678,17 @@ export async function renderVideo({
       duckFilter +=
         `;${whooshRefs}amix=inputs=${whooshBoundaryCount}:duration=longest:dropout_transition=0:normalize=0[whoosh_mix]` +
         `;[premix][whoosh_mix]amix=inputs=2:duration=first:weights=1 1[premix2]` +
-        `;[premix2]volume=${finalVolume},loudnorm=I=-14:TP=-1.5:LRA=11[aout]`;
+        `;[premix2]volume=${finalVolume},loudnorm=I=-14:TP=-1.5:LRA=11,alimiter=limit=0.97:attack=5:release=50[aout]`;
     } else {
-      duckFilter += `;[premix]volume=${finalVolume},loudnorm=I=-14:TP=-1.5:LRA=11[aout]`;
+      duckFilter += `;[premix]volume=${finalVolume},loudnorm=I=-14:TP=-1.5:LRA=11,alimiter=limit=0.97:attack=5:release=50[aout]`;
     }
     // نرمال‌سازیِ بلندیِ صدا به استانداردِ خودِ یوتیوب (~۱۴- LUFS) — تک‌پاس
     // (نه دوپاس با تحلیلِ جداگانه) چون برای این حجم محتوا دقتِ تک‌پاس کافیه
-    // و نیازی به یک اجرای کاملِ دیگرِ FFmpeg فقط برای تحلیل نیست.
+    // و نیازی به یک اجرای کاملِ دیگرِ FFmpeg فقط برای تحلیل نیست. loudnorm
+    // تک‌پاس گاهی چند دهم دسی‌بل از true-peak رد می‌شه (خودِ مستندِ FFmpeg
+    // هم به همین محدودیت اشاره می‌کنه) — alimiter بعدش یک سقفِ امنِ سخت
+    // (۰.۹۷ ≈ ‑۰.۳dBFS) می‌ذاره تا کلیپینگِ واقعی رخ نده، بدونِ این‌که صدای
+    // معمولی (که اصلاً به این سقف نمی‌رسه) دست بخوره.
 
     const finalArgs = [
       "-i", silentFullPath,
