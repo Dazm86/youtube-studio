@@ -74,6 +74,99 @@ export async function estimateAudioDurationSec(audioBuffer) {
   }
 }
 
+// msedge-tts گاهی یه فاصله‌ی مرده‌ی کوتاه (چند صدم تا حدودِ نیم ثانیه)
+// قبل از شروع یا بعدِ پایانِ روایت می‌ذاره — این تابع اون سکوتِ ابتدا/
+// انتها رو می‌بره (نه سکوت‌های داخلِ متن، فقط لبه‌ها) تا هوکِ اولِ ویدیو
+// معطل نمونه. تکنیکِ استانداردِ FFmpeg برای بریدنِ سکوتِ *انتها* (که خودِ
+// silenceremove مستقیم پشتیبانی نمی‌کنه، فقط ابتدا) اینه: صدا رو معکوس
+// کن، سکوتِ ابتدا رو ببر، دوباره معکوس کن. اجرا شکست بخوره (فایلِ
+// غیرمنتظره) → بافرِ اصلیِ بی‌تغییر برمی‌گرده، رندر هیچ‌وقت به‌خاطرِ این
+// قدم نمی‌شکنه.
+export async function trimSilenceFromAudio(audioBuffer) {
+  const tmpIn = path.join(
+    os.tmpdir(),
+    `trimsil-in-${Date.now()}-${Math.random().toString(36).slice(2)}.mp3`
+  );
+  const tmpOut = tmpIn.replace("-in-", "-out-");
+  try {
+    await fsp.writeFile(tmpIn, audioBuffer);
+    await new Promise((resolve, reject) => {
+      const proc = spawn(ffmpegPath, [
+        "-y",
+        "-i", tmpIn,
+        "-af",
+        "silenceremove=start_periods=1:start_silence=0.05:start_threshold=-45dB," +
+          "areverse," +
+          "silenceremove=start_periods=1:start_silence=0.05:start_threshold=-45dB," +
+          "areverse",
+        tmpOut,
+      ]);
+      let stderr = "";
+      proc.stderr.on("data", (d) => (stderr += d.toString()));
+      proc.on("close", (code) =>
+        code === 0 ? resolve() : reject(new Error(`silence trim ffmpeg exited ${code}: ${stderr.slice(-500)}`))
+      );
+      proc.on("error", reject);
+    });
+    return await fsp.readFile(tmpOut);
+  } catch (err) {
+    console.error("trimSilenceFromAudio شکست خورد، بافرِ اصلی بدونِ تغییر استفاده می‌شه:", err.message);
+    return audioBuffer;
+  } finally {
+    fsp.unlink(tmpIn).catch(() => {});
+    fsp.unlink(tmpOut).catch(() => {});
+  }
+}
+
+// سکوت‌های *داخلیِ* غیرعادی‌طولانی رو تشخیص می‌ده (نه ابتدا/انتها — اونا
+// جای دیگه‌ای با trimSilenceFromAudio بریده می‌شن). فقط تشخیص/لاگ می‌ده،
+// چیزی رو خودکار کوتاه نمی‌کنه — چون هر تغییری تو طولِ خودِ audioBuffer
+// دقیقاً همینجا (تویِ pipeline.js، این تابع بعد از audioDurationSec صدا
+// زده می‌شه) باعثِ ناهم‌خونیِ audioDurationSec با تایمینگِ رسانه/رندری
+// می‌شد که از قبل بر اساسِ طولِ فعلی محاسبه شده — همون ریسکی که باعث شد
+// outro tail (چک‌لیستِ آیتم ۳۹) هم فعلاً کنار گذاشته بشه. این فقط یک
+// ابزارِ تشخیصیه برای لاگ، تصمیمِ فعال دستِ کاربره.
+export async function detectLongSilences(audioBuffer, thresholdSec = 2.5) {
+  const tmpFile = path.join(
+    os.tmpdir(),
+    `silchk-${Date.now()}-${Math.random().toString(36).slice(2)}.mp3`
+  );
+  await fsp.writeFile(tmpFile, audioBuffer);
+  try {
+    const stderr = await new Promise((resolve, reject) => {
+      const proc = spawn(ffmpegPath, [
+        "-i", tmpFile,
+        "-af", "silencedetect=noise=-40dB:d=1.0",
+        "-f", "null", "-",
+      ]);
+      let out = "";
+      proc.stderr.on("data", (d) => (out += d.toString()));
+      proc.on("close", () => resolve(out)); // silencedetect خودش کدِ خروجِ غیرصفر نمی‌ده
+      proc.on("error", reject);
+    });
+    const gaps = [];
+    const startRe = /silence_start:\s*([\d.]+)/g;
+    const endRe = /silence_end:\s*([\d.]+)\s*\|\s*silence_duration:\s*([\d.]+)/g;
+    const starts = [...stderr.matchAll(startRe)].map((m) => parseFloat(m[1]));
+    const ends = [...stderr.matchAll(endRe)].map((m) => ({
+      end: parseFloat(m[1]),
+      duration: parseFloat(m[2]),
+    }));
+    starts.forEach((start, idx) => {
+      const e = ends[idx];
+      if (e && e.duration >= thresholdSec) {
+        gaps.push({ start, end: e.end, duration: e.duration });
+      }
+    });
+    return gaps;
+  } catch (err) {
+    console.error("detectLongSilences شکست خورد (نادیده گرفته می‌شه):", err.message);
+    return [];
+  } finally {
+    fsp.unlink(tmpFile).catch(() => {});
+  }
+}
+
 function parseTimeToSeconds(str) {
   const m = str.match(/(\d{2}):(\d{2}):(\d{2})\.(\d{2})/);
   if (!m) return null;
@@ -151,7 +244,15 @@ function probeHasAudioStream(filePath) {
 // رسانه‌ی هر بخش شلوغ نکنه.
 function getMayaRole(index, total) {
   if (total <= 1) return "presenter";
-  if (index === 0 || index === total - 1) return "presenter";
+  const isLast = index === total - 1;
+  if (isLast) return "presenter";
+  if (index === 0) {
+    // گاهی (نه همیشه) هوک مستقیم با بی‌رول شروع می‌شه، بدونِ مایا — تنوع
+    // تو ریتمِ شروع، تا الگو همیشه یک‌شکل و قابلِ‌پیش‌بینی نباشه. بستنِ
+    // ویدیو (آخرین سگمنت) همیشه presenter می‌مونه، فقط شروعش گاهی فرق
+    // می‌کنه.
+    return Math.random() < 0.22 ? "hidden" : "presenter";
+  }
   const bodyIndex = index - 1;
   return bodyIndex % 2 === 0 ? "cameo" : "hidden";
 }
@@ -183,11 +284,15 @@ function buildMayaOverlayChain({ i, H, isPresenter, maya, srcLabel, outLabel }) 
   const mayaH = Math.round(H * (isPresenter ? 0.88 : 0.28));
   const baseX = isPresenter ? "(W-w)/2" : "W-w-20";
   const baseY = isPresenter ? "H-h" : "20";
-  const bobAmpX = isPresenter ? 3 : 1.5;
-  const bobAmpY = isPresenter ? 4 : 2;
+  // یه‌کم رندومایز کردنِ خودِ دامنه‌ی نوسان (نه فقط فازش، که از قبل رندوم
+  // بود) — وگرنه با اینکه فازِ شروع فرق می‌کنه، اندازه‌ی حرکت هر بار
+  // دقیقاً یکیه و بعد از چند ویدیو حسِ مکانیکی/تکراری می‌ده.
+  const ampJitter = 0.75 + Math.random() * 0.5; // ۰.۷۵ تا ۱.۲۵ برابرِ پایه
+  const bobAmpX = (isPresenter ? 3 : 1.5) * ampJitter;
+  const bobAmpY = (isPresenter ? 4 : 2) * ampJitter;
   const phase = Math.random() * 6.28;
-  const mayaX = `${baseX}+${bobAmpX}*sin(2*PI*t/5+${phase.toFixed(2)})`;
-  const mayaY = `${baseY}+${bobAmpY}*sin(2*PI*t/3.2+${((phase * 1.6) % 6.28).toFixed(2)})`;
+  const mayaX = `${baseX}+${bobAmpX.toFixed(2)}*sin(2*PI*t/5+${phase.toFixed(2)})`;
+  const mayaY = `${baseY}+${bobAmpY.toFixed(2)}*sin(2*PI*t/3.2+${((phase * 1.6) % 6.28).toFixed(2)})`;
 
   // فایل‌های base/-talk/-blink/-talk-blink یک ژست جدا از هم ساخته/اکسپورت
   // شدن، پس هیچ تضمینی نیست که همه دقیقاً هم‌ابعاد/هم‌نسبت باشن. قبلاً هر
@@ -408,10 +513,18 @@ async function renderBatch({
         `[bgblur${i}][fgs${i}]overlay=(W-w)/2:(H-h)/2[cf${i}];`;
     }
 
+    // یک color-grade ثابت و یک‌دست رو *همه‌ی* کلیپ‌های پس‌زمینه (فارغ از
+    // این‌که از کدوم منبع/provider اومدن) اعمال می‌کنیم — کنتراستِ کمی
+    // بالاتر + اشباعِ کمی پایین‌تر، تا فوتیج‌های ناهم‌جنس از منابعِ مختلفِ
+    // Pexels حسِ یک‌دست‌تر و برندی‌تری بگیرن، به‌جای این‌که هر کلیپ رنگ و
+    // حسِ خودش رو داشته باشه. عمداً خیلی ظریفه (نه یک LUT/فیلترِ سنگین)
+    // که فقط پس‌زمینه‌ها یک‌کم به هم نزدیک‌تر بشن، نه این‌که رنگِ اصلیِ
+    // ویدیو عوض بشه.
     const postChain = skipZoom
-      ? `fps=25`
+      ? `fps=25,eq=contrast=1.05:saturation=0.92:gamma=1.02`
       : `zoompan=z='min(zoom+0.0012,1.25)':d=1:` +
-        `x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=720x1280:fps=25`;
+        `x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=720x1280:fps=25,` +
+        `eq=contrast=1.05:saturation=0.92:gamma=1.02`;
 
     filter +=
       `[cf${i}]${postChain},` +
@@ -514,6 +627,36 @@ export async function renderVideo({
       }
       const filePath = path.join(tmpDir, `media${i}.${mediaExt}`);
       await fsp.writeFile(filePath, buf);
+      // عکس‌های Pexels گاهی خیلی بزرگ‌تر از چیزی‌ان که این پروژه واقعاً
+      // بهش نیاز داره (کاورِ خروجی نهایتاً ۹۰۰×۱۶۰۰ برای Shorts، یا
+      // ۱۲۸۰×۷۲۰ برای بلند) — decode کردنِ یه عکسِ چندهزارپیکسلی فقط برای
+      // این‌که چند خط پایین‌تر با همون FFmpeg دوباره کوچیک بشه، هم زمان
+      // هم رمِ رندر رو بی‌جهت مصرف می‌کنه (روی سقفِ ۵۱۲مگابایتیِ Render این
+      // مهمه). فقط عکس‌ها (نه کلیپ، که ترنسکدِ ویدیو هزینه‌ی بیشتری داره و
+      // با فلگِ -t که همین الان موقعِ خوندنِ ورودی اعمال می‌شه اکثرِ سودِ
+      // این کار رو از قبل گرفته) — و فقط وقتی واقعاً از سقفِ محافظه‌کارانه‌ی
+      // ۱۶۰۰ پیکسل تو ضلعِ بزرگ‌تر بزرگ‌تره، تا چیزی از قبل مناسب‌اندازه
+      // دوباره (و بی‌فایده) دیکود/انکود نشه.
+      if (!useVideoClips) {
+        try {
+          const meta = await sharp(filePath).metadata();
+          const longEdge = Math.max(meta.width || 0, meta.height || 0);
+          if (longEdge > 1600) {
+            const resized = await sharp(filePath)
+              .resize({
+                width: meta.width >= meta.height ? 1600 : null,
+                height: meta.height > meta.width ? 1600 : null,
+                withoutEnlargement: true,
+              })
+              .toBuffer();
+            await fsp.writeFile(filePath, resized);
+          }
+        } catch (downscaleErr) {
+          // شکستِ این قدم (فرمتِ عجیب/فایلِ خراب) نباید رندر رو بشکنه —
+          // فقط با همون فایلِ اصلی (بدونِ downscale) ادامه می‌دیم.
+          console.error(`downscale عکسِ رسانه شکست خورد (${filePath}):`, downscaleErr.message);
+        }
+      }
       mediaPaths.push(filePath);
       onProgress && onProgress(((i + 1) / N) * 0.15); // دانلود ~۱۵٪ اول
     }

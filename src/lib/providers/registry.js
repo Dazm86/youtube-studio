@@ -18,6 +18,7 @@
 
 import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
 import { extractKeywords } from "./textUtils";
+import { pickMayaPose } from "../mayaThumbnail";
 
 const GROQ_TEXT_MODEL = "llama-3.3-70b-versatile";
 const OPENAI_TEXT_MODEL = "gpt-4o-mini";
@@ -214,9 +215,19 @@ async function stabilityImages({ apiKey, text, keyword, count, orientation }) {
 
 // ===================== صدا (audio) =====================
 
+// msedge-tts فقط دو حالت voice داره که اینجا استفاده می‌شن — نه بر اساسِ
+// یک provider دیگه، فقط پیش‌فرضِ خودِ msedge-tts وقتی caller صراحتاً
+// voice نخواسته. بر اساسِ حال‌وهوای غالبِ متن (همون امتیازدهیِ
+// pickMayaPose که برای تامبنیل/BGM هم استفاده می‌شه، پس سیگنالِ همه‌جا
+// یکیه) بینِ دو صدای msedge-tts متفاوت انتخاب می‌شه — نه یک صدای ثابت
+// برای همه‌ی ویدیوها.
+const CALM_TTS_MOODS = new Set(["meditating", "caring", "thinking", "surprised"]);
+
 async function msedgeTts({ text, voice }) {
+  const resolvedVoice =
+    voice || (CALM_TTS_MOODS.has(pickMayaPose(text)) ? "en-US-JennyNeural" : "en-US-AriaNeural");
   const tts = new MsEdgeTTS();
-  await tts.setMetadata(voice || "en-US-JennyNeural", OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
+  await tts.setMetadata(resolvedVoice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
   const { audioStream } = await tts.toStream(text);
   const chunks = [];
   for await (const chunk of audioStream) chunks.push(chunk);

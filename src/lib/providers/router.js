@@ -180,26 +180,67 @@ export async function generateText({ prompt, maxTokens, temperature, jsonMode })
   return text.trim();
 }
 
+// کشِ کوتاه‌مدتِ درون‌حافظه‌ای برای نتیجه‌ی جستجوهای عکس/کلیپ — همون
+// کوئری با همون orientation/count تو یک بازه‌ی کوتاه (۱۰ دقیقه) دوباره
+// درخواستِ API نمی‌زنه. مخصوصاً با retry ی تایم‌اوت که بالاتر اضافه شد
+// مفیده: اگه تلاشِ اول واقعاً تو سمتِ Pexels موفق شده بود ولی جواب دیر
+// رسیده (تایم‌اوتِ سمتِ ما، نه شکستِ واقعیِ provider)، تلاشِ دوم به‌جای
+// یک کوئریِ کاملاً تازه، می‌تونه از کش جواب بگیره. کش فقط درون‌حافظه‌ست
+// (نه دیتابیس) — با هر ری‌استارتِ سرور (رایج تو Render free tier) خودش
+// خالی می‌شه، که برای این نوع بهینه‌سازیِ کوتاه‌مدت کاملاً کافیه. سقفِ
+// تعدادِ ورودی هم می‌ذاریم که حافظه بی‌نهایت بزرگ نشه.
+const MEDIA_CACHE_TTL_MS = 10 * 60 * 1000;
+const MEDIA_CACHE_MAX_ENTRIES = 200;
+const mediaCache = new Map();
+
+function mediaCacheGet(key) {
+  const entry = mediaCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.at > MEDIA_CACHE_TTL_MS) {
+    mediaCache.delete(key);
+    return null;
+  }
+  return entry.value;
+}
+
+function mediaCacheSet(key, value) {
+  if (mediaCache.size >= MEDIA_CACHE_MAX_ENTRIES) {
+    const oldestKey = mediaCache.keys().next().value;
+    mediaCache.delete(oldestKey);
+  }
+  mediaCache.set(key, { value, at: Date.now() });
+}
+
 export async function fetchImages({ text, keyword, count, orientation }) {
+  const cacheKey = `image:${JSON.stringify({ text, keyword, count, orientation })}`;
+  const cached = mediaCacheGet(cacheKey);
+  if (cached) return cached;
   try {
-    return await tryProviders("image", (entry, apiKey) =>
+    const result = await tryProviders("image", (entry, apiKey) =>
       entry.adapters.image({ apiKey, text, keyword, count, orientation })
     );
+    mediaCacheSet(cacheKey, result);
+    return result;
   } catch (err) {
     const items = localFallbackItems("images", count);
     if (!items) throw err;
     console.warn(
       `fetchImages: همه‌ی ارائه‌دهنده‌ها شکست خوردن (${err.message}) — از پوشه‌ی محلیِ fallback-media استفاده شد`
     );
-    return { images: items };
+    return { images: items }; // نتیجه‌ی fallback عمداً کش نمی‌شه — می‌خوایم دفعه‌ی بعد provider واقعی دوباره امتحان بشه
   }
 }
 
 export async function fetchClips({ text, keyword, count, orientation }) {
+  const cacheKey = `video:${JSON.stringify({ text, keyword, count, orientation })}`;
+  const cached = mediaCacheGet(cacheKey);
+  if (cached) return cached;
   try {
-    return await tryProviders("video", (entry, apiKey) =>
+    const result = await tryProviders("video", (entry, apiKey) =>
       entry.adapters.video({ apiKey, text, keyword, count, orientation })
     );
+    mediaCacheSet(cacheKey, result);
+    return result;
   } catch (err) {
     const items = localFallbackItems("videos", count);
     if (!items) throw err;

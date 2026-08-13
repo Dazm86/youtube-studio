@@ -69,7 +69,7 @@ function wrapText(text, maxCharsPerLine, maxLines) {
 // پرامپتِ AI (metadataGen.js) — چون هیچ تضمینی نیست خروجیِ AI همیشه دقیقاً
 // به همون قانون پایبند بمونه؛ این یک لایه‌ی دفاعیِ اضافه‌ست، نه جایگزینِ
 // پرامپت.
-function capThumbnailWords(text, maxWords) {
+export function capThumbnailWords(text, maxWords) {
   const words = String(text || "New Video").trim().split(/\s+/).filter(Boolean);
   if (words.length <= maxWords) return words.join(" ");
   return words.slice(0, maxWords).join(" ");
@@ -181,10 +181,44 @@ export async function buildMayaThumbnail({
   const startY = (CANVAS_H - textBlockHeight) / 2 + fontSize;
   const textCenterX = mayaX / 2;
 
+  // رنگِ متن رو بر اساسِ روشناییِ *واقعیِ* همون ناحیه‌ای از پس‌زمینه که
+  // متن واقعاً روش می‌شینه انتخاب می‌کنیم، نه همیشه فرضِ سفید — یک عکسِ
+  // روشن (مثلاً آسمون/برف) حتی بعدِ تیره‌شدنِ عمدیِ بالاتر (brightness
+  // 0.55) ممکنه هنوز به‌قدرِ کافی روشن بمونه که متنِ سفید توش کم‌کنتراست
+  // بشه؛ گرادیانِ برند هم اگه یه روز روشن‌تر شد همین‌جوری خودکار جواب
+  // می‌ده. resize به ۱×۱ پیکسل رنگِ میانگینِ همون ناحیه رو ارزون می‌گیره.
+  let fontColor = "#ffffff";
+  let strokeColor = "#3a1d4d";
+  try {
+    const [r, g, b] = await sharp(bg)
+      .extract({ left: 0, top: 0, width: Math.max(1, mayaX), height: CANVAS_H })
+      .resize(1, 1)
+      .raw()
+      .toBuffer();
+    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    // نکته‌ی مهمِ کالیبراسیون: عکس‌های واقعی قبل از این مرحله با
+    // modulate({brightness:0.55}) عمداً تیره شدن (بالاتر تو همین فایل) —
+    // یعنی حتی یک عکسِ کاملاً سفید هم به این مرحله که می‌رسه سقفش حدودِ
+    // luminance≈۰.۵۱ ـه، نه ۱. آستانه‌ی ۰.۶ عملاً هیچ‌وقت رد نمی‌شد و این
+    // چک برای مسیرِ عکسِ واقعی همیشه بی‌اثر می‌موند؛ با تست مستقیمِ همین
+    // pipeline (چند سطحِ روشناییِ منبع) به ۰.۴۲ رسیدم — عکس‌های واقعاً
+    // روشن (نزدیکِ سفید/برف/آسمون) رو به متنِ تیره سوییچ می‌کنه، عکس‌های
+    // معمولی/تیره همچنان متنِ سفیدِ پیش‌فرض رو نگه می‌دارن.
+    if (luminance > 0.42) {
+      fontColor = "#1a1a1a";
+      strokeColor = "#ffffff";
+    }
+  } catch (contrastErr) {
+    console.error(
+      "تشخیصِ کنتراستِ پس‌زمینه‌ی تامنیل شکست خورد، پیش‌فرضِ سفید استفاده می‌شه:",
+      contrastErr.message
+    );
+  }
+
   const textSvgLines = lines
     .map(
       (line, i) =>
-        `<text x="${textCenterX}" y="${startY + i * lineHeight}" text-anchor="middle" font-family="DejaVu Sans, Arial, sans-serif" font-weight="bold" font-size="${fontSize}" fill="#ffffff" stroke="#3a1d4d" stroke-width="6" paint-order="stroke" stroke-linejoin="round">${escapeXml(line)}</text>`
+        `<text x="${textCenterX}" y="${startY + i * lineHeight}" text-anchor="middle" font-family="DejaVu Sans, Arial, sans-serif" font-weight="bold" font-size="${fontSize}" fill="${fontColor}" stroke="${strokeColor}" stroke-width="6" paint-order="stroke" stroke-linejoin="round">${escapeXml(line)}</text>`
     )
     .join("\n");
 

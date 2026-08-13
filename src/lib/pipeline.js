@@ -2,7 +2,7 @@ import { google } from "googleapis";
 import { Readable } from "stream";
 import { synthesizeSpeech } from "./providers/router";
 import { fetchImages, fetchClips } from "./media";
-import { renderVideo, estimateAudioDurationSec } from "./videoRender";
+import { renderVideo, estimateAudioDurationSec, trimSilenceFromAudio, detectLongSilences } from "./videoRender";
 import { distributeDurations, buildSrt, validateSrt, regroupForSubtitles } from "./scriptTiming";
 import { translateCaptions } from "./translateCaptions";
 import { buildMayaThumbnail } from "./mayaThumbnail";
@@ -92,6 +92,64 @@ function buildChapterBlock(script, chapters, audioDurationSec) {
 // stream) و هم زمان‌بند خودکار (بدون کاربر، بدون stream) از یک منطق
 // واحد استفاده کنن، به‌جای این‌که دو کپیِ جدا از هم منحرف بشن.
 //
+// چک‌لیستِ ریسک/انطباق — نه یک فیلترِ محتوایی سخت‌گیرانه، فقط چند الگوی
+// مشخص که شکلِ «ادعای درمانیِ غیرمجاز» دارن (نه صرفاً بحث دربابِ اضطراب/
+// افسردگی به‌عنوانِ موضوع، که برای یک کانالِ mindfulness کاملاً طبیعیه).
+// تشخیصِ این الگوها باعثِ رد یا توقفِ رندر *نمی‌شه* — فقط لاگ می‌شه و
+// ویدیو با privacyStatus خصوصی آپلود می‌شه (پایین‌تر) تا قبل از عمومی‌شدن
+// یک بازبینیِ دستی بشه.
+const RISKY_CLAIM_PATTERNS = [
+  /\bcures?\s+(your\s+)?(depression|anxiety|trauma|ptsd)\b/i,
+  /\btreats?\s+(your\s+)?(depression|anxiety|trauma|ptsd)\b/i,
+  /\breplaces?\s+(your\s+)?(therapy|medication|therapist)\b/i,
+  /\bstop\s+taking\s+(your\s+)?medication\b/i,
+  /\bguaranteed?\s+to\s+(cure|heal|fix)\b/i,
+  /\bdiagnos(e|ed|is|ing)\b/i,
+];
+
+export function checkRiskyKeywords(script) {
+  const hits = [];
+  for (const pattern of RISKY_CLAIM_PATTERNS) {
+    const m = script.match(pattern);
+    if (m) hits.push(m[0]);
+  }
+  return hits;
+}
+
+// کلماتِ تماماً بزرگ (به‌جز خیلی کوتاه‌های رایج مثلِ "I") یا مخفف‌های
+// چندحرفی که TTS ممکنه اشتباه تلفظ کنه — فقط تشخیص/لاگ، نه اصلاحِ خودکار
+// (msedge-tts از طریقِ متنِ ساده صدا زده می‌شه، نه SSML با phoneme hint
+// که بشه دقیقاً کنترلش کرد).
+export function checkMispronunciationRisks(script) {
+  const words = script.split(/\s+/);
+  const suspicious = new Set();
+  for (const w of words) {
+    const clean = w.replace(/[^A-Za-z']/g, "");
+    if (clean.length >= 2 && clean === clean.toUpperCase() && /[A-Z]/.test(clean) && clean !== "I") {
+      suspicious.add(clean);
+    }
+  }
+  return [...suspicious];
+}
+
+// اطلاع‌رسانیِ شکست به یک webhook عمومی (تلگرام/Slack/Discord/هرچیزی که
+// POST ساده قبول کنه) — فقط وقتی ALERT_WEBHOOK_URL تنظیم شده باشه، وگرنه
+// بی‌صدا هیچ‌کاری نمی‌کنه (نه خطا، نه لاگِ اضافه). خودِ این تابع هیچ‌وقت
+// throw نمی‌کنه — شکستِ اطلاع‌رسانی نباید رویِ نتیجه‌ی پایپ‌لاین اثر بذاره.
+async function notifyWebhook(event, details) {
+  const url = process.env.ALERT_WEBHOOK_URL;
+  if (!url) return;
+  try {
+    await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ event, details, at: new Date().toISOString() }),
+    });
+  } catch (err) {
+    console.error("notifyWebhook شکست خورد (نادیده گرفته می‌شه):", err.message);
+  }
+}
+
 // `emit(obj)` دقیقاً همون شکل send() قبلی رو داره — {status, progress}
 // یا در پایان {done, videoId, ...} را نمی‌فرسته؛ خروجی نهایی رو خودِ
 // این تابع return می‌کنه، caller تصمیم می‌گیره چطور اطلاع بده.
@@ -100,6 +158,14 @@ function buildChapterBlock(script, chapters, audioDurationSec) {
 // مسیر تعاملی از کوکیِ NextAuth (`getToken`) تازه می‌کنه، زمان‌بند
 // خودکار از refresh_token ذخیره‌شده تو DB. اینجا هیچ فرضی درباره‌ی
 // وجود یک HTTP request/کوکی نمی‌کنیم.
+//
+// `quickTest: true` یک مسیرِ کوتاه‌شده‌ست — فقط چند ثانیه صدا/یک سگمنت
+// رندر می‌کنه و آپلود نمی‌کنه، صرفاً برای چک‌کردنِ سلامتِ کلیدها/تنظیمات
+// (Groq/Pexels/msedge-tts/ffmpeg) قبل از یک اجرای واقعی. تایم‌اوتِ کلیِ
+// پایپ‌لاین (پایین‌تر) رویِ این مسیر اعمال نمی‌شه چون خودش قراره سریع
+// باشه.
+const PIPELINE_TIMEOUT_MS = 25 * 60 * 1000; // ۲۵ دقیقه — اگه یک اجرا گیر کنه، اجرای زمان‌بندی‌شده‌ی بعدی نامحدود بلاک نشه
+
 export async function runPipeline(
   {
     script,
@@ -116,6 +182,7 @@ export async function runPipeline(
     thumbnailTextB,
     accessToken,
     getUploadAccessToken,
+    quickTest,
   },
   { emit = () => {} } = {}
 ) {
@@ -123,10 +190,134 @@ export async function runPipeline(
     throw new Error("متنی ارسال نشده");
   }
 
+  if (quickTest) {
+    return runQuickTest({ script, videoMode, useVideoClips, imageKeyword }, { emit });
+  }
+
+  const runLog = { stages: {}, warnings: [], flags: {} };
+  const stageStart = {};
+  const beginStage = (name) => {
+    stageStart[name] = Date.now();
+  };
+  const endStage = (name) => {
+    if (stageStart[name] != null) {
+      runLog.stages[name] = Date.now() - stageStart[name];
+    }
+  };
+
+  const pipelineStartedAt = Date.now();
+  try {
+    return await Promise.race([
+      runPipelineCore(
+        {
+          script, title, description, thumbnailText, tagsRaw, privacyStatus, publishAt,
+          videoMode, useVideoClips, imageKeyword, titleB, thumbnailTextB, accessToken,
+          getUploadAccessToken,
+        },
+        { emit, runLog, beginStage, endStage }
+      ),
+      new Promise((_, reject) =>
+        setTimeout(
+          () => reject(new Error(`پایپ‌لاین بیشتر از ${PIPELINE_TIMEOUT_MS / 60000} دقیقه طول کشید و متوقف شد`)),
+          PIPELINE_TIMEOUT_MS
+        )
+      ),
+    ]);
+  } catch (err) {
+    runLog.stages.totalMs = Date.now() - pipelineStartedAt;
+    await notifyWebhook("pipeline_failed", {
+      title: title || "(بدون عنوان)",
+      error: err.message,
+      runLog,
+    });
+    throw err;
+  }
+}
+
+// یک رندرِ خیلی کوچیک (چند ثانیه، بدونِ آپلود) فقط برای چک‌کردنِ زنجیره‌ی
+// AI متن → TTS → یک فریمِ تصویری، بدونِ صرفِ کاملِ APIها یا صبرِ چند
+// دقیقه‌ای رندرِ واقعی. خطای همین مسیر دقیقاً همون چیزیه که یک اجرای
+// واقعی هم باهاش شکست می‌خورد، ولی ظرفِ چند ثانیه معلوم می‌شه.
+async function runQuickTest({ script, videoMode, useVideoClips, imageKeyword }, { emit }) {
+  emit({ status: "تستِ سریع: در حال ساختِ چند ثانیه صدا...", progress: 10 });
+  const shortScript = script.split(/\s+/).slice(0, 15).join(" ") || "This is a quick test.";
+  const { buffer: audioBuffer } = await synthesizeSpeech({ text: shortScript });
+  emit({ status: "تستِ سریع: صدا OK ✅ — در حال گرفتنِ یک عکس/کلیپ نمونه...", progress: 40 });
+  const isShort = videoMode === "short";
+  const orientation = isShort ? "portrait" : "landscape";
+  const mediaResult = useVideoClips
+    ? await fetchClips({ text: shortScript, keyword: imageKeyword, count: 1, orientation })
+    : await fetchImages({ text: shortScript, keyword: imageKeyword, count: 1, orientation });
+  const mediaOk = useVideoClips ? mediaResult.clips?.length > 0 : mediaResult.images?.length > 0;
+  emit({ status: `تستِ سریع: رسانه ${mediaOk ? "OK ✅" : "شکست ❌"}`, progress: 90 });
+  return {
+    quickTest: true,
+    audioOk: !!audioBuffer && audioBuffer.length > 0,
+    mediaOk,
+  };
+}
+
+async function runPipelineCore(
+  {
+    script,
+    title,
+    description,
+    thumbnailText,
+    tagsRaw,
+    privacyStatus,
+    publishAt,
+    videoMode,
+    useVideoClips,
+    imageKeyword,
+    titleB,
+    thumbnailTextB,
+    accessToken,
+    getUploadAccessToken,
+  },
+  { emit, runLog, beginStage, endStage }
+) {
+  // --- بررسی‌های پیش از ساختِ صدا: کلیدواژه‌های حساس + کلماتِ مستعدِ
+  // بدتلفظی — فقط تشخیص/لاگ، هیچ‌کدوم رندر رو متوقف نمی‌کنن. نتیجه‌ی
+  // riskyHits پایین‌تر (بعد از آماده‌شدنِ videoId) رویِ privacyStatus اثر
+  // می‌ذاره.
+  const riskyHits = checkRiskyKeywords(script);
+  if (riskyHits.length > 0) {
+    runLog.warnings.push(`کلیدواژه‌ی حساس/ادعای درمانی: ${riskyHits.join("، ")}`);
+    runLog.flags.riskyContent = true;
+  }
+  const mispronunciationRisks = checkMispronunciationRisks(script);
+  if (mispronunciationRisks.length > 0) {
+    runLog.warnings.push(`کلماتِ مستعدِ بدتلفظی توسطِ TTS: ${mispronunciationRisks.join("، ")}`);
+  }
+
   // --- ۱. ساخت صدا ---
+  beginStage("audio");
   emit({ status: "مرحله ۱ از ۵: در حال ساخت صدا...", progress: 2 });
-  const { buffer: audioBuffer } = await synthesizeSpeech({ text: script });
+  const { buffer: rawAudioBuffer } = await synthesizeSpeech({ text: script });
+  // gTTS/msedge-tts گاهی چند دهم ثانیه سکوتِ اضافه قبل/بعدِ روایت می‌ذاره
+  // — قبل از این‌که audioDurationSec (که کلِ تایمینگِ رسانه/رندر بهش
+  // وابسته‌ست) محاسبه بشه می‌بریمش، تا هوکِ اولِ ویدیو معطل نمونه و این
+  // تریم با محاسباتِ بعدی هم‌خون بمونه.
+  const audioBuffer = await trimSilenceFromAudio(rawAudioBuffer);
+  endStage("audio");
   emit({ status: "صدا ساخته شد ✅", progress: 8 });
+
+  // سکوت‌های *داخلیِ* غیرعادی‌طولانی — فقط لاگ می‌شه (نه اصلاحِ خودکار،
+  // که تایمینگِ محاسبه‌شده‌ی پایین‌تر رو به‌هم می‌زد؛ توضیحش تو
+  // videoRender.js/detectLongSilences هست).
+  try {
+    const longGaps = await detectLongSilences(audioBuffer, 2.5);
+    if (longGaps.length > 0) {
+      runLog.warnings.push(
+        `${longGaps.length} سکوتِ داخلیِ بلند (بیشتر از ۲.۵ ثانیه) تو روایت پیدا شد: ${longGaps
+          .map((g) => `${g.start.toFixed(1)}s-${g.end.toFixed(1)}s`)
+          .join("، ")}`
+      );
+    }
+  } catch (gapErr) {
+    console.error("detectLongSilences شکست خورد (نادیده گرفته می‌شه):", gapErr.message);
+  }
+
 
   // --- ۲. تقسیم اسکریپت به بخش‌های زمان‌بندی‌شده + گرفتن عکس/کلیپ مخصوص هر بخش ---
   const isShort = videoMode === "short";
@@ -168,6 +359,7 @@ export async function runPipeline(
   const orientation = isShort ? "portrait" : "landscape";
   const hasManualKeyword = imageKeyword && imageKeyword.trim();
   const mediaItems = [];
+  beginStage("media");
 
   if (hasManualKeyword) {
     emit({
@@ -196,9 +388,11 @@ export async function runPipeline(
   }
 
   const bgImageUrl = mediaItems[0] || "";
+  endStage("media");
   emit({ status: "رسانه‌ها آماده شد ✅", progress: 15 });
 
   // --- ۳. رندر ویدیو ---
+  beginStage("render");
   emit({ status: "مرحله ۳ از ۵: در حال رندر ویدیو...", progress: 16 });
   const videoBuffer = await renderVideo({
     durations,
@@ -211,8 +405,10 @@ export async function runPipeline(
     onProgress: (p) => emit({ progress: 15 + p * 65 }),
   });
   emit({ status: "ویدیو رندر شد ✅", progress: 80 });
+  endStage("render");
 
   // --- ۴. آپلود در یوتیوب ---
+  beginStage("upload");
   // رندر ممکنه ۱۵-۴۰ دقیقه طول کشیده باشه — توکنِ ابتدای درخواست ممکنه
   // الان منقضی شده باشه. caller مشخص می‌کنه چطور توکن تازه بگیره.
   let uploadAccessToken = accessToken;
@@ -239,25 +435,35 @@ export async function runPipeline(
     part: ["snippet", "status"],
     requestBody: {
       snippet: { title: title || "بدون عنوان", description: finalDescription, tags },
-      status: publishAt
-        ? { privacyStatus: "private", publishAt: new Date(publishAt).toISOString() }
-        : { privacyStatus: privacyStatus || "private" },
+      status: {
+        // این فیلد قبلاً اصلاً ست نمی‌شد — یعنی یوتیوب هر ویدیو رو
+        // «نامشخص» می‌ذاشت و صاحبِ کانال مجبور بود دستی از استودیو
+        // مشخص کنه؛ محتوای این کانال (خودیاری/mindfulness) واضحاً
+        // برای بزرگسالانه، پس صریح false ست می‌کنیم.
+        selfDeclaredMadeForKids: false,
+        ...(publishAt
+          ? { privacyStatus: "private", publishAt: new Date(publishAt).toISOString() }
+          : { privacyStatus: runLog.flags.riskyContent ? "private" : privacyStatus || "private" }),
+      },
     },
     media: { body: Readable.from(videoBuffer) },
   });
   const videoId = uploadRes.data.id;
+  endStage("upload");
+  if (runLog.flags.riskyContent && !publishAt) {
+    runLog.warnings.push(
+      "چون کلیدواژه‌ی حساس/ادعای درمانی تو اسکریپت پیدا شد، privacyStatus صرفِ‌نظر از تنظیماتِ درخواستی روی خصوصی گذاشته شد — قبل از عمومی‌کردن یک بازبینیِ دستی لازمه."
+    );
+  }
 
-  await recordVideo({
-    videoId,
-    title,
-    script,
-    videoMode,
-    useVideoClips,
-    imageKeyword,
-    thumbnailText,
-    titleB,
-    thumbnailTextB,
-  });
+  // انحرافاتِ غیرعادی که ارزشِ یک نگاهِ دستی رو دارن، قبل از این‌که
+  // خودِ فیلد نهایی بشه جمع می‌کنیم (thumbnailStatus/captionStatus
+  // پایین‌تر هم اضافه می‌شن).
+  const needsReviewReasons = [];
+  if (runLog.flags.riskyContent) needsReviewReasons.push("کلیدواژه‌ی حساس/ادعای درمانی");
+  if (!isShort && audioDurationSec < 300) needsReviewReasons.push("ویدیوی لانگ غیرعادی کوتاه");
+  if (isShort && audioDurationSec > 90) needsReviewReasons.push("Short غیرعادی بلند");
+
   emit({ status: "مرحله ۵ از ۵: در حال تنظیم تامبنیل و زیرنویس...", progress: 92 });
 
   // --- ۵. تامبنیل ---
@@ -270,6 +476,15 @@ export async function runPipeline(
       bgImageUrl,
       variant: "A",
     });
+    // یوتیوب آپلودِ تامبنیل رو بالای ۲ مگابایت رد می‌کنه — به‌جای این‌که
+    // بذاریم youtube.thumbnails.set خودش با یه خطای API نه‌چندان واضح
+    // شکست بخوره، همینجا با یه پیامِ روشن چک می‌کنیم.
+    const THUMB_MAX_BYTES = 2 * 1024 * 1024;
+    if (thumbBuffer.length > THUMB_MAX_BYTES) {
+      throw new Error(
+        `حجمِ تامبنیل (${(thumbBuffer.length / 1024 / 1024).toFixed(2)}MB) از سقفِ ۲مگابایتیِ یوتیوب بیشتره`
+      );
+    }
     await youtube.thumbnails.set({
       videoId,
       media: { mimeType: "image/png", body: Readable.from(thumbBuffer) },
@@ -278,6 +493,28 @@ export async function runPipeline(
   } catch (thumbErr) {
     console.error("thumbnail error:", thumbErr.message);
     thumbnailStatus = "failed: " + thumbErr.message;
+    needsReviewReasons.push("شکستِ تامبنیل");
+  }
+
+  // --- ترنسکریپتِ کامل به‌عنوانِ کامنت ---
+  // توضیحاتِ یوتیوب سقفِ ۵۰۰۰ کاراکتری داره که اسکریپت‌های لانگ‌فرم
+  // (۱۲۰۰-۱۵۰۰ کلمه ≈ ۷۰۰۰-۹۰۰۰ کاراکتر) راحت ردش می‌کنن، پس به‌جای
+  // description از یک کامنتِ جداگانه (که همچین سقفِ تنگی نداره) استفاده
+  // می‌کنیم — هم دسترسی‌پذیریِ بهتر، هم SEO عمیق‌ترِ کاملِ متن. شکستِ این
+  // قدم (مثلاً کامنت‌ها برای این ویدیو غیرفعاله) نباید آپلود رو تحتِ‌تأثیر
+  // بذاره.
+  try {
+    await youtube.commentThreads.insert({
+      part: ["snippet"],
+      requestBody: {
+        snippet: {
+          videoId,
+          topLevelComment: { snippet: { textOriginal: script } },
+        },
+      },
+    });
+  } catch (commentErr) {
+    console.error("transcript comment error (نادیده گرفته می‌شه):", commentErr.message);
   }
 
   // بخش‌های بالا (captions/durations) با تعداد آیتم‌های رسانه هماهنگن، نه با
@@ -361,6 +598,31 @@ export async function runPipeline(
     }
   }
 
+  if (captionStatus !== "ok") needsReviewReasons.push("شکستِ زیرنویسِ انگلیسی");
+  // فقط وقتی *همه‌ی* زبان‌های ترجمه شکست خوردن پرچم می‌زنیم، نه یک زبانِ
+  // تکی — شکستِ یک زبان از ۵ تا (که طراحیِ فیکسِ ۲۰۲۶-۰۸-۱۰ هم عمداً
+  // به‌عنوانِ یک افتِ جزئیِ قابلِ‌قبول در نظر گرفته، نه یک شکستِ کلی)
+  // ارزشِ نگه‌داشتنِ کلِ ویدیو برای بازبینیِ دستی رو نداره.
+  if (translatedOk === 0 && CAPTION_LANGUAGES.length > 0) {
+    needsReviewReasons.push("شکستِ کاملِ زیرنویسِ چندزبانه");
+  }
+  const needsReview = needsReviewReasons.length > 0;
+  if (needsReview) runLog.flags.needsReview = needsReviewReasons;
+
+  await recordVideo({
+    videoId,
+    title,
+    script,
+    videoMode,
+    useVideoClips,
+    imageKeyword,
+    thumbnailText,
+    titleB,
+    thumbnailTextB,
+    runLog,
+    needsReview,
+  });
+
   return {
     videoId,
     thumbnailStatus,
@@ -368,5 +630,8 @@ export async function runPipeline(
     translatedCaptionsSummary,
     communityPostStatus,
     communityPostDraft,
+    needsReview,
+    needsReviewReasons,
+    runLog,
   };
 }

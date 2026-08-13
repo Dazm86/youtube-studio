@@ -91,20 +91,48 @@ Respond with ONLY the narration text itself, nothing else.`;
     maxTokens: isShort ? 400 : 3000,
   });
 
-  // شبکه‌ی ایمنیِ طول: پرامپت بالا صراحتاً ۱۲۰۰+ کلمه می‌خواد (با فرضِ
-  // ~۱۴۰ کلمه در دقیقه برای روایتِ آروم، یعنی رد شدن از ۸ دقیقه — همون
-  // آستانه‌ای که یوتیوب برای گذاشتنِ چند تبلیغِ میان‌ویدیو لازم داره) —
-  // ولی مدل‌ها گاهی از هدفِ طول کوتاه می‌مونن، صرفِ نوشتنِ دستور تو پرامپت
-  // تضمین نیست. اگه اولین پیش‌نویس آشکارا کوتاه بود، یک تلاشِ دومِ
-  // صریح‌ترو امتحان می‌کنیم؛ اگه بازم کوتاه بود همون رو قبول می‌کنیم (کل
-  // پایپ‌لاین رو به‌خاطر یک شرطِ نرم متوقف نمی‌کنیم) ولی یک هشدارِ واضح
-  // لاگ می‌شه تا قابلِ پیگیری باشه.
+  // شبکه‌ی ایمنیِ کیفیت: طول + تنوعِ شروعِ جمله + وجودِ حداقل یک مثال/عددِ
+  // مشخص (نه صرفاً کلیاتِ انگیزشی). پرامپتِ بالا صراحتاً هرسه‌تا رو
+  // می‌خواد، ولی مدل‌ها گاهی ازش کوتاه میان — این‌جا فقط تشخیص می‌دیم، نه
+  // اصلاحِ دستی؛ اگه هرکدوم افتاد، یک تلاشِ دومِ صریح‌تر (با تأکید روی
+  // همونی که افتاده) امتحان می‌کنیم و با همون نتیجه (حتی اگه بازم افتاد)
+  // ادامه می‌دیم — کل پایپ‌لاین رو به‌خاطرِ یک شرطِ نرم متوقف نمی‌کنیم.
+  const wordCount = () => script.trim().split(/\s+/).filter(Boolean).length;
+
+  // جمله‌ها رو با یک split سبک (نه یک پارسرِ کامل) جدا می‌کنیم؛ برای
+  // تشخیصِ الگو کافیه، نیازی به دقتِ زبان‌شناسیِ کامل نیست.
+  function startsWithIOrYouShare(text) {
+    const sentences = text.split(/[.!?]+/).map((s) => s.trim()).filter(Boolean);
+    if (sentences.length < 4) return 0; // اسکریپتِ خیلی کوتاه، این چک بی‌معنیه
+    const iOrYouCount = sentences.filter((s) => /^(I|You)\b/i.test(s)).length;
+    return iOrYouCount / sentences.length;
+  }
+  function hasConcreteExample(text) {
+    // یا یه عددِ مشخص (حداقل یکی/دو رقم یا یه عددِ نوشته‌شده با کلمه) یا
+    // عبارت‌های رایجِ معرفیِ مثال/داستانِ واقعی.
+    return (
+      /\b\d{1,3}(,\d{3})*(\.\d+)?\b/.test(text) ||
+      /\b(one|two|three|four|five|six|seven|first|second|third)\b/i.test(text) ||
+      /\b(for example|for instance|like the time|I remember when|one day|last (week|month|year))\b/i.test(text)
+    );
+  }
+
   if (!isShort) {
-    const wordCount = () => script.trim().split(/\s+/).filter(Boolean).length;
-    if (wordCount() < 1150) {
-      console.warn(`generateScript: اولین پیش‌نویس فقط ~${wordCount()} کلمه بود، با دستورِ طولِ قوی‌تر دوباره تلاش می‌کنیم`);
+    const starterShare = startsWithIOrYouShare(script);
+    const hasExample = hasConcreteExample(script);
+    const tooShort = wordCount() < 1150;
+    const issues = [];
+    if (tooShort) issues.push(`طول کافی نیست (فقط ~${wordCount()} کلمه، حداقل ۱۲۰۰+ لازمه)`);
+    if (starterShare > 0.6)
+      issues.push(`بیش‌ازحد جمله‌ها با "I"/"You" شروع می‌شن (${Math.round(starterShare * 100)}٪) — تنوعِ ساختارِ جمله کمه`);
+    if (!hasExample) issues.push("هیچ عدد/مثال/رویدادِ مشخصی نداره — بیش‌ازحد کلی و انتزاعیه");
+
+    if (issues.length > 0) {
+      console.warn(`generateScript: اولین پیش‌نویس مشکل داشت (${issues.join("؛ ")}) — یک تلاشِ دومِ صریح‌تر`);
       script = await generateText({
-        prompt: `${prompt}\n\nIMPORTANT: your previous draft was too short (~${wordCount()} words). The absolute requirement is 1200+ words. Do not summarize or rush any section — expand the "Symptoms / How It Shows Up" and "Actionable Steps" sections specifically with more concrete detail, examples, and elaboration until the full script comfortably clears 1200 words.`,
+        prompt: `${prompt}\n\nIMPORTANT — your previous draft had these specific problems, fix ALL of them in this rewrite:\n${issues
+          .map((s) => `- ${s}`)
+          .join("\n")}\nThe absolute length requirement is 1200+ words. Vary how sentences start — not every sentence should begin with "I" or "You". Include at least one specific number, concrete example, or real story detail, not just general motivational statements.`,
         temperature: 1,
         maxTokens: 3000,
       });
