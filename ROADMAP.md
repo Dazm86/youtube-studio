@@ -12,6 +12,66 @@
 > and a commit message describing that change. Don't make the user ask
 > for this separately.
 
+## Known constraints
+
+These are real, currently-active limits — worth reading before proposing
+a fix that assumes they don't exist:
+
+- **Render.com free tier: 512MB RAM, shared CPU.** This drives the
+  single biggest architectural choice in the codebase: `BATCH_SIZE=1` in
+  `videoRender.js` — every media segment renders in its own isolated
+  FFmpeg process, one at a time, never in parallel and never all loaded
+  into one giant filter graph. Any proposed change that would need to
+  hold multiple segments in memory simultaneously (a true crossfade via
+  `xfade` between adjacent clips, for instance) has to reckon with this
+  first — that's why segment transitions use a same-clip fade-to-black
+  instead of a real cross-dissolve.
+- **The bundled FFmpeg binary (via `@ffmpeg-installer/ffmpeg`) is a
+  static build from ~2018.** It does not have every modern filter
+  option — confirmed the hard way on 2026-08-12 when `scale`'s
+  `force_divisible_by` option crashed a live render with "Option not
+  found." When adding a new filter, prefer options that have existed
+  since FFmpeg 3.x/early 4.x, or compute the equivalent value in
+  JavaScript ahead of time instead of relying on a newer filter option.
+  If a newly-added filter (`anoisesrc`, `alimiter`, etc.) turns out to
+  be unsupported too, the fix pattern is the same one used for the scale
+  crash: replace the version-specific option with either an older
+  equivalent or a value computed in JS beforehand.
+- **msedge-tts's SSML support is unreliable.** It's an unofficial wrapper
+  around Edge's read-aloud service, not the real Azure Speech SDK — don't
+  assume `<break>`/prosody tags will reliably work. The existing audio
+  ducking (`sidechaincompress` reacting to the real narration waveform)
+  deliberately avoids depending on SSML timestamps for exactly this
+  reason, and is arguably better than a timestamp-driven approach anyway
+  since it reacts to the actual audio rather than a guess.
+- **`node --check somefile.js` is not a reliable syntax check for this
+  codebase.** Discovered 2026-08-12: because these `.js` files use
+  `import`/`export` without `"type": "module"` in package.json, plain
+  `node --check` sometimes falls back to permissive CommonJS-style
+  parsing that tolerates things a real ES module load would reject (a
+  stray top-level `return` outside any function, in one real case this
+  session — silently "OK" on the `.js` file, immediately caught as a
+  syntax error when the same content was checked as `.mjs`). When
+  verifying a change, check a `.mjs` copy of the file, not the `.js`
+  original directly.
+- **No test runner is installed** (no jest/vitest/mocha). `tests/*.test.mjs`
+  files use only Node's built-in `assert` and run directly via
+  `node tests/whatever.test.mjs` — no `npm install` needed for
+  `tests/scriptTiming.test.mjs` specifically, since `scriptTiming.js`
+  has zero imports of its own. Other test files that import files with
+  real dependencies (`pipeline.js`, `mayaThumbnail.js`, etc.) do need
+  the project's normal `npm install` first.
+- **YouTube's Data API v3 does not expose comment pinning, arbitrary
+  Community-tab posts, or End Screens/Cards.** These are Studio-only
+  (manual) features as far as the public API goes — don't plan an
+  auto-pin-a-comment or auto-post-a-poll feature assuming there's an
+  endpoint for it; there isn't one currently documented.
+- **`public/fallback-media/{images,videos}/` ship empty.** The fallback
+  mechanism (used when every configured stock provider fails) is fully
+  wired up in code, but actual stock asset files are something only a
+  human can add — nothing will use this path until real files exist
+  there.
+
 ## What this is
 
 An automated YouTube content pipeline for **The Mindful Path** — a
@@ -293,6 +353,188 @@ git push
 ## Changelog
 
 Newest first. Add new entries above the top one — date, what, why, files.
+
+### 2026-08-13 — Hotfix: scale's force_divisible_by crashed every render on this project's ffmpeg
+Live render failed with `ffmpeg exited with code 1` / `Error initializing
+filter 'scale' ... Option not found` on `force_divisible_by=2`. Root
+cause: the bundled FFmpeg (via `@ffmpeg-installer/ffmpeg`) is a static
+build from ~2018, and `force_divisible_by` is a newer scale option that
+build doesn't have — confirmed from the error's own version banner. Fix:
+`buildMayaOverlayChain`'s `mayaW` computation now rounds to the nearest
+even number directly in JavaScript (`2 * Math.round(rawMayaW / 2)`)
+instead of any FFmpeg-side option — works on any FFmpeg version since it
+doesn't depend on a specific filter option existing at all. Logged as a
+permanent entry under "Known constraints" above (old-FFmpeg-binary risk)
+since this is the kind of thing likely to resurface with any new filter.
+File: `lib/videoRender.js` (`buildMayaOverlayChain` only).
+
+### 2026-08-13 — Own 50-item quality pass (author: Claude, not the checklist the user pasted)
+After finishing the user's checklist, user asked for 50 *more* ideas from
+me directly, reviewed them, then said to build everything marked 👍.
+Before writing code, checked several proposed ideas against the actual
+current code — a genuinely mature feedback loop already existed
+(YouTube Analytics retention pull via `youtubeAnalytics.js` +
+`/api/sync-stats`, top-performer bias into script generation via
+`getTopPerformingVideos`, recent-topic/title avoidance via
+`channelHistory.js`, duplicate-schedule-run guarding) that several of my
+own proposed items assumed were missing — those were dropped rather than
+rebuilt. Two real bugs were caught mid-implementation via live
+testing, beyond what's already itemized below.
+
+**Audio/visual polish (`videoRender.js`):**
+- `alimiter` after `loudnorm` — single-pass `loudnorm` can overshoot
+  true-peak by a fraction of a dB (documented FFmpeg limitation);
+  `alimiter=limit=0.97` is a hard, inaudible-in-practice safety ceiling.
+- BGM: `MOOD_TO_BGM` now maps each mood to an array of candidate
+  filenames (picked at random from whichever exist on disk) instead of
+  one fixed file — same graceful-degradation pattern as before if only
+  the original single file exists.
+- Maya's idle-sway amplitude now jitters (±25%) in addition to the phase
+  offset that already existed, so the motion doesn't feel identical
+  across every video.
+- `getMayaRole`: the opening beat is "hidden" (straight to b-roll, no
+  Maya) about 22% of the time instead of always being the presenter
+  role — closing beat unchanged (always full Maya).
+- A subtle, consistent `eq=contrast=1.05:saturation=0.92:gamma=1.02`
+  color-grade now applies to every background clip/image regardless of
+  source, for a more unified look across differently-sourced Pexels
+  footage.
+- New `trimSilenceFromAudio()` — trims leading/trailing silence from the
+  raw TTS buffer (standard reverse-trim-reverse FFmpeg idiom) *before*
+  `estimateAudioDurationSec` runs, so all downstream segment/media timing
+  stays consistent with the actual trimmed length. Wired into
+  `pipeline.js` right after `synthesizeSpeech`.
+- New `detectLongSilences()` — flags (log-only, via `silencedetect`)
+  internal narration gaps over 2.5s. Deliberately does not auto-shorten
+  them: doing so after `audioDurationSec` is already locked in would
+  desync every downstream duration calculation, the same risk that ruled
+  out a true post-narration outro beat (considered, not built, for the
+  same reason).
+- Oversized stock images (>1600px on the long edge) now get downscaled
+  via `sharp` before ever reaching FFmpeg — pure memory/decode-time win
+  on the 512MB tier, skipped for video clips (`-t` at the input stage
+  already limits decode cost there).
+
+**Thumbnail (`mayaThumbnail.js`):**
+- Text color now picks white-on-dark vs dark-on-white by actually
+  sampling the rendered background's average luminance in the exact
+  region the text sits in (`sharp` extract → 1×1 resize), not a fixed
+  assumption. Caught two bugs live-testing this: a redundant
+  `.resize()` call right before `.extract()` on an already-correctly-
+  sized image threw "bad extract area" (removed, unnecessary), and the
+  initial luminance threshold (0.6) never actually triggered because it
+  didn't account for the existing `brightness:0.55` pre-darkening
+  already applied to photo backgrounds — recalibrated to 0.42 against
+  the pipeline's real output range (verified: a pure-white source photo
+  tops out around 0.51 post-darkening).
+- `capThumbnailWords` now exported (was previously an unexported inner
+  function) so `tests/` can exercise it directly.
+
+**Script/metadata prompts:**
+- `scriptGen.js`: the existing length-only retry is now a combined
+  quality-retry — also checks sentence-starter diversity (share of
+  sentences starting with "I"/"You" over 60%) and presence of at least
+  one concrete number/example/real detail (vs. purely abstract
+  motivational language), and asks for a targeted rewrite addressing
+  whichever specific issues were found, all in one retry pass rather
+  than three separate ones stacked.
+- `metadataGen.js`: titleA/titleB now explicitly instructed to differ in
+  *length*, not just angle — titleA short and punchy, titleB fuller,
+  using more of the existing character budget (unchanged ceiling).
+- Investigated hashtag rotation (checklist item): doesn't apply — tags
+  are already freshly AI-generated per video from the actual script, not
+  drawn from any fixed/hardcoded pool, so there's nothing to rotate away
+  from. No change made.
+
+**TTS voice variation (`providers/registry.js`):**
+- `msedgeTts()` now picks between two voices (`en-US-JennyNeural` /
+  `en-US-AriaNeural`) based on the script's dominant mood (same
+  `pickMayaPose` scoring used for BGM/thumbnail), but **only** as
+  `msedge-tts`'s own default when the caller doesn't explicitly pass a
+  `voice`. Deliberately *not* done in `pipeline.js` itself — an earlier
+  version of this change passed a resolved voice string down through
+  `synthesizeSpeech()`, which routes through whichever audio provider is
+  actually configured; an msedge-tts-specific voice ID like
+  `en-US-AriaNeural` would be meaningless (or rejected) if OpenAI or
+  ElevenLabs is the higher-priority configured provider. Reverted and
+  moved the resolution inside the msedge-tts adapter itself so it can
+  only ever affect msedge-tts's own default, never leak into another
+  provider's request.
+
+**Resilience/caching (`providers/router.js`):**
+- `fetchImages`/`fetchClips` now cache successful results in-memory for
+  10 minutes (keyed on the exact query params, capped at 200 entries,
+  LRU-ish eviction) — avoids burning API quota on repeated near-identical
+  queries, and specifically helps the timeout-retry added in the previous
+  session (a retry of a query that actually succeeded server-side but
+  timed out client-side now returns the cached result instead of a fresh
+  API call). Fallback-folder results are deliberately never cached, so a
+  provider that's back up gets tried fresh next time.
+
+**Pipeline restructure (`pipeline.js`) — largest single change:**
+`runPipeline` is now a thin outer wrapper (timeout race at 25 minutes,
+webhook notification on any failure via `notifyWebhook()` /
+`ALERT_WEBHOOK_URL`, only active if that env var is set) around a new
+`runPipelineCore` that does the actual work, plus a `quickTest: true`
+early-exit path (`runQuickTest`) that synthesizes ~15 words of audio and
+fetches one media item, no render/no upload, for fast connectivity
+sanity-checking. Within the core pipeline:
+- `checkRiskyKeywords()`/`checkMispronunciationRisks()` (both exported
+  for testing) scan the script before TTS — the former for
+  unlicensed-medical-claim-shaped phrasing ("cures your anxiety", "stop
+  taking your medication", etc. — deliberately narrow, not flagging
+  ordinary discussion of anxiety/depression as topics, which is normal
+  for this channel), the latter for ALL-CAPS acronyms TTS might mangle.
+  Neither blocks the render; risky-keyword hits force `privacyStatus` to
+  `private` regardless of what was requested, logged with a clear reason.
+- `selfDeclaredMadeForKids: false` now explicitly set on every upload —
+  previously never set at all, meaning YouTube treated every video as
+  "unspecified" and would have prompted manual classification.
+- Thumbnail buffer size checked against YouTube's 2MB cap before calling
+  `thumbnails.set`, with a clear error instead of an opaque API failure.
+- Full transcript posted as a comment via `commentThreads.insert` after
+  upload (non-blocking, failure just logged) — descriptions cap at 5000
+  characters, which a 1200-1500 word long-form script's full text would
+  exceed, so a comment (no such tight cap) carries it instead, for
+  accessibility and deeper SEO.
+- Every stage's wall-clock time collected into `runLog.stages`, plus
+  warnings (risky keywords, mispronunciation risks, long internal
+  silences) into `runLog.warnings` — persisted via `recordVideo`'s new
+  `runLog`/`needsReview` params (see `db.js` below). `recordVideo` moved
+  to the very end of the function (was previously called right after
+  upload, before thumbnail/caption steps even ran) so the persisted log
+  reflects the complete run, not just the first half.
+- `needsReview` flag set (and returned) when: risky content was flagged,
+  duration is anomalously short (long-form <5min) or long (short >90s),
+  thumbnail failed, or *all* caption languages failed — deliberately not
+  triggered by a single caption language failing out of 5, since partial
+  multi-language failure is already treated as an acceptable, non-
+  blocking outcome elsewhere in the codebase (2026-08-10 fix); flagging
+  the whole video for review over one language would be disproportionate.
+
+**Database (`db.js`):** new `run_log` (JSONB) and `needs_review`
+(boolean, default false) columns on `videos`, added via the same
+`ALTER TABLE ... ADD COLUMN IF NOT EXISTS` pattern already used
+elsewhere. `recordVideo()` accepts and persists both.
+
+**Tests — new `tests/` folder, no test runner installed (see Known
+constraints):**
+- `tests/scriptTiming.test.mjs` — 13 cases against the real
+  `scriptTiming.js` directly (zero dependencies, runs with nothing but
+  `node`). Explicitly covers both real bugs found this week: the
+  empty-bucket `distributeDurations` bug and `validateSrt`'s NaN/empty/
+  mismatched-length guards.
+- `tests/pipelineChecks.test.mjs` — 6 cases for the two new risk-check
+  helpers. Needs the project's normal `npm install` first, unlike the
+  scriptTiming tests, since `pipeline.js` pulls in `googleapis`/`pg`/etc.
+
+**Also caught mid-session (process note, not a shipped feature):** a
+`str_replace` while adding `detectLongSilences` accidentally deleted the
+line `function parseTimeToSeconds(str) {`, orphaning that function's body
+outside any function — a real syntax error. Plain `node --check
+videoRender.js` reported it as fine (see the new "Known constraints" note
+on why); checking a `.mjs` copy of the same content caught it immediately.
+Fixed, and re-verified via the stricter check from that point on.
 
 ### 2026-08-12 — Batch 1 of the 50-item content-quality checklist (script, audio, visuals, resilience, thumbnail)
 User pasted a 50-item Persian checklist (script/AI direction, audio/TTS/
