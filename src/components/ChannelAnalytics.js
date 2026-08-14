@@ -116,9 +116,9 @@ export default function ChannelAnalytics() {
 
   if (!session) {
     return (
-      <main style={{ padding: "2rem", textAlign: "center", maxWidth: "700px", margin: "0 auto" }}>
-        <h2>📊 آنالیز کانال</h2>
-        <p style={{ color: "#666" }}>برای مشاهده‌ی این بخش، اول از بالای صفحه با گوگل وارد شو.</p>
+      <main className="min-h-screen bg-bg text-text px-4 py-10 max-w-2xl mx-auto text-center">
+        <h2 className="text-xl font-bold mb-2">📊 آنالیز کانال</h2>
+        <p className="text-text-muted">برای مشاهده‌ی این بخش، اول از بالای صفحه با گوگل وارد شو.</p>
       </main>
     );
   }
@@ -136,36 +136,24 @@ export default function ChannelAnalytics() {
   );
 
   return (
-    <main style={{ padding: "1rem", maxWidth: "700px", margin: "0 auto" }}>
-      <h2 style={{ textAlign: "center" }}>📊 آنالیز کانال</h2>
+    <main className="min-h-screen bg-bg text-text px-4 py-6 max-w-2xl mx-auto">
+      <h1 className="text-xl font-bold mb-4">📊 آنالیز کانال</h1>
 
-      <button
-        type="button"
-        onClick={handleSync}
-        disabled={syncing}
-        style={{ width: "100%", marginBottom: "0.5rem" }}
-      >
+      <button type="button" onClick={handleSync} disabled={syncing} className="btn-secondary w-full mb-2">
         {syncing ? "در حال دریافت آمار..." : "🔄 به‌روزرسانی آمار واقعی ویدیوها"}
       </button>
-      {syncStatus && <p style={{ fontSize: "0.85rem", textAlign: "center" }}>{syncStatus}</p>}
+      {syncStatus && <p className="text-sm text-text-muted text-center mb-2">{syncStatus}</p>}
 
-      {loading && <p style={{ textAlign: "center" }}>در حال بارگذاری...</p>}
-      {error && <p style={{ color: "#e53935", textAlign: "center" }}>خطا: {error}</p>}
+      {loading && <p className="text-center text-text-muted">در حال بارگذاری...</p>}
+      {error && <p className="text-center text-danger">خطا: {error}</p>}
 
       {!loading && !error && videos.length === 0 && (
-        <p style={{ textAlign: "center", color: "#666" }}>هنوز ویدیویی ثبت نشده.</p>
+        <p className="text-center text-text-muted">هنوز ویدیویی ثبت نشده.</p>
       )}
 
       {videos.length > 0 && (
         <>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
-              gap: "0.5rem",
-              margin: "1rem 0",
-            }}
-          >
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 my-4">
             <StatCard label="کل ویدیوها" value={videos.length} />
             <StatCard label="لانگ / شورت" value={`${totals.long} / ${totals.short}`} />
             <StatCard label="مجموع بازدید" value={totals.views.toLocaleString("fa-IR")} />
@@ -173,121 +161,98 @@ export default function ChannelAnalytics() {
             <StatCard label="سابسکرایب جذب‌شده" value={totals.subs.toLocaleString("fa-IR")} />
           </div>
 
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" }}>
+          {/* دسکتاپ: جدول کامل */}
+          <div className="hidden md:block overflow-x-auto">
+            <table className="w-full border-collapse text-sm">
               <thead>
-                <tr style={{ borderBottom: "2px solid #ddd", textAlign: "right" }}>
-                  <th style={{ padding: "0.4rem" }}>عنوان</th>
-                  <th style={{ padding: "0.4rem" }}>نوع</th>
-                  <th style={{ padding: "0.4rem" }}>بازدید</th>
-                  <th style={{ padding: "0.4rem" }}>لایک</th>
-                  <th style={{ padding: "0.4rem" }}>سابسکرایب</th>
-                  <th style={{ padding: "0.4rem" }}>میانگین تماشا</th>
-                  <th style={{ padding: "0.4rem" }}>نگه‌داشت</th>
-                  <th style={{ padding: "0.4rem" }}>CTR تامبنیل</th>
-                  <th style={{ padding: "0.4rem" }}>تاریخ</th>
-                  <th style={{ padding: "0.4rem" }}>فاز ۳</th>
+                <tr className="border-b-2 border-border text-right">
+                  <th className="p-2 text-text-muted font-medium">عنوان</th>
+                  <th className="p-2 text-text-muted font-medium">نوع</th>
+                  <th className="p-2 text-text-muted font-medium">بازدید</th>
+                  <th className="p-2 text-text-muted font-medium">لایک</th>
+                  <th className="p-2 text-text-muted font-medium">سابسکرایب</th>
+                  <th className="p-2 text-text-muted font-medium">میانگین تماشا</th>
+                  <th className="p-2 text-text-muted font-medium">نگه‌داشت</th>
+                  <th className="p-2 text-text-muted font-medium">CTR تامبنیل</th>
+                  <th className="p-2 text-text-muted font-medium">تاریخ</th>
+                  <th className="p-2 text-text-muted font-medium">اکشن‌ها</th>
                 </tr>
               </thead>
               <tbody>
                 {videos.map((v) => (
-                  <tr key={v.video_id} style={{ borderBottom: "1px solid #eee" }}>
-                    <td style={{ padding: "0.4rem" }}>
+                  <tr key={v.video_id} className="border-b border-border">
+                    <td className="p-2">
                       <a
                         href={`https://www.youtube.com/watch?v=${v.video_id}`}
                         target="_blank"
                         rel="noopener noreferrer"
+                        className="text-teal hover:underline"
                       >
                         {v.title || "بدون عنوان"}
                       </a>
                     </td>
-                    <td style={{ padding: "0.4rem" }}>{v.video_mode === "short" ? "شورت" : "لانگ"}</td>
-                    <td style={{ padding: "0.4rem" }}>{Number(v.views || 0).toLocaleString("fa-IR")}</td>
-                    <td style={{ padding: "0.4rem" }}>{Number(v.likes || 0).toLocaleString("fa-IR")}</td>
-                    <td style={{ padding: "0.4rem" }}>
-                      {Number(v.subscribers_gained || 0).toLocaleString("fa-IR")}
-                    </td>
-                    <td style={{ padding: "0.4rem" }}>{formatDuration(v.avg_view_duration_sec)}</td>
-                    <td style={{ padding: "0.4rem" }}>
-                      {v.retention_pct ? `${Number(v.retention_pct).toFixed(0)}%` : "—"}
-                    </td>
-                    <td style={{ padding: "0.4rem" }}>
-                      {v.thumbnail_ctr ? `${Number(v.thumbnail_ctr).toFixed(1)}%` : "—"}
-                    </td>
-                    <td style={{ padding: "0.4rem" }}>{formatDate(v.created_at)}</td>
-                    <td style={{ padding: "0.4rem", minWidth: "180px" }}>
-                      {v.video_mode !== "short" && (
-                        <button
-                          type="button"
-                          onClick={() => handleCommunityPost(v.video_id)}
-                          disabled={postLoading[v.video_id]}
-                          style={{ fontSize: "0.75rem", marginBottom: "0.3rem", width: "100%" }}
-                        >
-                          {postLoading[v.video_id] ? "..." : "📝 پیش‌نویس پست کامیونیتی"}
-                        </button>
-                      )}
-                      {postDrafts[v.video_id] &&
-                        (postDrafts[v.video_id].error ? (
-                          <div style={{ color: "#e53935", fontSize: "0.7rem" }}>
-                            {postDrafts[v.video_id].error}
-                          </div>
-                        ) : (
-                          <div
-                            style={{
-                              fontSize: "0.7rem",
-                              background: "#f5f5f5",
-                              padding: "0.3rem",
-                              borderRadius: "4px",
-                              marginBottom: "0.3rem",
-                            }}
-                          >
-                            <strong>{postDrafts[v.video_id].postType === "poll" ? "نظرسنجی" : "نقل‌قول"}:</strong>{" "}
-                            {postDrafts[v.video_id].postText}
-                            {postDrafts[v.video_id].pollOptions && (
-                              <ul style={{ margin: "0.2rem 0 0", paddingRight: "1rem" }}>
-                                {postDrafts[v.video_id].pollOptions.map((opt, i) => (
-                                  <li key={i}>{opt}</li>
-                                ))}
-                              </ul>
-                            )}
-                          </div>
-                        ))}
-                      {v.title_b && (
-                        <div style={{ display: "flex", gap: "0.3rem" }}>
-                          <button
-                            type="button"
-                            onClick={() => handleSwitchVariant(v.video_id, "A")}
-                            disabled={abLoading[v.video_id]}
-                            style={{
-                              fontSize: "0.7rem",
-                              flex: 1,
-                              fontWeight: v.active_variant === "A" ? "bold" : "normal",
-                            }}
-                          >
-                            عنوان A
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleSwitchVariant(v.video_id, "B")}
-                            disabled={abLoading[v.video_id]}
-                            style={{
-                              fontSize: "0.7rem",
-                              flex: 1,
-                              fontWeight: v.active_variant === "B" ? "bold" : "normal",
-                            }}
-                          >
-                            عنوان B
-                          </button>
-                        </div>
-                      )}
-                      {abStatus[v.video_id] && (
-                        <div style={{ fontSize: "0.65rem", color: "#666" }}>{abStatus[v.video_id]}</div>
-                      )}
+                    <td className="p-2 text-text-muted">{v.video_mode === "short" ? "شورت" : "لانگ"}</td>
+                    <td className="p-2 readout">{Number(v.views || 0).toLocaleString("fa-IR")}</td>
+                    <td className="p-2 readout">{Number(v.likes || 0).toLocaleString("fa-IR")}</td>
+                    <td className="p-2 readout">{Number(v.subscribers_gained || 0).toLocaleString("fa-IR")}</td>
+                    <td className="p-2 readout">{formatDuration(v.avg_view_duration_sec)}</td>
+                    <td className="p-2 readout">{v.retention_pct ? `${Number(v.retention_pct).toFixed(0)}%` : "—"}</td>
+                    <td className="p-2 readout">{v.thumbnail_ctr ? `${Number(v.thumbnail_ctr).toFixed(1)}%` : "—"}</td>
+                    <td className="p-2 text-text-muted">{formatDate(v.created_at)}</td>
+                    <td className="p-2 min-w-[200px]">
+                      <VideoActions
+                        v={v}
+                        postLoading={postLoading}
+                        postDrafts={postDrafts}
+                        abLoading={abLoading}
+                        abStatus={abStatus}
+                        onCommunityPost={handleCommunityPost}
+                        onSwitchVariant={handleSwitchVariant}
+                      />
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+          </div>
+
+          {/* موبایل: کارت به‌ازای هر ویدیو */}
+          <div className="md:hidden flex flex-col gap-3">
+            {videos.map((v) => (
+              <div key={v.video_id} className="card">
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <a
+                    href={`https://www.youtube.com/watch?v=${v.video_id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-teal hover:underline font-medium leading-snug"
+                  >
+                    {v.title || "بدون عنوان"}
+                  </a>
+                  <span className="badge-neutral shrink-0">{v.video_mode === "short" ? "شورت" : "لانگ"}</span>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 text-center mb-2">
+                  <MiniStat label="بازدید" value={Number(v.views || 0).toLocaleString("fa-IR")} />
+                  <MiniStat label="لایک" value={Number(v.likes || 0).toLocaleString("fa-IR")} />
+                  <MiniStat label="سابسکرایب" value={Number(v.subscribers_gained || 0).toLocaleString("fa-IR")} />
+                  <MiniStat label="میانگین تماشا" value={formatDuration(v.avg_view_duration_sec)} />
+                  <MiniStat label="نگه‌داشت" value={v.retention_pct ? `${Number(v.retention_pct).toFixed(0)}%` : "—"} />
+                  <MiniStat label="CTR" value={v.thumbnail_ctr ? `${Number(v.thumbnail_ctr).toFixed(1)}%` : "—"} />
+                </div>
+                <p className="text-xs text-text-muted mb-2">{formatDate(v.created_at)}</p>
+
+                <VideoActions
+                  v={v}
+                  postLoading={postLoading}
+                  postDrafts={postDrafts}
+                  abLoading={abLoading}
+                  abStatus={abStatus}
+                  onCommunityPost={handleCommunityPost}
+                  onSwitchVariant={handleSwitchVariant}
+                />
+              </div>
+            ))}
           </div>
         </>
       )}
@@ -297,9 +262,74 @@ export default function ChannelAnalytics() {
 
 function StatCard({ label, value }) {
   return (
-    <div style={{ border: "1px solid #ddd", borderRadius: "8px", padding: "0.6rem", textAlign: "center" }}>
-      <div style={{ fontSize: "1.1rem", fontWeight: "bold" }}>{value}</div>
-      <div style={{ fontSize: "0.75rem", color: "#666" }}>{label}</div>
+    <div className="card text-center py-3">
+      <div className="text-lg font-bold readout">{value}</div>
+      <div className="text-xs text-text-muted mt-0.5">{label}</div>
+    </div>
+  );
+}
+
+function MiniStat({ label, value }) {
+  return (
+    <div className="rounded-md bg-surface-raised border border-border py-1.5">
+      <div className="text-sm font-semibold readout">{value}</div>
+      <div className="text-[0.65rem] text-text-muted mt-0.5">{label}</div>
+    </div>
+  );
+}
+
+// فاز ۳: بلوک اکشن‌های هر ویدیو (پست کامیونیتی + سوییچ A/B) — بین نسخه‌ی
+// جدول دسکتاپ و نسخه‌ی کارت موبایل مشترکه تا رفتار و استایل دقیقاً یکی باشه.
+function VideoActions({ v, postLoading, postDrafts, abLoading, abStatus, onCommunityPost, onSwitchVariant }) {
+  return (
+    <div>
+      {v.video_mode !== "short" && (
+        <button
+          type="button"
+          onClick={() => onCommunityPost(v.video_id)}
+          disabled={postLoading[v.video_id]}
+          className="btn-ghost w-full mb-1.5"
+        >
+          {postLoading[v.video_id] ? "..." : "📝 پیش‌نویس پست کامیونیتی"}
+        </button>
+      )}
+      {postDrafts[v.video_id] &&
+        (postDrafts[v.video_id].error ? (
+          <div className="text-xs text-danger mb-1.5">{postDrafts[v.video_id].error}</div>
+        ) : (
+          <div className="text-xs bg-surface-raised border border-border rounded-md p-2 mb-1.5">
+            <strong>{postDrafts[v.video_id].postType === "poll" ? "نظرسنجی" : "نقل‌قول"}:</strong>{" "}
+            {postDrafts[v.video_id].postText}
+            {postDrafts[v.video_id].pollOptions && (
+              <ul className="mt-1 pr-4 list-disc">
+                {postDrafts[v.video_id].pollOptions.map((opt, i) => (
+                  <li key={i}>{opt}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ))}
+      {v.title_b && (
+        <div className="flex gap-1.5">
+          <button
+            type="button"
+            onClick={() => onSwitchVariant(v.video_id, "A")}
+            disabled={abLoading[v.video_id]}
+            className={"btn-ghost flex-1 " + (v.active_variant === "A" ? "border-amber text-amber" : "")}
+          >
+            عنوان A
+          </button>
+          <button
+            type="button"
+            onClick={() => onSwitchVariant(v.video_id, "B")}
+            disabled={abLoading[v.video_id]}
+            className={"btn-ghost flex-1 " + (v.active_variant === "B" ? "border-amber text-amber" : "")}
+          >
+            عنوان B
+          </button>
+        </div>
+      )}
+      {abStatus[v.video_id] && <div className="text-xs text-text-muted mt-1">{abStatus[v.video_id]}</div>}
     </div>
   );
 }

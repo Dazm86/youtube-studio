@@ -213,13 +213,14 @@ git push
 - **`providers/router.js`** *(new, Phase 5)* — `generateText`/`fetchImages`/`fetchClips`/`synthesizeSpeech`: for each, loads the user's priority-ordered provider list for that task from the DB and tries them top-down, falling back to the next on any failure, throwing a clear aggregated Persian error only if all of them fail (or none are configured). *2026-08-10 fix: a rate-limit error (message contains "try again in Xs") no longer counts as an immediate failure — waits that long and retries the same provider (up to 2x) before falling through to the next provider or failing.*
 
 ### Components (`src/components/`)
-- `VideoStudio.js` — the whole long/short creation UI + the streaming-fetch client for `generate-and-upload`. *Phase 5: the voice-preview call to `/api/tts` no longer hardcodes `voice: "en-US-JennyNeural"` (that's an Edge-only voice name, meaningless to OpenAI/ElevenLabs) — it now sends no `voice` at all and lets whichever provider is prioritized use its own default.*
-- `ChannelAnalytics.js` — video list + stats, per-video community-post-draft button, and A/B title switch buttons (bold = currently live variant)
-- `ApiStatus.js` — as named (still Groq/Pexels/YouTube/DB env-var checks — see `providers/route.js` above for the Phase 5 provider system's own connectivity checks)
-- `NavBar.js` — as named (also auto-signs-out on an unrecoverable token-refresh error). *Phase 4: added the "⏰ زمان‌بندی خودکار" nav link. Phase 5: added the "🔌 ارائه‌دهنده‌های API" nav link.*
-- `ScheduleSettings.js` *(Phase 4)* — lists/creates/edits/deletes schedules, shows the external-cron setup instructions (with the exact URL to paste into cron-job.org, minus the secret value itself), and shows a log of recent scheduled runs (status/videoId/error).
-- **`ProviderManager.js`** *(new, Phase 5)* — add-provider form (name + key → auto-detect, or manual service picker if unrecognized), table of configured providers (capability badges, enable toggle, connectivity-test button, delete), and a ▲/▼ reorderable priority list per task type (text/image/video/audio) that saves immediately on each move.
-- `HomeDashboard.js` — **unused/legacy**, superseded by the inline dashboard in `app/page.js`. Safe to ignore or delete.
+- `VideoStudio.js` — the whole long/short creation UI + the streaming-fetch client for `generate-and-upload`. *Phase 5: the voice-preview call to `/api/tts` no longer hardcodes `voice: "en-US-JennyNeural"` (that's an Edge-only voice name, meaningless to OpenAI/ElevenLabs) — it now sends no `voice` at all and lets whichever provider is prioritized use its own default.* *Phase 8: JSX rebuilt into 4 numbered step-cards (script → metadata/thumbnail → publish → manual upload) on the dark design system; every handler/state/fetch call is untouched.*
+- `ChannelAnalytics.js` — video list + stats, per-video community-post-draft button, and A/B title switch buttons (bold = currently live variant). *Phase 8: the 10-column table is now desktop-only (`md:` and up); a stacked card view renders on mobile instead of the same table squeezed into a phone width.*
+- `ApiStatus.js` — as named (still Groq/Pexels/YouTube/DB env-var checks — see `providers/route.js` above for the Phase 5 provider system's own connectivity checks). *Phase 8: added a one-line in-app note pointing to `/providers`, since this page's narrower scope was previously only documented here, not surfaced to the actual user.*
+- `NavBar.js` — as named (also auto-signs-out on an unrecoverable token-refresh error). *Phase 4: added the "⏰ زمان‌بندی خودکار" nav link. Phase 5: added the "🔌 ارائه‌دهنده‌های API" nav link. Phase 8: rebuilt from hardcoded light-theme inline styles (white/`#2196F3`) to the real dark design tokens; sticky, horizontally-scrollable pill nav with real touch targets on mobile.*
+- `ScheduleSettings.js` *(Phase 4)* — lists/creates/edits/deletes schedules, shows the external-cron setup instructions (with the exact URL to paste into cron-job.org, minus the secret value itself), and shows a log of recent scheduled runs (status/videoId/error). *Phase 8: day-of-week checkboxes are now tap-sized chips (same `toggleDay`/`days` Set underneath); tables get a mobile card view.*
+- **`ProviderManager.js`** *(new, Phase 5)* — add-provider form (name + key → auto-detect, or manual service picker if unrecognized), table of configured providers (capability badges, enable toggle, connectivity-test button, delete), and a ▲/▼ reorderable priority list per task type (text/image/video/audio) that saves immediately on each move. *Phase 8: API key field gets a show/hide toggle; ▲/▼ buttons enlarged to real touch targets; mobile card view added.*
+
+`HomeDashboard.js` (previously listed here as unused/legacy) was deleted in Phase 8 — see Changelog.
 
 ## Known constraints
 
@@ -353,6 +354,82 @@ git push
 ## Changelog
 
 Newest first. Add new entries above the top one — date, what, why, files.
+
+### 2026-08-14 — Phase 8: UX/UI audit + full dark-theme rebuild (all screens outside the home dashboard)
+Ran a structured UX audit (first-time-user pass across all 7 screens) before
+touching any code — full report delivered alongside this change. Headline
+finding, which drove everything below: only `app/page.js` was ever migrated
+to the dark Tailwind design system defined in `globals.css`'s `@theme` block
+(bg `#14120F`, amber/teal accents, `--color-text-muted`, etc.) — every other
+screen (`NavBar.js` and all 6 feature components) was still on the original
+light-theme inline styles (`#666`/`#777`/`#999` grays, a `#2196F3` blue CTA,
+native unstyled `<input>`/`<select>`), none of which ever got an explicit
+light background, so it all rendered directly on the dark `body`. Computed
+contrast ratios confirm this wasn't cosmetic: `#666` on `#14120F` is
+~3.25:1, `#777` is ~4.18:1 — both fail WCAG AA's 4.5:1 minimum for body
+text, on copy that appears on every single page (labels, helper text,
+empty/error states). The project's own `--color-text-muted` token
+(`#948C7E`) already solves this correctly at ~5.6:1 — it just wasn't used
+anywhere outside the home page.
+
+Fixed by rebuilding every screen's JSX onto the *existing* design tokens —
+no new palette, no new brand direction, just finishing the migration that
+stalled after one page. Added a small `@layer components` block to
+`globals.css` (`.btn-primary/-secondary/-ghost`, `.card`,
+`.field-input/-textarea/-select`, `.badge-ok/-fail/-neutral`,
+`.progress-track/-fill`, `.day-chip`) so all 7 screens now share one
+definition of "what's our button" instead of re-deriving inline styles per
+file. Every state variable, handler, fetch call, and FormData/JSON payload
+shape is byte-identical to before (diffed and identifier-checked against
+the prior versions) — this pass touched presentation only, not the
+pipeline.
+
+Other things the audit caught, fixed in the same pass:
+- **`VideoStudio.js`** (the actual video-creation flow — the single
+  highest-traffic screen in the app) was one long undifferentiated form;
+  restructured into 4 numbered cards (script → metadata/thumbnail →
+  publish → manual upload) that mirror the real sequence of the task. Also
+  fixed a real RTL bug: several blocks had `textAlign: "left"` hardcoded
+  despite the page being `dir="rtl"`, misaligning Persian copy against the
+  reading direction.
+- **`NavBar.js`** was on completely unrelated hardcoded light-theme styles
+  (this is the one element visible on every single page) — rebuilt on
+  tokens, made sticky, and the 7 nav links now scroll horizontally as
+  tap-sized pills instead of wrapping into a multi-row block on narrow
+  screens.
+- **Home page (`app/page.js`)** was missing a card for `/schedule` even
+  though it's in `NavBar.js` — added, and reordered the other 5 cards to
+  match `NavBar.js`'s order so both surfaces agree.
+- **Touch targets**: the ▲/▼ priority-reorder buttons in
+  `ProviderManager.js` and assorted icon-only buttons across the app were
+  well under any reasonable tap-target size; enlarged to ~40px.
+- **Two "is my API working?" pages** (`/api-check` and `/providers`) could
+  show contradictory signals to the operator — `ApiStatus.js` only ever
+  checked the legacy `GROQ_API_KEY`/`PEXELS_API_KEY` env vars, a nuance
+  previously documented here in ROADMAP.md but never actually surfaced in
+  the app. Added a one-line in-app note linking to `/providers` rather than
+  merging the two systems (a bigger, separate change).
+- **`ProviderManager.js`**'s API key `<input type="password">` had no way
+  to check what you'd typed before submitting; added a show/hide toggle
+  (pure local UI state — doesn't touch the `apiKey` field or `handleAdd`).
+- Added `export const viewport = { themeColor: "#14120F", colorScheme:
+  "dark" }` to `layout.js` so native form controls (select, date/time
+  pickers) render dark by default instead of the browser's light default.
+- Deleted `HomeDashboard.js` (already flagged above as unused/legacy;
+  confirmed via `grep` that nothing imports it).
+
+Verified without a full `npm install` (no `package.json`/`node_modules` in
+the delivered zip, network unavailable this session): every changed `.js`
+file passes an `esbuild --loader:.js=jsx` parse, and every state/ref/
+handler name declared in the original file was confirmed still present in
+the rebuilt one. Not a substitute for an actual `next build` on a real
+checkout — worth a quick smoke-test after deploying.
+
+Files: `src/app/layout.js`, `src/app/globals.css`, `src/app/page.js`,
+`src/components/NavBar.js`, `src/components/VideoStudio.js`,
+`src/components/ChannelAnalytics.js`, `src/components/ApiStatus.js`,
+`src/components/ProviderManager.js`, `src/components/ScheduleSettings.js`.
+Deleted: `src/components/HomeDashboard.js`.
 
 ### 2026-08-13 — Hotfix: scale's force_divisible_by crashed every render on this project's ffmpeg
 Live render failed with `ffmpeg exited with code 1` / `Error initializing

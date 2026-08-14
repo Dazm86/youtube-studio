@@ -415,342 +415,287 @@ export default function VideoStudio({ mode }) {
 
   if (!session) {
     return (
-      <main style={{ padding: "2rem", textAlign: "center", maxWidth: "500px", margin: "0 auto" }}>
-        <h2>{isShort ? "⚡ ویدیوی شورت" : "🎬 ویدیوی لانگ"}</h2>
-        <p style={{ color: "#666" }}>برای استفاده از این بخش، اول از بالای صفحه با گوگل وارد شو.</p>
+      <main className="min-h-screen bg-bg text-text px-4 py-10 max-w-lg mx-auto text-center">
+        <h2 className="text-xl font-bold mb-2">{isShort ? "⚡ ویدیوی شورت" : "🎬 ویدیوی لانگ"}</h2>
+        <p className="text-text-muted">برای استفاده از این بخش، اول از بالای صفحه با گوگل وارد شو.</p>
       </main>
     );
   }
 
   return (
-    <main style={{ padding: "2rem", textAlign: "center", maxWidth: "500px", margin: "0 auto" }}>
-      <div
-        style={{
-          border: "2px solid #4CAF50",
-          borderRadius: "8px",
-          padding: "1rem",
-          marginBottom: "1.5rem",
-          textAlign: "left",
-        }}
-      >
-        <h3 style={{ marginTop: 0 }}>
-          {isShort
-            ? "⚡ ساخت خودکار ویدیوی شورت (۳۰-۶۰ ثانیه، عمودی)"
-            : "🎬 ساخت خودکار ویدیوی لانگ (۵-۱۰ دقیقه، افقی)"}
-        </h3>
+    <main className="min-h-screen bg-bg text-text px-4 py-6 max-w-lg mx-auto">
+      <div className="mb-6">
+        <p className="label-plate text-teal mb-1">
+          {isShort ? "۳۰-۶۰ ثانیه، عمودی" : "۵-۱۰ دقیقه، افقی"}
+        </p>
+        <h1 className="text-xl font-bold">
+          {isShort ? "⚡ ساخت خودکار ویدیوی شورت" : "🎬 ساخت خودکار ویدیوی لانگ"}
+        </h1>
+      </div>
 
+      {/* ۰۱ — سناریو */}
+      <section className="card mb-4">
+        <div className="flex items-center gap-2 mb-3">
+          <span className="label-plate text-amber">۰۱</span>
+          <h2 className="font-semibold">سناریو و صدا</h2>
+        </div>
+
+        <label className="field-label">موضوع (اختیاری)</label>
         <input
           type="text"
-          placeholder="موضوع ویدیو (اختیاری - خالی بذاری خودش یه موضوع تازه انتخاب می‌کنه)"
+          placeholder="خالی بذاری خودش یه موضوع تازه انتخاب می‌کنه"
           value={topic}
           onChange={(e) => setTopic(e.target.value)}
-          style={{ width: "100%", marginBottom: "0.5rem" }}
+          className="field-input mb-3"
         />
-        <button
-          type="button"
-          onClick={handleGenerateScript}
-          disabled={generatingScript}
-          style={{ marginBottom: "0.5rem" }}
-        >
+
+        <button type="button" onClick={handleGenerateScript} disabled={generatingScript} className="btn-secondary w-full mb-2">
           {generatingScript ? "در حال نوشتن..." : "✍️ بنویس سناریو"}
         </button>
-        {scriptGenStatus && (
-          <p style={{ fontSize: "0.85rem", marginBottom: "0.5rem" }}>
-            {scriptGenStatus}
-          </p>
-        )}
+        {scriptGenStatus && <p className="text-sm text-text-muted mb-3">{scriptGenStatus}</p>}
 
+        <label className="field-label">متن ویدیو (به انگلیسی)</label>
         <textarea
           placeholder="متن ویدیو رو اینجا بنویس (به انگلیسی)..."
           value={script}
           onChange={(e) => setScript(e.target.value)}
           rows={5}
-          style={{ width: "100%", marginBottom: "0.5rem" }}
+          className="field-textarea mb-3"
         />
+
+        <label className="field-label">کلیدواژه‌ی جستجوی عکس (اختیاری)</label>
         <input
           type="text"
-          placeholder="کلیدواژه‌ی جستجوی عکس (اختیاری - خالی بذاری خودکار حدس می‌زنه)"
+          placeholder="خالی بذاری خودکار حدس می‌زنه"
           value={imageKeyword}
           onChange={(e) => setImageKeyword(e.target.value)}
-          style={{ width: "100%", marginBottom: "0.5rem" }}
+          className="field-input mb-3"
         />
-        <label
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "0.4rem",
-            fontSize: "0.85rem",
-            marginBottom: "0.5rem",
-          }}
-        >
+
+        <label className="flex items-center gap-2 text-sm text-text-muted mb-3 min-h-[2.25rem]">
           <input
             type="checkbox"
             checked={useVideoClips}
             onChange={(e) => setUseVideoClips(e.target.checked)}
+            className="w-4 h-4 accent-amber"
           />
           استفاده از کلیپ ویدیویی به‌جای عکس ثابت (حس زنده‌تر)
         </label>
-        <button type="button" onClick={handleGenerateVoice} disabled={generatingVoice}>
+
+        <button type="button" onClick={handleGenerateVoice} disabled={generatingVoice} className="btn-secondary w-full">
           {generatingVoice ? "در حال ساخت صدا..." : "🔊 پیش‌شنیدن صدا"}
         </button>
-        {voiceStatus && <p style={{ fontSize: "0.85rem" }}>{voiceStatus}</p>}
-        {audioUrl && (
-          <audio controls src={audioUrl} style={{ width: "100%", marginTop: "0.5rem" }} />
-        )}
-      </div>
+        {voiceStatus && <p className="text-sm text-text-muted mt-2">{voiceStatus}</p>}
+        {audioUrl && <audio controls src={audioUrl} className="w-full mt-2" />}
+      </section>
 
-      <button
-        type="button"
-        onClick={handleSuggestMetadata}
-        disabled={suggestingMeta}
-        style={{ marginBottom: "0.5rem" }}
-      >
-        {suggestingMeta
-          ? "در حال پیشنهاد..."
-          : "✨ پیشنهاد خودکار عنوان، توضیحات و تگ"}
-      </button>
-      {suggestMetaStatus && (
-        <p style={{ fontSize: "0.85rem", marginBottom: "0.5rem" }}>
-          {suggestMetaStatus}
-        </p>
-      )}
+      {/* ۰۲ — عنوان، تامبنیل و توضیحات */}
+      <section className="card mb-4">
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <div className="flex items-center gap-2">
+            <span className="label-plate text-amber">۰۲</span>
+            <h2 className="font-semibold">عنوان، تامبنیل و توضیحات</h2>
+          </div>
+        </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: "1rem", marginBottom: "1rem", textAlign: "left" }}>
+        <button type="button" onClick={handleSuggestMetadata} disabled={suggestingMeta} className="btn-secondary w-full mb-2">
+          {suggestingMeta ? "در حال پیشنهاد..." : "✨ پیشنهاد خودکار عنوان، توضیحات و تگ"}
+        </button>
+        {suggestMetaStatus && <p className="text-sm text-text-muted mb-3">{suggestMetaStatus}</p>}
+
+        <label className="field-label">عنوان ویدیو</label>
         <input
           type="text"
           placeholder="عنوان ویدیو"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
+          className="field-input mb-3"
         />
 
-        <div>
-          <input
-            type="text"
-            placeholder="متن صورت کوچک (۴-۶ کلمه، جدا از عنوان)"
-            value={thumbnailText}
-            onChange={(e) => setThumbnailText(e.target.value)}
-            style={{ width: "100%" }}
-          />
-          <div
+        <label className="field-label">متن صورت کوچک (۴-۶ کلمه، جدا از عنوان)</label>
+        <input
+          type="text"
+          placeholder="متن صورت کوچک"
+          value={thumbnailText}
+          onChange={(e) => setThumbnailText(e.target.value)}
+          className="field-input"
+        />
+        <div
+          className="relative w-full rounded-lg overflow-hidden mt-2"
+          style={{
+            aspectRatio: "16 / 9",
+            backgroundImage: videoBgImageUrl
+              ? `linear-gradient(rgba(0,0,0,0.35), rgba(0,0,0,0.35)), url(${videoBgImageUrl})`
+              : "linear-gradient(135deg, #7a3e9d, #e8672c)",
+            backgroundSize: "cover",
+            backgroundPosition: "center",
+          }}
+        >
+          <span
+            className="absolute text-center font-bold px-2"
             style={{
-              marginTop: "0.5rem",
-              position: "relative",
-              width: "100%",
-              aspectRatio: "16 / 9",
-              borderRadius: "8px",
-              overflow: "hidden",
-              backgroundImage: videoBgImageUrl
-                ? `linear-gradient(rgba(0,0,0,0.35), rgba(0,0,0,0.35)), url(${videoBgImageUrl})`
-                : "linear-gradient(135deg, #7a3e9d, #e8672c)",
-              backgroundSize: "cover",
-              backgroundPosition: "center",
+              top: "50%",
+              left: 0,
+              width: "62%",
+              transform: "translateY(-50%)",
+              fontSize: "clamp(0.85rem, 4vw, 1.3rem)",
+              lineHeight: 1.25,
+              color: "#fff",
+              textShadow:
+                "-2px -2px 0 #3a1d4d, 2px -2px 0 #3a1d4d, -2px 2px 0 #3a1d4d, 2px 2px 0 #3a1d4d, 0 0 8px rgba(58,29,77,0.8)",
             }}
           >
-            <span
-              style={{
-                position: "absolute",
-                top: "50%",
-                left: 0,
-                width: "62%",
-                transform: "translateY(-50%)",
-                textAlign: "center",
-                fontWeight: "bold",
-                fontSize: "clamp(0.85rem, 4vw, 1.3rem)",
-                lineHeight: 1.25,
-                color: "#fff",
-                textShadow:
-                  "-2px -2px 0 #3a1d4d, 2px -2px 0 #3a1d4d, -2px 2px 0 #3a1d4d, 2px 2px 0 #3a1d4d, 0 0 8px rgba(58,29,77,0.8)",
-                padding: "0 0.5rem",
-              }}
-            >
-              {thumbnailText || title || "متن صورت کوچک اینجا نمایش داده می‌شه"}
-            </span>
-            <img
-              src="/maya/greeting.png"
-              alt="مایا"
-              onError={(e) => {
-                e.target.style.display = "none";
-              }}
-              style={{
-                position: "absolute",
-                bottom: 0,
-                right: "4%",
-                height: "92%",
-                objectFit: "contain",
-              }}
-            />
-          </div>
-          <p style={{ fontSize: "0.75rem", color: "#666", marginTop: "0.25rem" }}>
-            پیش‌نمایش تقریبیِ صورت کوچک — پس‌زمینه‌ی واقعی و ژست مایا موقع رندر نهایی ست می‌شن.
-          </p>
+            {thumbnailText || title || "متن صورت کوچک اینجا نمایش داده می‌شه"}
+          </span>
+          <img
+            src="/maya/greeting.png"
+            alt="مایا"
+            onError={(e) => {
+              e.target.style.display = "none";
+            }}
+            className="absolute bottom-0"
+            style={{ right: "4%", height: "92%", objectFit: "contain" }}
+          />
         </div>
+        <p className="text-xs text-text-muted mt-1.5 mb-4">
+          پیش‌نمایش تقریبیِ صورت کوچک — پس‌زمینه‌ی واقعی و ژست مایا موقع رندر نهایی ست می‌شن.
+        </p>
 
+        <label className="field-label">توضیحات</label>
         <textarea
           placeholder="توضیحات"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           rows={4}
-        />
-        <input
-          type="text"
-          placeholder="تگ‌ها (با کاما جدا کن)"
-          value={tagsStr}
-          onChange={(e) => setTagsStr(e.target.value)}
+          className="field-textarea mb-3"
         />
 
-        <select
-          value={privacyStatus}
-          onChange={(e) => setPrivacyStatus(e.target.value)}
-        >
+        <label className="field-label">تگ‌ها (با کاما جدا کن)</label>
+        <input
+          type="text"
+          placeholder="تگ‌ها"
+          value={tagsStr}
+          onChange={(e) => setTagsStr(e.target.value)}
+          className="field-input"
+        />
+      </section>
+
+      {/* ۰۳ — انتشار */}
+      <section className="card mb-4">
+        <div className="flex items-center gap-2 mb-3">
+          <span className="label-plate text-amber">۰۳</span>
+          <h2 className="font-semibold">تنظیمات انتشار</h2>
+        </div>
+
+        <label className="field-label">حریم خصوصی</label>
+        <select value={privacyStatus} onChange={(e) => setPrivacyStatus(e.target.value)} className="field-select mb-3">
           <option value="private">خصوصی</option>
           <option value="unlisted">لیست نشده</option>
           <option value="public">عمومی</option>
         </select>
 
-        <div>
-          <label style={{ fontSize: "0.9rem" }}>
-            زمان‌بندی انتشار (اختیاری):
-          </label>
-          <input
-            type="datetime-local"
-            value={publishAt}
-            onChange={(e) => setPublishAt(e.target.value)}
-            style={{ width: "100%", marginTop: "0.3rem" }}
-          />
-          <p style={{ fontSize: "0.75rem", color: "#666" }}>
-            اگه پر کنی، ویدیو به‌صورت خصوصی آپلود می‌شه و خودکار در این تاریخ/ساعت عمومی می‌شه.
+        <label className="field-label">زمان‌بندی انتشار (اختیاری)</label>
+        <input
+          type="datetime-local"
+          value={publishAt}
+          onChange={(e) => setPublishAt(e.target.value)}
+          className="field-input"
+        />
+        <p className="text-xs text-text-muted mt-1.5 mb-4">
+          اگه پر کنی، ویدیو به‌صورت خصوصی آپلود می‌شه و خودکار در این تاریخ/ساعت عمومی می‌شه.
+        </p>
+
+        <button type="button" onClick={handleGenerateAndUpload} disabled={generatingVideo} className="btn-primary w-full">
+          {generatingVideo ? "در حال پردازش روی سرور..." : "🚀 ساخت و آپلود خودکار (روی سرور)"}
+        </button>
+
+        {videoGenStatus && (
+          <p className="text-sm text-text-muted mt-2">
+            {videoGenStatus}
+            {generatingVideo ? ` (${videoGenProgress}%)` : ""}
           </p>
-        </div>
-      </div>
-
-      <button
-        type="button"
-        onClick={handleGenerateAndUpload}
-        disabled={generatingVideo}
-        style={{
-          width: "100%",
-          fontWeight: "bold",
-          padding: "0.75rem",
-          marginBottom: "0.5rem",
-          background: "#2196F3",
-          color: "white",
-          border: "none",
-          borderRadius: "8px",
-        }}
-      >
-        {generatingVideo
-          ? "در حال پردازش روی سرور..."
-          : "🚀 ساخت و آپلود خودکار (روی سرور)"}
-      </button>
-      {videoGenStatus && (
-        <p style={{ fontSize: "0.85rem" }}>
-          {videoGenStatus}
-          {generatingVideo ? ` (${videoGenProgress}%)` : ""}
-        </p>
-      )}
-      {generatingVideo && (
-        <p style={{ fontSize: "0.8rem", color: "#666" }}>
-          ⏱️ زمان سپری‌شده: {formatDuration(elapsedSeconds)}
-          {videoGenProgress > 3 &&
-            ` — تخمین باقی‌مونده: ~${formatDuration(
-              (elapsedSeconds / videoGenProgress) * (100 - videoGenProgress)
-            )}`}
-        </p>
-      )}
-      {generatingVideo && (
-        <div style={{ width: "100%", background: "#eee", borderRadius: "8px", overflow: "hidden" }}>
-          <div
-            style={{
-              width: videoGenProgress + "%",
-              background: "#2196F3",
-              height: "10px",
-              transition: "width 0.2s",
-            }}
-          />
-        </div>
-      )}
-      {uploadedVideoId && (
-        <p style={{ marginTop: "0.5rem" }}>
-          <a
-            href={`https://www.youtube.com/watch?v=${uploadedVideoId}`}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            ▶️ مشاهده‌ی ویدیو در یوتیوب
-          </a>
-        </p>
-      )}
-
-      <hr style={{ margin: "2rem 0" }} />
-      <p style={{ fontSize: "0.85rem", color: "#666" }}>
-        یا یک فایل ویدیوی آماده رو دستی آپلود کن:
-      </p>
-
-      <input
-        type="file"
-        accept="video/*"
-        onChange={(e) => setFile(e.target.files[0])}
-        style={{ marginBottom: "1rem" }}
-      />
-
-      <div
-        style={{
-          border: "1px solid #ccc",
-          borderRadius: "8px",
-          padding: "1rem",
-          marginBottom: "1.5rem",
-          textAlign: "left",
-        }}
-      >
-        <h3 style={{ marginTop: 0 }}>برش ویدیو (اختیاری - داخل مرورگر انجام می‌شه)</h3>
-        <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.5rem" }}>
-          <div style={{ flex: 1 }}>
-            <label style={{ fontSize: "0.85rem" }}>شروع (ثانیه)</label>
-            <input
-              type="number"
-              min="0"
-              value={startTime}
-              onChange={(e) => setStartTime(e.target.value)}
-              style={{ width: "100%" }}
-            />
-          </div>
-          <div style={{ flex: 1 }}>
-            <label style={{ fontSize: "0.85rem" }}>مدت (ثانیه)</label>
-            <input
-              type="number"
-              min="1"
-              value={duration}
-              onChange={(e) => setDuration(e.target.value)}
-              style={{ width: "100%" }}
-            />
-          </div>
-        </div>
-        <button type="button" onClick={handleTrim} disabled={trimming}>
-          {trimming ? "در حال برش..." : "برش بزن"}
-        </button>
-        {trimStatus && <p style={{ fontSize: "0.85rem" }}>{trimStatus}</p>}
-      </div>
-
-      <form onSubmit={handleUpload}>
-        <button type="submit" disabled={uploading} style={{ width: "100%" }}>
-          {uploading ? "در حال آپلود... " + progress + "%" : "آپلود دستی در یوتیوب"}
-        </button>
-
-        {uploading && (
-          <div style={{ width: "100%", background: "#eee", borderRadius: "8px", overflow: "hidden" }}>
-            <div
-              style={{
-                width: progress + "%",
-                background: "#4CAF50",
-                height: "10px",
-                transition: "width 0.2s",
-              }}
-            />
+        )}
+        {generatingVideo && (
+          <p className="text-xs text-text-muted mt-1">
+            ⏱️ زمان سپری‌شده: <span className="readout">{formatDuration(elapsedSeconds)}</span>
+            {videoGenProgress > 3 &&
+              <> — تخمین باقی‌مونده: ~<span className="readout">{formatDuration((elapsedSeconds / videoGenProgress) * (100 - videoGenProgress))}</span></>}
+          </p>
+        )}
+        {generatingVideo && (
+          <div className="progress-track mt-2">
+            <div className="progress-fill" style={{ width: videoGenProgress + "%" }} />
           </div>
         )}
-      </form>
+        {uploadedVideoId && (
+          <p className="mt-3">
+            <a
+              href={`https://www.youtube.com/watch?v=${uploadedVideoId}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-teal font-medium hover:underline"
+            >
+              ▶️ مشاهده‌ی ویدیو در یوتیوب
+            </a>
+          </p>
+        )}
+      </section>
 
-      {status && <p style={{ marginTop: "1rem" }}>{status}</p>}
+      {/* آپلود دستی */}
+      <section className="card">
+        <p className="text-sm text-text-muted mb-3">یا یک فایل ویدیوی آماده رو دستی آپلود کن:</p>
+
+        <input
+          type="file"
+          accept="video/*"
+          onChange={(e) => setFile(e.target.files[0])}
+          className="text-sm text-text-muted mb-4 w-full file:btn-ghost file:mr-3 file:cursor-pointer"
+        />
+
+        <div className="rounded-md border border-border-light p-3 mb-4">
+          <h3 className="text-sm font-semibold mb-2">برش ویدیو (اختیاری - داخل مرورگر انجام می‌شه)</h3>
+          <div className="flex gap-2 mb-2">
+            <div className="flex-1">
+              <label className="field-label">شروع (ثانیه)</label>
+              <input
+                type="number"
+                min="0"
+                value={startTime}
+                onChange={(e) => setStartTime(e.target.value)}
+                className="field-input"
+              />
+            </div>
+            <div className="flex-1">
+              <label className="field-label">مدت (ثانیه)</label>
+              <input
+                type="number"
+                min="1"
+                value={duration}
+                onChange={(e) => setDuration(e.target.value)}
+                className="field-input"
+              />
+            </div>
+          </div>
+          <button type="button" onClick={handleTrim} disabled={trimming} className="btn-ghost">
+            {trimming ? "در حال برش..." : "برش بزن"}
+          </button>
+          {trimStatus && <p className="text-sm text-text-muted mt-2">{trimStatus}</p>}
+        </div>
+
+        <form onSubmit={handleUpload}>
+          <button type="submit" disabled={uploading} className="btn-secondary w-full">
+            {uploading ? "در حال آپلود... " + progress + "%" : "آپلود دستی در یوتیوب"}
+          </button>
+
+          {uploading && (
+            <div className="progress-track mt-2">
+              <div className="progress-fill" style={{ width: progress + "%", backgroundColor: "var(--color-teal)" }} />
+            </div>
+          )}
+        </form>
+
+        {status && <p className="text-sm text-text-muted mt-3">{status}</p>}
+      </section>
     </main>
   );
 }

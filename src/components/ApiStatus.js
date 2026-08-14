@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
+import Link from "next/link";
 
 export default function ApiStatus() {
   const { data: session, status: sessionStatus } = useSession();
@@ -46,24 +47,32 @@ export default function ApiStatus() {
 
   if (!session) {
     return (
-      <main style={{ padding: "2rem", textAlign: "center", maxWidth: "500px", margin: "0 auto" }}>
-        <h2>🔌 بررسی API ها</h2>
-        <p style={{ color: "#666" }}>برای مشاهده‌ی این بخش، اول از بالای صفحه با گوگل وارد شو.</p>
+      <main className="min-h-screen bg-bg text-text px-4 py-10 max-w-lg mx-auto text-center">
+        <h2 className="text-xl font-bold mb-2">🔌 بررسی API ها</h2>
+        <p className="text-text-muted">برای مشاهده‌ی این بخش، اول از بالای صفحه با گوگل وارد شو.</p>
       </main>
     );
   }
 
   return (
-    <main style={{ padding: "1rem", maxWidth: "500px", margin: "0 auto" }}>
-      <h2 style={{ textAlign: "center" }}>🔌 بررسی API ها</h2>
+    <main className="min-h-screen bg-bg text-text px-4 py-6 max-w-lg mx-auto">
+      <h1 className="text-xl font-bold mb-2">🔌 بررسی API ها</h1>
+      <p className="text-sm text-text-muted mb-4">
+        این صفحه فقط کلیدهای قدیمی Groq/Pexels (متغیر محیطی توی Render) رو چک می‌کنه. برای هر
+        ارائه‌دهنده‌ی دیگه‌ای که اضافه کردی، وضعیتش رو از{" "}
+        <Link href="/providers" className="text-teal hover:underline">
+          ارائه‌دهنده‌های API
+        </Link>{" "}
+        ببین.
+      </p>
 
-      {loading && <p style={{ textAlign: "center" }}>در حال بررسی...</p>}
-      {error && <p style={{ color: "#e53935", textAlign: "center" }}>خطا: {error}</p>}
+      {loading && <p className="text-center text-text-muted">در حال بررسی...</p>}
+      {error && <p className="text-center text-danger">خطا: {error}</p>}
 
       {info && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+        <div className="flex flex-col gap-3">
           <Row label="ورود گوگل" ok={info.auth.signedIn}>
-            <p style={{ fontSize: "0.8rem", color: "#666", margin: 0 }}>
+            <p className="text-sm text-text-muted">
               {info.auth.user}
               {info.auth.tokenError ? ` — خطای توکن: ${info.auth.tokenError}` : ""}
             </p>
@@ -103,24 +112,15 @@ export default function ApiStatus() {
 
           <Row label="دیتابیس (ثبت آمار ویدیوها)" ok={info.database.connected}>
             {info.database.connected ? (
-              <p style={{ fontSize: "0.8rem", color: "#666", margin: 0 }}>
-                {info.database.videoCount} ویدیو ثبت شده
-              </p>
+              <p className="text-sm text-text-muted">{info.database.videoCount} ویدیو ثبت شده</p>
             ) : (
-              <p style={{ fontSize: "0.8rem", color: "#e53935", margin: 0 }}>
-                {info.database.error}
-              </p>
+              <p className="text-sm text-danger">{info.database.error}</p>
             )}
           </Row>
         </div>
       )}
 
-      <button
-        type="button"
-        onClick={loadStatus}
-        style={{ marginTop: "1.5rem", width: "100%" }}
-        disabled={loading}
-      >
+      <button type="button" onClick={loadStatus} disabled={loading} className="btn-secondary w-full mt-6">
         🔄 بررسی دوباره
       </button>
     </main>
@@ -128,27 +128,17 @@ export default function ApiStatus() {
 }
 
 function Badge({ ok }) {
-  const style = {
-    display: "inline-block",
-    padding: "0.15rem 0.5rem",
-    borderRadius: "999px",
-    fontSize: "0.75rem",
-    fontWeight: "bold",
-    color: "#fff",
-    background: ok ? "#4CAF50" : "#e53935",
-    whiteSpace: "nowrap",
-  };
-  return <span style={style}>{ok ? "تنظیم شده ✅" : "تنظیم نشده ❌"}</span>;
+  return <span className={ok ? "badge-ok" : "badge-fail"}>{ok ? "تنظیم شده ✅" : "تنظیم نشده ❌"}</span>;
 }
 
 function Row({ label, ok, children }) {
   return (
-    <div style={{ border: "1px solid #ddd", borderRadius: "8px", padding: "0.75rem" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem" }}>
-        <strong style={{ fontSize: "0.9rem" }}>{label}</strong>
+    <div className="card">
+      <div className="flex justify-between items-center gap-2">
+        <strong className="text-sm">{label}</strong>
         <Badge ok={ok} />
       </div>
-      {children && <div style={{ marginTop: "0.4rem" }}>{children}</div>}
+      {children && <div className="mt-2">{children}</div>}
     </div>
   );
 }
@@ -156,17 +146,11 @@ function Row({ label, ok, children }) {
 function TestButton({ onClick, disabled, testing, result }) {
   return (
     <div>
-      <button type="button" onClick={onClick} disabled={disabled || testing} style={{ fontSize: "0.8rem" }}>
+      <button type="button" onClick={onClick} disabled={disabled || testing} className="btn-ghost">
         {testing ? "در حال تست..." : "تست اتصال"}
       </button>
       {result && (
-        <p
-          style={{
-            fontSize: "0.8rem",
-            marginTop: "0.3rem",
-            color: result.ok ? "#4CAF50" : "#e53935",
-          }}
-        >
+        <p className={"text-sm mt-1.5 " + (result.ok ? "text-teal" : "text-danger")}>
           {result.ok ? result.message : "خطا: " + result.error}
         </p>
       )}

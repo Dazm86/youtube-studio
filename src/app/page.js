@@ -3,6 +3,9 @@
 import { useSession, signIn, signOut } from "next-auth/react";
 import Link from "next/link";
 
+// ترتیب و محتوای این لیست عمداً با NAV_ITEMS توی NavBar.js همسو نگه داشته
+// می‌شه — قبلاً «زمان‌بندی خودکار» توی نوار بالا بود ولی اینجا نبود، یعنی
+// از صفحه‌ی اصلی اصلاً قابل کشف نبود.
 const sections = [
   {
     index: "01",
@@ -18,21 +21,27 @@ const sections = [
   },
   {
     index: "03",
-    href: "/analytics",
-    title: "آنالیز کانال",
-    desc: "آمار واقعی ویدیوها: ویو، سابسکرایب، لایک",
-  },
-  {
-    index: "04",
     href: "/providers",
     title: "ارائه‌دهنده‌های API",
     desc: "یک کلید بده، خودش تشخیص می‌ده چیکار می‌تونه بکنه و اولویتش رو تنظیم کن",
   },
   {
-    index: "05",
+    index: "04",
     href: "/api-check",
     title: "بررسی API ها",
     desc: "وضعیت اتصال Pexels، Groq، یوتیوب، دیتابیس",
+  },
+  {
+    index: "05",
+    href: "/analytics",
+    title: "آنالیز کانال",
+    desc: "آمار واقعی ویدیوها: ویو، سابسکرایب، لایک",
+  },
+  {
+    index: "06",
+    href: "/schedule",
+    title: "زمان‌بندی خودکار",
+    desc: "ساخت و انتشار خودکار ویدیو در روز و ساعت مشخص، بدون دست زدن",
   },
 ];
 
@@ -46,10 +55,7 @@ export default function Home() {
           <p className="label-plate text-teal mb-2">THE MINDFUL PATH — STUDIO</p>
           <h1 className="text-2xl font-bold">استودیوی یوتیوب</h1>
         </div>
-        <button
-          onClick={() => signIn("google")}
-          className="bg-amber text-bg font-semibold rounded-md px-6 py-3 hover:bg-amber-dim transition-colors"
-        >
+        <button onClick={() => signIn("google")} className="btn-primary px-6">
           ورود با گوگل
         </button>
       </main>
@@ -65,10 +71,7 @@ export default function Home() {
         </div>
         <div className="flex items-center gap-3">
           <img src={session.user.image} alt="" className="w-9 h-9 rounded-full border border-border-light" />
-          <button
-            onClick={() => signOut()}
-            className="text-xs text-text-muted hover:text-amber border border-border rounded px-2.5 py-1.5 transition-colors"
-          >
+          <button onClick={() => signOut()} className="btn-ghost">
             خروج
           </button>
         </div>

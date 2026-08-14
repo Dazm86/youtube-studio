@@ -29,59 +29,53 @@ export default function NavBar() {
   }, [session]);
 
   return (
-    <header style={{ borderBottom: "1px solid #ddd", marginBottom: "1.5rem" }}>
-      <div style={{ maxWidth: "700px", margin: "0 auto", padding: "0.75rem 1rem" }}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            flexWrap: "wrap",
-            gap: "0.5rem",
-          }}
-        >
-          <Link
-            href="/"
-            style={{ fontWeight: "bold", fontSize: "1.1rem", textDecoration: "none", color: "#222" }}
-          >
-            🎬 استودیوی یوتیوب
+    <header className="sticky top-0 z-20 bg-surface/95 backdrop-blur border-b border-border">
+      <div className="max-w-3xl mx-auto px-4 py-3">
+        <div className="flex items-center justify-between gap-3">
+          <Link href="/" className="flex items-center gap-2 font-bold text-text shrink-0">
+            <span className="text-lg leading-none">🎬</span>
+            <span className="hidden xs:inline">استودیوی یوتیوب</span>
           </Link>
 
           {session ? (
-            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <div className="flex items-center gap-2 shrink-0">
               <img
                 src={session.user.image}
-                alt="profile"
-                style={{ borderRadius: "50%", width: "28px", height: "28px" }}
+                alt=""
+                className="w-8 h-8 rounded-full border border-border-light"
               />
-              <span style={{ fontSize: "0.85rem" }}>{session.user.name}</span>
-              <button onClick={() => signOut()} style={{ fontSize: "0.8rem" }}>
+              <span className="hidden sm:inline text-sm text-text-muted max-w-[9rem] truncate">
+                {session.user.name}
+              </span>
+              <button onClick={() => signOut()} className="btn-ghost">
                 خروج
               </button>
             </div>
           ) : (
-            <button onClick={() => signIn("google")} style={{ fontSize: "0.85rem" }}>
+            <button onClick={() => signIn("google")} className="btn-primary">
               ورود با گوگل
             </button>
           )}
         </div>
 
         {session && (
-          <nav style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "0.6rem" }}>
+          <nav
+            className="flex items-center gap-1.5 overflow-x-auto mt-3 -mx-4 px-4 pb-1"
+            style={{ scrollbarWidth: "thin" }}
+          >
             {NAV_ITEMS.map((item) => {
               const active = pathname === item.href;
               return (
                 <Link
                   key={item.href}
                   href={item.href}
-                  style={{
-                    fontSize: "0.8rem",
-                    padding: "0.3rem 0.6rem",
-                    borderRadius: "6px",
-                    textDecoration: "none",
-                    color: active ? "#fff" : "#333",
-                    background: active ? "#2196F3" : "#f0f0f0",
-                  }}
+                  aria-current={active ? "page" : undefined}
+                  className={
+                    "whitespace-nowrap rounded-md px-3 py-2 text-xs font-medium min-h-[38px] flex items-center transition-colors " +
+                    (active
+                      ? "bg-amber text-bg"
+                      : "bg-surface-raised text-text-muted hover:text-text border border-border")
+                  }
                 >
                   {item.label}
                 </Link>

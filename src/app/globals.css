@@ -55,3 +55,88 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ---------------------------------------------------------------------
+ * Shared component classes (added during the UX/UI rebuild — 2026-08-14)
+ *
+ * Every screen outside the home dashboard was written with raw inline
+ * styles calibrated for a *light* page (grays like #666/#777/#999, a
+ * white implied background, a stray Material blue #2196F3) but the app
+ * itself has always rendered on the dark body background above. These
+ * classes are the one place that look now lives, so every screen reads
+ * as the same product and nobody has to re-derive "what's our button"
+ * from scratch again. Plain, non-nested @apply only — no class-in-class
+ * chaining — so this compiles the same whether Tailwind resolves
+ * @layer components before or after the rest of this file.
+ * ------------------------------------------------------------------- */
+@layer components {
+  .card {
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 0.65rem;
+    padding: 1rem;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-md px-4 py-2.5 text-sm font-semibold min-h-[44px] bg-amber text-bg transition-colors hover:bg-amber-dim disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-md px-4 py-2.5 text-sm font-semibold min-h-[44px] bg-surface-raised text-text border border-border-light transition-colors hover:border-amber disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-xs font-semibold min-h-[38px] bg-transparent text-text-muted border border-border transition-colors hover:text-amber hover:border-amber disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+  .btn-danger-ghost {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-xs font-semibold min-h-[38px] bg-transparent text-danger border border-danger/40 transition-colors hover:bg-danger/10 disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+  .btn-icon {
+    @apply inline-flex items-center justify-center w-10 h-10 rounded-md border border-border-light text-text-muted transition-colors hover:text-amber hover:border-amber disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+
+  .field-label {
+    font-family: var(--font-mono);
+    letter-spacing: 0.1em;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+    display: block;
+    margin-bottom: 0.4rem;
+  }
+  .field-input {
+    @apply w-full bg-surface-raised border border-border-light rounded-md px-3 py-2.5 text-sm text-text outline-none transition-colors focus:border-amber;
+  }
+  .field-input::placeholder {
+    color: var(--color-text-faint);
+  }
+  .field-textarea {
+    @apply field-input leading-relaxed resize-y;
+  }
+  .field-select {
+    @apply field-input;
+    appearance: none;
+  }
+
+  .badge-ok {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold whitespace-nowrap bg-teal/15 text-teal;
+  }
+  .badge-fail {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold whitespace-nowrap bg-danger/15 text-danger;
+  }
+  .badge-neutral {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold whitespace-nowrap bg-border text-text-muted;
+  }
+
+  .progress-track {
+    @apply w-full h-2 rounded-full bg-surface-raised border border-border overflow-hidden;
+  }
+  .progress-fill {
+    @apply h-full bg-amber transition-all duration-300;
+  }
+
+  .day-chip {
+    @apply inline-flex items-center justify-center rounded-md border border-border-light px-3 py-2 text-sm min-h-[40px] min-w-[52px] text-text-muted transition-colors cursor-pointer select-none;
+  }
+  .day-chip-active {
+    @apply bg-amber/15 border-amber text-amber;
+  }
+}

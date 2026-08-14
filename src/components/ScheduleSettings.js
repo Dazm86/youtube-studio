@@ -13,12 +13,12 @@ function formatDate(iso) {
 
 function StatusBadge({ status }) {
   const map = {
-    ok: { text: "موفق ✅", color: "#2e7d32" },
-    failed: { text: "شکست ❌", color: "#c62828" },
-    running: { text: "در حال اجرا ⏳", color: "#1565c0" },
+    ok: { text: "موفق ✅", cls: "text-teal" },
+    failed: { text: "شکست ❌", cls: "text-danger" },
+    running: { text: "در حال اجرا ⏳", cls: "text-amber" },
   };
-  const s = map[status] || { text: status, color: "#666" };
-  return <span style={{ color: s.color, fontWeight: "bold" }}>{s.text}</span>;
+  const s = map[status] || { text: status, cls: "text-text-muted" };
+  return <span className={"font-bold " + s.cls}>{s.text}</span>;
 }
 
 export default function ScheduleSettings() {
@@ -123,8 +123,8 @@ export default function ScheduleSettings() {
   if (sessionStatus === "loading") return null;
   if (!session) {
     return (
-      <main style={{ padding: "2rem", textAlign: "center", maxWidth: "700px", margin: "0 auto" }}>
-        <p>برای تنظیم زمان‌بندی باید وارد بشی.</p>
+      <main className="min-h-screen bg-bg text-text px-4 py-10 max-w-2xl mx-auto text-center">
+        <p className="text-text-muted">برای تنظیم زمان‌بندی باید وارد بشی.</p>
       </main>
     );
   }
@@ -132,171 +132,234 @@ export default function ScheduleSettings() {
   const cronUrl = `${origin}/api/scheduler/run?secret=CRON_SECRET_شما`;
 
   return (
-    <main style={{ padding: "1rem", maxWidth: "700px", margin: "0 auto" }}>
-      <h2>⏰ زمان‌بندی آپلود خودکار</h2>
+    <main className="min-h-screen bg-bg text-text px-4 py-6 max-w-2xl mx-auto">
+      <h1 className="text-xl font-bold mb-3">⏰ زمان‌بندی آپلود خودکار</h1>
 
-      <div
-        style={{
-          background: "#fff8e1",
-          border: "1px solid #ffe082",
-          borderRadius: "8px",
-          padding: "0.8rem",
-          fontSize: "0.85rem",
-          marginBottom: "1.2rem",
-        }}
-      >
+      <div className="rounded-lg border border-amber-dim bg-amber/10 text-sm p-3 mb-5 leading-relaxed">
         <strong>راه‌اندازی یک‌باره (بیرون از این سایت):</strong>
-        <ol style={{ paddingRight: "1.2rem", margin: "0.4rem 0" }}>
+        <ol className="pr-5 my-2 list-decimal space-y-1">
           <li>
-            تو Render، یک متغیر محیطی جدید به اسم <code>CRON_SECRET</code> بساز (یک رشته‌ی تصادفی
-            دلخواه، مثلاً از یک تولیدکننده‌ی پسورد).
+            تو Render، یک متغیر محیطی جدید به اسم <code className="readout">CRON_SECRET</code> بساز (یک رشته‌ی
+            تصادفی دلخواه، مثلاً از یک تولیدکننده‌ی پسورد).
           </li>
           <li>
             تو یک سرویس cron رایگان (پیشنهاد: <strong>cron-job.org</strong>) یک job جدید بساز که هر{" "}
             <strong>۱۰ دقیقه</strong> یک درخواست GET به این آدرس بزنه (به‌جای{" "}
-            <code>CRON_SECRET_شما</code> همون مقداری که تو Render گذاشتی):
+            <code className="readout">CRON_SECRET_شما</code> همون مقداری که تو Render گذاشتی):
           </li>
         </ol>
-        <code style={{ display: "block", background: "#fff", padding: "0.4rem", borderRadius: "4px", wordBreak: "break-all" }}>
+        <code className="block bg-surface-raised border border-border rounded-md p-2 break-all readout text-xs">
           {cronUrl}
         </code>
-        <p style={{ margin: "0.4rem 0 0" }}>
+        <p className="mt-2">
           این endpoint خودش چک می‌کنه چیزی الان due هست یا نه — هر ۱۰ دقیقه که pinger بزنه هزینه‌ای
           نداره، فقط وقتی زمانِ یکی از زمان‌بندی‌های زیر برسه، واقعاً تولید و آپلود شروع می‌شه.
         </p>
       </div>
 
-      {error && <p style={{ color: "#c62828" }}>{error}</p>}
+      {error && <p className="text-danger mb-3">{error}</p>}
 
-      <h3>زمان‌بندی‌های فعلی</h3>
+      <h2 className="font-semibold mb-2">زمان‌بندی‌های فعلی</h2>
       {loading ? (
-        <p>در حال بارگذاری...</p>
+        <p className="text-text-muted">در حال بارگذاری...</p>
       ) : schedules.length === 0 ? (
-        <p style={{ color: "#777" }}>هنوز زمان‌بندی‌ای اضافه نشده.</p>
+        <p className="text-text-muted mb-6">هنوز زمان‌بندی‌ای اضافه نشده.</p>
       ) : (
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem", marginBottom: "1.5rem" }}>
-          <thead>
-            <tr style={{ borderBottom: "2px solid #ddd", textAlign: "right" }}>
-              <th style={{ padding: "0.4rem" }}>نوع</th>
-              <th style={{ padding: "0.4rem" }}>روزها</th>
-              <th style={{ padding: "0.4rem" }}>ساعت</th>
-              <th style={{ padding: "0.4rem" }}>حریم خصوصی</th>
-              <th style={{ padding: "0.4rem" }}>فعال</th>
-              <th style={{ padding: "0.4rem" }}></th>
-            </tr>
-          </thead>
-          <tbody>
+        <>
+          <div className="hidden md:block overflow-x-auto mb-6">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b-2 border-border text-right">
+                  <th className="p-2 text-text-muted font-medium">نوع</th>
+                  <th className="p-2 text-text-muted font-medium">روزها</th>
+                  <th className="p-2 text-text-muted font-medium">ساعت</th>
+                  <th className="p-2 text-text-muted font-medium">حریم خصوصی</th>
+                  <th className="p-2 text-text-muted font-medium">فعال</th>
+                  <th className="p-2"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {schedules.map((s) => (
+                  <tr key={s.id} className="border-b border-border">
+                    <td className="p-2">{s.video_mode === "short" ? "شورت" : "لانگ"}</td>
+                    <td className="p-2 text-text-muted">
+                      {s.days_of_week.length === 7 ? "هر روز" : s.days_of_week.map((d) => DAY_LABELS[d]).join("، ")}
+                    </td>
+                    <td className="p-2 readout">
+                      {s.time_of_day} ({s.timezone})
+                    </td>
+                    <td className="p-2 text-text-muted">{s.privacy_status}</td>
+                    <td className="p-2">
+                      <input
+                        type="checkbox"
+                        checked={s.enabled}
+                        onChange={() => handleToggleEnabled(s)}
+                        className="w-4 h-4 accent-amber"
+                      />
+                    </td>
+                    <td className="p-2">
+                      <button type="button" onClick={() => handleDelete(s.id)} className="btn-danger-ghost">
+                        حذف
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="md:hidden flex flex-col gap-3 mb-6">
             {schedules.map((s) => (
-              <tr key={s.id} style={{ borderBottom: "1px solid #eee" }}>
-                <td style={{ padding: "0.4rem" }}>{s.video_mode === "short" ? "شورت" : "لانگ"}</td>
-                <td style={{ padding: "0.4rem" }}>
-                  {s.days_of_week.length === 7
-                    ? "هر روز"
-                    : s.days_of_week.map((d) => DAY_LABELS[d]).join("، ")}
-                </td>
-                <td style={{ padding: "0.4rem" }}>
-                  {s.time_of_day} ({s.timezone})
-                </td>
-                <td style={{ padding: "0.4rem" }}>{s.privacy_status}</td>
-                <td style={{ padding: "0.4rem" }}>
-                  <input type="checkbox" checked={s.enabled} onChange={() => handleToggleEnabled(s)} />
-                </td>
-                <td style={{ padding: "0.4rem" }}>
-                  <button type="button" onClick={() => handleDelete(s.id)} style={{ fontSize: "0.75rem" }}>
-                    حذف
-                  </button>
-                </td>
-              </tr>
+              <div key={s.id} className="card">
+                <div className="flex items-center justify-between gap-2 mb-1.5">
+                  <span className="font-medium">{s.video_mode === "short" ? "⚡ شورت" : "🎬 لانگ"}</span>
+                  <label className="flex items-center gap-1.5 text-xs text-text-muted">
+                    فعال
+                    <input
+                      type="checkbox"
+                      checked={s.enabled}
+                      onChange={() => handleToggleEnabled(s)}
+                      className="w-4 h-4 accent-amber"
+                    />
+                  </label>
+                </div>
+                <p className="text-sm text-text-muted mb-1">
+                  {s.days_of_week.length === 7 ? "هر روز" : s.days_of_week.map((d) => DAY_LABELS[d]).join("، ")} —{" "}
+                  <span className="readout">{s.time_of_day}</span> ({s.timezone})
+                </p>
+                <p className="text-xs text-text-faint mb-2">حریم خصوصی: {s.privacy_status}</p>
+                <button type="button" onClick={() => handleDelete(s.id)} className="btn-danger-ghost w-full">
+                  حذف
+                </button>
+              </div>
             ))}
-          </tbody>
-        </table>
+          </div>
+        </>
       )}
 
-      <h3>افزودن زمان‌بندی جدید</h3>
-      <form onSubmit={handleCreate} style={{ display: "flex", flexDirection: "column", gap: "0.6rem", marginBottom: "2rem" }}>
-        <label>
-          نوع ویدیو:{" "}
-          <select value={videoMode} onChange={(e) => setVideoMode(e.target.value)}>
+      <h2 className="font-semibold mb-2">افزودن زمان‌بندی جدید</h2>
+      <form onSubmit={handleCreate} className="card flex flex-col gap-4 mb-6">
+        <div>
+          <label className="field-label">نوع ویدیو</label>
+          <select value={videoMode} onChange={(e) => setVideoMode(e.target.value)} className="field-select">
             <option value="short">شورت</option>
             <option value="long">لانگ</option>
           </select>
-        </label>
+        </div>
 
         <div>
-          روزها:
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginTop: "0.3rem" }}>
+          <label className="field-label">روزها</label>
+          <div className="flex flex-wrap gap-1.5">
             {DAY_DISPLAY_ORDER.map((d) => (
-              <label key={d} style={{ fontSize: "0.85rem" }}>
-                <input type="checkbox" checked={days.has(d)} onChange={() => toggleDay(d)} />{" "}
+              <label key={d} className={"day-chip" + (days.has(d) ? " day-chip-active" : "")}>
+                <input
+                  type="checkbox"
+                  checked={days.has(d)}
+                  onChange={() => toggleDay(d)}
+                  className="sr-only"
+                />
                 {DAY_LABELS[d]}
               </label>
             ))}
           </div>
         </div>
 
-        <label>
-          ساعت:{" "}
-          <input type="time" value={timeOfDay} onChange={(e) => setTimeOfDay(e.target.value)} required />
-        </label>
+        <div>
+          <label className="field-label">ساعت</label>
+          <input type="time" value={timeOfDay} onChange={(e) => setTimeOfDay(e.target.value)} required className="field-input" />
+        </div>
 
-        <label>
-          منطقه‌ی زمانی (IANA):{" "}
+        <div>
+          <label className="field-label">منطقه‌ی زمانی (IANA)</label>
           <input
             type="text"
             value={timezone}
             onChange={(e) => setTimezone(e.target.value)}
             placeholder="Asia/Tehran"
+            className="field-input"
+            dir="ltr"
           />
-        </label>
+        </div>
 
-        <label>
-          حریم خصوصی آپلود:{" "}
-          <select value={privacyStatus} onChange={(e) => setPrivacyStatus(e.target.value)}>
+        <div>
+          <label className="field-label">حریم خصوصی آپلود</label>
+          <select value={privacyStatus} onChange={(e) => setPrivacyStatus(e.target.value)} className="field-select">
             <option value="public">عمومی</option>
             <option value="unlisted">لینک‌دار (فهرست‌نشده)</option>
             <option value="private">خصوصی</option>
           </select>
-        </label>
+        </div>
 
-        <button type="submit" disabled={saving}>
+        <button type="submit" disabled={saving} className="btn-primary">
           {saving ? "در حال ذخیره..." : "➕ افزودن زمان‌بندی"}
         </button>
       </form>
 
-      <h3>اجراهای اخیر</h3>
+      <h2 className="font-semibold mb-2">اجراهای اخیر</h2>
       {runs.length === 0 ? (
-        <p style={{ color: "#777" }}>هنوز هیچ اجرای خودکاری ثبت نشده.</p>
+        <p className="text-text-muted">هنوز هیچ اجرای خودکاری ثبت نشده.</p>
       ) : (
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.8rem" }}>
-          <thead>
-            <tr style={{ borderBottom: "2px solid #ddd", textAlign: "right" }}>
-              <th style={{ padding: "0.4rem" }}>شروع</th>
-              <th style={{ padding: "0.4rem" }}>وضعیت</th>
-              <th style={{ padding: "0.4rem" }}>ویدیو</th>
-              <th style={{ padding: "0.4rem" }}>خطا</th>
-            </tr>
-          </thead>
-          <tbody>
+        <>
+          <div className="hidden md:block overflow-x-auto">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b-2 border-border text-right">
+                  <th className="p-2 text-text-muted font-medium">شروع</th>
+                  <th className="p-2 text-text-muted font-medium">وضعیت</th>
+                  <th className="p-2 text-text-muted font-medium">ویدیو</th>
+                  <th className="p-2 text-text-muted font-medium">خطا</th>
+                </tr>
+              </thead>
+              <tbody>
+                {runs.map((r) => (
+                  <tr key={r.id} className="border-b border-border">
+                    <td className="p-2 text-text-muted">{formatDate(r.started_at)}</td>
+                    <td className="p-2">
+                      <StatusBadge status={r.status} />
+                    </td>
+                    <td className="p-2">
+                      {r.video_id ? (
+                        <a
+                          href={`https://www.youtube.com/watch?v=${r.video_id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-teal hover:underline"
+                        >
+                          مشاهده
+                        </a>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    <td className="p-2 text-danger">{r.error || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="md:hidden flex flex-col gap-2">
             {runs.map((r) => (
-              <tr key={r.id} style={{ borderBottom: "1px solid #eee" }}>
-                <td style={{ padding: "0.4rem" }}>{formatDate(r.started_at)}</td>
-                <td style={{ padding: "0.4rem" }}>
+              <div key={r.id} className="card py-2.5">
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <span className="text-sm text-text-muted">{formatDate(r.started_at)}</span>
                   <StatusBadge status={r.status} />
-                </td>
-                <td style={{ padding: "0.4rem" }}>
-                  {r.video_id ? (
-                    <a href={`https://www.youtube.com/watch?v=${r.video_id}`} target="_blank" rel="noopener noreferrer">
-                      مشاهده
-                    </a>
-                  ) : (
-                    "—"
-                  )}
-                </td>
-                <td style={{ padding: "0.4rem", color: "#c62828" }}>{r.error || "—"}</td>
-              </tr>
+                </div>
+                {r.video_id && (
+                  <a
+                    href={`https://www.youtube.com/watch?v=${r.video_id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-teal hover:underline text-sm"
+                  >
+                    ▶️ مشاهده‌ی ویدیو
+                  </a>
+                )}
+                {r.error && <p className="text-danger text-xs mt-1">{r.error}</p>}
+              </div>
             ))}
-          </tbody>
-        </table>
+          </div>
+        </>
       )}
     </main>
   );

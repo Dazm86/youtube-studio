@@ -8,21 +8,12 @@ const CAP_ORDER = ["text", "image", "video", "audio"];
 
 function CapBadges({ capabilities }) {
   if (!capabilities || capabilities.length === 0) {
-    return <span style={{ color: "#999", fontSize: "0.75rem" }}>—</span>;
+    return <span className="text-text-faint text-xs">—</span>;
   }
   return (
-    <span style={{ display: "flex", gap: "0.25rem", flexWrap: "wrap" }}>
+    <span className="flex gap-1 flex-wrap">
       {capabilities.map((c) => (
-        <span
-          key={c}
-          style={{
-            fontSize: "0.7rem",
-            padding: "0.1rem 0.4rem",
-            borderRadius: "4px",
-            background: "#e3f2fd",
-            color: "#1565c0",
-          }}
-        >
+        <span key={c} className="badge-neutral !bg-teal/15 !text-teal">
           {CAP_LABELS[c] || c}
         </span>
       ))}
@@ -42,6 +33,7 @@ export default function ProviderManager() {
   // فرم افزودن
   const [name, setName] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [showApiKey, setShowApiKey] = useState(false);
   const [adding, setAdding] = useState(false);
   const [addMessage, setAddMessage] = useState("");
 
@@ -181,26 +173,17 @@ export default function ProviderManager() {
   if (sessionStatus === "loading") return null;
   if (!session) {
     return (
-      <main style={{ padding: "2rem", textAlign: "center", maxWidth: "700px", margin: "0 auto" }}>
-        <p>برای مدیریت ارائه‌دهنده‌ها باید وارد بشی.</p>
+      <main className="min-h-screen bg-bg text-text px-4 py-10 max-w-2xl mx-auto text-center">
+        <p className="text-text-muted">برای مدیریت ارائه‌دهنده‌ها باید وارد بشی.</p>
       </main>
     );
   }
 
   return (
-    <main style={{ padding: "1rem", maxWidth: "700px", margin: "0 auto" }}>
-      <h2>🔌 ارائه‌دهنده‌های API</h2>
+    <main className="min-h-screen bg-bg text-text px-4 py-6 max-w-2xl mx-auto">
+      <h1 className="text-xl font-bold mb-3">🔌 ارائه‌دهنده‌های API</h1>
 
-      <div
-        style={{
-          background: "#fff8e1",
-          border: "1px solid #ffe082",
-          borderRadius: "8px",
-          padding: "0.8rem",
-          fontSize: "0.85rem",
-          marginBottom: "1.2rem",
-        }}
-      >
+      <div className="rounded-lg border border-amber-dim bg-amber/10 text-sm p-3 mb-5 leading-relaxed">
         یک اسم دلخواه و کلید API هر سرویسی رو بده (OpenAI، Groq، Anthropic،
         ElevenLabs، Stability AI، Pexels و...) — سیستم خودش با تست عملی
         تشخیص می‌ده این کلید چیکار می‌تونه بکنه (متن/عکس/ویدیو/صدا). اگه
@@ -209,171 +192,250 @@ export default function ProviderManager() {
         اول امتحان بشه.
       </div>
 
-      {error && <p style={{ color: "#c62828" }}>{error}</p>}
+      {error && <p className="text-danger mb-3">{error}</p>}
 
-      <h3>ارائه‌دهنده‌های فعلی</h3>
+      <h2 className="font-semibold mb-2">ارائه‌دهنده‌های فعلی</h2>
       {loading ? (
-        <p>در حال بارگذاری...</p>
+        <p className="text-text-muted">در حال بارگذاری...</p>
       ) : providers.length === 0 ? (
-        <p style={{ color: "#777" }}>هنوز ارائه‌دهنده‌ای اضافه نشده.</p>
+        <p className="text-text-muted mb-6">هنوز ارائه‌دهنده‌ای اضافه نشده.</p>
       ) : (
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem", marginBottom: "1.5rem" }}>
-          <thead>
-            <tr style={{ borderBottom: "2px solid #ddd", textAlign: "right" }}>
-              <th style={{ padding: "0.4rem" }}>اسم</th>
-              <th style={{ padding: "0.4rem" }}>سرویس</th>
-              <th style={{ padding: "0.4rem" }}>قابلیت‌ها</th>
-              <th style={{ padding: "0.4rem" }}>وضعیت</th>
-              <th style={{ padding: "0.4rem" }}>فعال</th>
-              <th style={{ padding: "0.4rem" }}></th>
-            </tr>
-          </thead>
-          <tbody>
-            {providers.map((p) => (
-              <tr key={p.id} style={{ borderBottom: "1px solid #eee" }}>
-                <td style={{ padding: "0.4rem" }}>
-                  {p.name}
-                  {p.built_in && (
-                    <span style={{ fontSize: "0.7rem", color: "#999" }}> (پیش‌فرض)</span>
-                  )}
-                </td>
-                <td style={{ padding: "0.4rem" }}>
-                  {p.service === "unknown" ? (
-                    <div style={{ display: "flex", gap: "0.3rem", alignItems: "center" }}>
-                      <select
-                        value={pendingManual[p.id] ?? ""}
-                        onChange={(e) =>
-                          setPendingManual((prev) => ({ ...prev, [p.id]: e.target.value }))
-                        }
-                        style={{ fontSize: "0.8rem" }}
-                      >
-                        <option value="">ناشناخته — انتخاب کن</option>
-                        {Object.entries(services).map(([id, s]) => (
-                          <option key={id} value={id}>
-                            {s.label}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        type="button"
-                        onClick={() => handleAssignService(p.id)}
-                        disabled={!pendingManual[p.id]}
-                        style={{ fontSize: "0.75rem" }}
-                      >
-                        ثبت
+        <>
+          {/* دسکتاپ: جدول */}
+          <div className="hidden md:block overflow-x-auto mb-6">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b-2 border-border text-right">
+                  <th className="p-2 text-text-muted font-medium">اسم</th>
+                  <th className="p-2 text-text-muted font-medium">سرویس</th>
+                  <th className="p-2 text-text-muted font-medium">قابلیت‌ها</th>
+                  <th className="p-2 text-text-muted font-medium">وضعیت</th>
+                  <th className="p-2 text-text-muted font-medium">فعال</th>
+                  <th className="p-2"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {providers.map((p) => (
+                  <tr key={p.id} className="border-b border-border">
+                    <td className="p-2">
+                      {p.name}
+                      {p.built_in && <span className="text-xs text-text-faint"> (پیش‌فرض)</span>}
+                    </td>
+                    <td className="p-2">
+                      <ServiceCell
+                        p={p}
+                        services={services}
+                        pendingManual={pendingManual}
+                        setPendingManual={setPendingManual}
+                        onAssign={handleAssignService}
+                      />
+                    </td>
+                    <td className="p-2">
+                      <CapBadges capabilities={p.capabilities} />
+                    </td>
+                    <td className="p-2">
+                      <CheckCell p={p} checking={checking} onCheck={handleCheck} />
+                    </td>
+                    <td className="p-2">
+                      <input
+                        type="checkbox"
+                        checked={p.enabled}
+                        onChange={() => handleToggleEnabled(p)}
+                        className="w-4 h-4 accent-amber"
+                      />
+                    </td>
+                    <td className="p-2">
+                      <button type="button" onClick={() => handleDelete(p.id)} className="btn-danger-ghost">
+                        حذف
                       </button>
-                    </div>
-                  ) : (
-                    services[p.service]?.label || p.service
-                  )}
-                </td>
-                <td style={{ padding: "0.4rem" }}>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* موبایل: کارت */}
+          <div className="md:hidden flex flex-col gap-3 mb-6">
+            {providers.map((p) => (
+              <div key={p.id} className="card">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <div className="font-medium">
+                    {p.name}
+                    {p.built_in && <span className="text-xs text-text-faint"> (پیش‌فرض)</span>}
+                  </div>
+                  <label className="flex items-center gap-1.5 text-xs text-text-muted">
+                    فعال
+                    <input
+                      type="checkbox"
+                      checked={p.enabled}
+                      onChange={() => handleToggleEnabled(p)}
+                      className="w-4 h-4 accent-amber"
+                    />
+                  </label>
+                </div>
+                <div className="mb-2">
+                  <ServiceCell
+                    p={p}
+                    services={services}
+                    pendingManual={pendingManual}
+                    setPendingManual={setPendingManual}
+                    onAssign={handleAssignService}
+                  />
+                </div>
+                <div className="mb-2">
                   <CapBadges capabilities={p.capabilities} />
-                </td>
-                <td style={{ padding: "0.4rem" }}>
-                  {p.last_check_ok === true && <span style={{ color: "#2e7d32" }}>✅</span>}
-                  {p.last_check_ok === false && (
-                    <span style={{ color: "#c62828" }} title={p.last_check_message}>
-                      ❌
-                    </span>
-                  )}
-                  {p.last_check_ok == null && <span style={{ color: "#999" }}>—</span>}
-                  <button
-                    type="button"
-                    onClick={() => handleCheck(p.id)}
-                    disabled={!!checking[p.id]}
-                    style={{ fontSize: "0.7rem", marginRight: "0.3rem" }}
-                  >
-                    {checking[p.id] ? "..." : "تست"}
-                  </button>
-                </td>
-                <td style={{ padding: "0.4rem" }}>
-                  <input type="checkbox" checked={p.enabled} onChange={() => handleToggleEnabled(p)} />
-                </td>
-                <td style={{ padding: "0.4rem" }}>
-                  <button type="button" onClick={() => handleDelete(p.id)} style={{ fontSize: "0.75rem" }}>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <CheckCell p={p} checking={checking} onCheck={handleCheck} />
+                  <button type="button" onClick={() => handleDelete(p.id)} className="btn-danger-ghost">
                     حذف
                   </button>
-                </td>
-              </tr>
+                </div>
+              </div>
             ))}
-          </tbody>
-        </table>
+          </div>
+        </>
       )}
 
-      <h3>افزودن ارائه‌دهنده‌ی جدید</h3>
-      <form onSubmit={handleAdd} style={{ display: "flex", flexDirection: "column", gap: "0.6rem", marginBottom: "2rem" }}>
-        <label>
-          اسم (دلخواه):{" "}
+      <h2 className="font-semibold mb-2">افزودن ارائه‌دهنده‌ی جدید</h2>
+      <form onSubmit={handleAdd} className="card flex flex-col gap-3 mb-6">
+        <div>
+          <label className="field-label">اسم (دلخواه)</label>
           <input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="مثلاً: OpenAI اصلی"
             required
+            className="field-input"
           />
-        </label>
-        <label>
-          کلید API:{" "}
-          <input
-            type="password"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            placeholder="sk-..."
-            required
-            style={{ width: "100%", maxWidth: "320px" }}
-          />
-        </label>
-        <button type="submit" disabled={adding}>
+        </div>
+        <div>
+          <label className="field-label">کلید API</label>
+          <div className="flex gap-2">
+            <input
+              type={showApiKey ? "text" : "password"}
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder="sk-..."
+              required
+              className="field-input flex-1"
+              dir="ltr"
+            />
+            <button
+              type="button"
+              onClick={() => setShowApiKey((v) => !v)}
+              className="btn-icon shrink-0"
+              aria-label={showApiKey ? "پنهان کردن کلید" : "نمایش کلید"}
+              title={showApiKey ? "پنهان کردن کلید" : "نمایش کلید"}
+            >
+              {showApiKey ? "🙈" : "👁️"}
+            </button>
+          </div>
+        </div>
+        <button type="submit" disabled={adding} className="btn-primary">
           {adding ? "در حال تشخیص و افزودن..." : "➕ افزودن (تشخیص خودکار)"}
         </button>
-        {addMessage && <p style={{ fontSize: "0.85rem" }}>{addMessage}</p>}
+        {addMessage && <p className="text-sm text-text-muted">{addMessage}</p>}
       </form>
 
-      <h3>اولویت هر نوع کار</h3>
-      <p style={{ fontSize: "0.8rem", color: "#777" }}>
+      <h2 className="font-semibold mb-1">اولویت هر نوع کار</h2>
+      <p className="text-sm text-text-muted mb-3">
         وقتی چند ارائه‌دهنده یک کار رو انجام می‌دن، اولین موردی که تو لیست
         زیر بالاتره امتحان می‌شه؛ اگه شکست خورد، خودکار میره سراغ بعدی.
       </p>
       {CAP_ORDER.map((taskType) => {
         const list = getOrderedProviders(taskType);
         return (
-          <div key={taskType} style={{ marginBottom: "1.2rem" }}>
-            <strong style={{ fontSize: "0.85rem" }}>
-              {taskLabels[taskType] || CAP_LABELS[taskType]}
-            </strong>
+          <div key={taskType} className="card mb-3">
+            <strong className="text-sm">{taskLabels[taskType] || CAP_LABELS[taskType]}</strong>
             {list.length === 0 ? (
-              <p style={{ fontSize: "0.8rem", color: "#999", margin: "0.3rem 0" }}>
-                هیچ ارائه‌دهنده‌ی فعالی برای این کار نیست.
-              </p>
+              <p className="text-sm text-text-faint mt-1.5">هیچ ارائه‌دهنده‌ی فعالی برای این کار نیست.</p>
             ) : (
-              <ol style={{ margin: "0.3rem 0", paddingRight: "1.2rem" }}>
+              <div className="flex flex-col gap-1.5 mt-2">
                 {list.map((p, i) => (
-                  <li key={p.id} style={{ fontSize: "0.85rem", marginBottom: "0.2rem" }}>
-                    {p.name} ({services[p.service]?.label || p.service}){" "}
-                    <button
-                      type="button"
-                      onClick={() => movePriority(taskType, i, -1)}
-                      disabled={i === 0}
-                      style={{ fontSize: "0.7rem" }}
-                    >
-                      ▲
-                    </button>{" "}
-                    <button
-                      type="button"
-                      onClick={() => movePriority(taskType, i, 1)}
-                      disabled={i === list.length - 1}
-                      style={{ fontSize: "0.7rem" }}
-                    >
-                      ▼
-                    </button>
-                  </li>
+                  <div
+                    key={p.id}
+                    className="flex items-center justify-between gap-2 rounded-md bg-surface-raised border border-border px-2.5 py-1.5"
+                  >
+                    <span className="text-sm">
+                      {p.name} <span className="text-text-muted">({services[p.service]?.label || p.service})</span>
+                    </span>
+                    <div className="flex gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => movePriority(taskType, i, -1)}
+                        disabled={i === 0}
+                        className="btn-icon !w-8 !h-8"
+                        aria-label="بالاتر"
+                      >
+                        ▲
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => movePriority(taskType, i, 1)}
+                        disabled={i === list.length - 1}
+                        className="btn-icon !w-8 !h-8"
+                        aria-label="پایین‌تر"
+                      >
+                        ▼
+                      </button>
+                    </div>
+                  </div>
                 ))}
-              </ol>
+              </div>
             )}
           </div>
         );
       })}
     </main>
+  );
+}
+
+function ServiceCell({ p, services, pendingManual, setPendingManual, onAssign }) {
+  if (p.service !== "unknown") {
+    return <span>{services[p.service]?.label || p.service}</span>;
+  }
+  return (
+    <div className="flex gap-1.5 items-center flex-wrap">
+      <select
+        value={pendingManual[p.id] ?? ""}
+        onChange={(e) => setPendingManual((prev) => ({ ...prev, [p.id]: e.target.value }))}
+        className="field-select !py-1.5 !text-sm w-auto"
+      >
+        <option value="">ناشناخته — انتخاب کن</option>
+        {Object.entries(services).map(([id, s]) => (
+          <option key={id} value={id}>
+            {s.label}
+          </option>
+        ))}
+      </select>
+      <button
+        type="button"
+        onClick={() => onAssign(p.id)}
+        disabled={!pendingManual[p.id]}
+        className="btn-ghost"
+      >
+        ثبت
+      </button>
+    </div>
+  );
+}
+
+function CheckCell({ p, checking, onCheck }) {
+  return (
+    <div className="flex items-center gap-2">
+      {p.last_check_ok === true && <span className="badge-ok">✅ سالم</span>}
+      {p.last_check_ok === false && (
+        <span className="badge-fail" title={p.last_check_message}>
+          ❌ خطا
+        </span>
+      )}
+      {p.last_check_ok == null && <span className="badge-neutral">—</span>}
+      <button type="button" onClick={() => onCheck(p.id)} disabled={!!checking[p.id]} className="btn-ghost">
+        {checking[p.id] ? "..." : "تست"}
+      </button>
+    </div>
   );
 }
