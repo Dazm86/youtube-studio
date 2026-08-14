@@ -224,6 +224,22 @@ git push
 
 ## Known constraints
 
+- **`globals.css`: don't use `@apply` for utilities that don't also
+  appear as a literal className somewhere in JSX** — discovered the
+  hard way in Phase 8. `@apply gap-1.5 ...` inside `@layer components`
+  broke the real Turbopack/Tailwind v4 build with `Cannot apply
+  unknown utility class 'gap-1.5'`, even though `gap-1.5` is a
+  perfectly normal utility and works fine when used directly as a
+  className in JSX. Best-understood cause: `@apply` only resolves
+  against the set of utilities Tailwind's content-scanner already
+  found as literal classNames; a fractional-spacing value used *only*
+  inside `@apply` (never directly in any component) wasn't in that
+  set. Every custom class in `globals.css` is now written as plain CSS
+  referencing the `@theme` custom properties directly (`var(--color-
+  amber)` etc.) instead of `@apply` — safe regardless of this quirk.
+  If you add a new custom class later, keep doing it in plain CSS, or
+  if you do use `@apply`, first confirm every utility in it is also
+  used as a literal className somewhere in the JSX you're scanning.
 - Render free tier (512MB RAM, shared CPU) is *the* reason rendering is
   one segment at a time and why render speed has a hard-ish ceiling —
   software tuning helps, but a paid tier is the honest fix if it's still
@@ -354,6 +370,21 @@ git push
 ## Changelog
 
 Newest first. Add new entries above the top one — date, what, why, files.
+
+### 2026-08-14 — Hotfix: Phase 8's globals.css broke the real Turbopack build
+The `@layer components` block added in Phase 8 (below) used `@apply` for
+every custom class; the actual `next build` on Render failed immediately
+with `CssSyntaxError: Cannot apply unknown utility class 'gap-1.5'`. Root
+cause and permanent fix now documented under "Known constraints" above —
+short version: `@apply` in this project's Tailwind v4 setup only resolves
+utilities that also appear as a literal className somewhere in JSX, and a
+few fractional-spacing values here were only ever used inside `@apply`.
+Rewrote every custom class in `globals.css` as plain CSS referencing the
+`@theme` custom properties directly (`var(--color-amber)` etc.) — zero
+`@apply` left in the file. Class *names* are unchanged (`.btn-primary`,
+`.field-input`, ...), so no JSX in any of the 9 Phase 8 files needed to
+change; confirmed every custom className used across those files still has
+a matching definition. File: `src/app/globals.css` only.
 
 ### 2026-08-14 — Phase 8: UX/UI audit + full dark-theme rebuild (all screens outside the home dashboard)
 Ran a structured UX audit (first-time-user pass across all 7 screens) before
