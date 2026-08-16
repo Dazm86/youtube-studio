@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "../auth/authOptions";
-import { getAllVideoIds, updateVideoStats } from "../../../lib/db";
-import { fetchStatsForVideos } from "../../../lib/youtubeAnalytics";
+import { authOptions } from "@/lib/auth/authOptions";
+import { getAllVideoIds, updateVideoStats } from "@/lib/db";
+import { fetchStatsForVideos } from "@/lib/analytics";
 
 export async function POST() {
   const session = await getServerSession(authOptions);

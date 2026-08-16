@@ -1,10 +1,18 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "../auth/authOptions";
+import { authOptions } from "@/lib/auth/authOptions";
 import { google } from "googleapis";
 import { Readable } from "stream";
-import { buildMayaThumbnail } from "../../../lib/mayaThumbnail";
-import { getVideoByVideoId, setActiveVariant } from "../../../lib/db";
+import { getVideoByVideoId, setActiveVariant } from "@/lib/db";
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+// Dynamic import sharp to avoid build-time issues on unsupported platforms
+async function getBuildMayaThumbnail() {
+  const { buildMayaThumbnail } = await import("@/lib/rendering");
+  return buildMayaThumbnail;
+}
 
 // نکته‌ی مهم: یوتیوب هیچ راهی برای نمایش هم‌زمانِ دو عنوان/تامبنیل به
 // دو گروه بیننده (یعنی split-test واقعی) از طریق API عمومی نمی‌ده —
@@ -64,6 +72,7 @@ export async function POST(req) {
 
     let thumbnailStatus = "skipped";
     try {
+      const buildMayaThumbnail = await getBuildMayaThumbnail();
       const thumbBuffer = await buildMayaThumbnail({
         title: newTitle,
         thumbnailText: newThumbText,

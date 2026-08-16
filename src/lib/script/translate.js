@@ -11,7 +11,7 @@
 // giving up — same "give it one more focused shot" pattern used for the
 // 8-minute script-length safety net in scriptGen.js.
 
-import { generateText } from "./providers/router";
+import { generateText } from "@/lib/providers/router";
 
 async function requestTranslation(captions, languageName, strict) {
   const strictNote = strict

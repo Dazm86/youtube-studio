@@ -1,5 +1,5 @@
 import { Pool } from "pg";
-import { encrypt } from "./providers/crypto";
+import { encrypt } from "@/lib/providers/crypto";
 
 let pool = null;
 let schemaReady = null;
@@ -64,17 +64,8 @@ async function ensureSchema() {
           ADD COLUMN IF NOT EXISTS active_variant TEXT DEFAULT 'A',
           ADD COLUMN IF NOT EXISTS variant_switched_at TIMESTAMPTZ;
       `);
-      // فاز ۴ — لاگِ ساختاریافته‌ی هر اجرا (کدوم مرحله چقدر طول کشید، کجا
-      // fallback خورد، چه هشدارهایی داده شد) + پرچمِ «نیاز به بازبینیِ
-      // دستی» وقتی یه چیزِ غیرعادی تشخیص داده شد (مثلاً تامبنیل/زیرنویس
-      // شکست خورد، یا کلیدواژه‌ی حساسی تو اسکریپت پیدا شد) — به‌جای
-      // console.error پراکنده که فقط تو لاگِ سرور می‌مونه و بعداً قابلِ
-      // جستجو نیست.
-      await getPool().query(`
-        ALTER TABLE videos
-          ADD COLUMN IF NOT EXISTS run_log JSONB,
-          ADD COLUMN IF NOT EXISTS needs_review BOOLEAN DEFAULT false;
-      `);
+      // فاز ۳ — پست‌های کامیونیتی: چون یوتیوب هیچ endpoint عمومی‌ای برای
+      // پست کردن خودکار تو تب Community نداره، فقط پیش‌نویس (poll/quote)
       // تولیدشده با Groq رو اینجا نگه می‌داریم تا کاربر خودش دستی پیست کنه.
       await getPool().query(`
         CREATE TABLE IF NOT EXISTS community_posts (
@@ -348,17 +339,14 @@ export async function recordVideo({
   thumbnailText,
   titleB,
   thumbnailTextB,
-  runLog,
-  needsReview,
 }) {
   try {
     await ensureSchema();
     await getPool().query(
       `INSERT INTO videos
          (video_id, title, script, video_mode, use_video_clips, image_keyword,
-          thumbnail_text, title_a, title_b, thumbnail_text_a, thumbnail_text_b, active_variant,
-          run_log, needs_review)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'A', $12, $13)`,
+          thumbnail_text, title_a, title_b, thumbnail_text_a, thumbnail_text_b, active_variant)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'A')`,
       [
         videoId,
         title || "",
@@ -371,8 +359,6 @@ export async function recordVideo({
         titleB || null,
         thumbnailText || "",
         thumbnailTextB || null,
-        runLog ? JSON.stringify(runLog) : null,
-        !!needsReview,
       ]
     );
   } catch (err) {

@@ -1,17 +1,21 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "../auth/authOptions";
+import { authOptions } from "@/lib/auth/authOptions";
 import { google } from "googleapis";
 import { Readable } from "stream";
-import {
-  renderVerticalShortFromSource,
-  probeDurationSec,
-} from "../../../lib/videoRender";
-import { getRetentionCurve, findBestRetentionWindow } from "../../../lib/repurpose";
-import { recordRepurposedShort } from "../../../lib/db";
+import { getRetentionCurve, findBestRetentionWindow } from "@/lib/repurpose";
+import { recordRepurposedShort } from "@/lib/db";
 import fsp from "fs/promises";
 import os from "os";
 import path from "path";
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+async function getRenderVerticalShortFromSource() {
+  const { renderVerticalShortFromSource, probeDurationSec } = await import("@/lib/rendering");
+  return { renderVerticalShortFromSource, probeDurationSec };
+}
 
 // نکته‌ی مهم درباره‌ی طراحیِ این روت: YouTube Data API v3 هیچ راهی برای
 // دانلود دوباره‌ی فایل خودِ ویدیوی از قبل آپلودشده نمی‌ده (نه
@@ -53,6 +57,7 @@ export async function POST(req) {
     const sourcePath = path.join(tmpDir, "source_input.mp4");
     await fsp.writeFile(sourcePath, buffer);
 
+    const { probeDurationSec } = await getRenderVerticalShortFromSource();
     const totalDurationSec = await probeDurationSec(sourcePath);
     if (totalDurationSec <= targetDurationSec) {
       return NextResponse.json(
@@ -96,6 +101,7 @@ export async function POST(req) {
       }
     }
 
+    const { renderVerticalShortFromSource } = await getRenderVerticalShortFromSource();
     const shortBuffer = await renderVerticalShortFromSource({
       sourceBuffer: buffer,
       startSec,

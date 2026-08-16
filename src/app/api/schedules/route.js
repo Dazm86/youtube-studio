@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "../auth/authOptions";
+import { authOptions } from "@/lib/auth/authOptions";
 import {
   listSchedules,
   createSchedule,
   updateSchedule,
   deleteSchedule,
   listRecentScheduleRuns,
-} from "../../../lib/db";
+} from "@/lib/db";
 
 export async function GET() {
   const session = await getServerSession(authOptions);

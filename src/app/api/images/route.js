@@ -1,7 +1,14 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "../auth/authOptions";
-import { fetchImages } from "../../../lib/media";
+import { authOptions } from "@/lib/auth/authOptions";
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+async function getFetchImages() {
+  const { fetchImages } = await import("@/lib/media");
+  return fetchImages;
+}
 
 export async function POST(req) {
   const session = await getServerSession(authOptions);
@@ -17,6 +24,7 @@ export async function POST(req) {
   }
 
   try {
+    const fetchImages = await getFetchImages();
     const result = await fetchImages({ text, keyword, count, orientation });
     return NextResponse.json(result);
   } catch (err) {

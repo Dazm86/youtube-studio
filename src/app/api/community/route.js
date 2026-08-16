@@ -1,8 +1,15 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "../auth/authOptions";
-import { generateCommunityPost } from "../../../lib/communityPost";
-import { getVideoByVideoId, recordCommunityPost, getCommunityPostsForVideo } from "../../../lib/db";
+import { authOptions } from "@/lib/auth/authOptions";
+import { getVideoByVideoId, recordCommunityPost, getCommunityPostsForVideo } from "@/lib/db";
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+async function getGenerateCommunityPost() {
+  const { generateCommunityPost } = await import("@/lib/community");
+  return generateCommunityPost;
+}
 
 // POST { videoId } → یک پیش‌نویس پست کامیونیتی (poll/quote) تولید و
 // ذخیره می‌کنه. چون یوتیوب هیچ endpoint عمومی‌ای برای انتشار خودکار تو
@@ -31,6 +38,7 @@ export async function POST(req) {
       script = video.script;
     }
 
+    const generateCommunityPost = await getGenerateCommunityPost();
     const draft = await generateCommunityPost({ title, script });
     const saved = await recordCommunityPost({ videoId, ...draft });
 

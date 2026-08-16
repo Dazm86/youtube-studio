@@ -1,9 +1,16 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "../auth/authOptions";
+import { authOptions } from "@/lib/auth/authOptions";
 import { google } from "googleapis";
 import { Readable } from "stream";
-import { buildMayaThumbnail } from "../../../lib/mayaThumbnail";
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+async function getBuildMayaThumbnail() {
+  const { buildMayaThumbnail } = await import("@/lib/rendering");
+  return buildMayaThumbnail;
+}
 
 export async function POST(req) {
   const session = await getServerSession(authOptions);
@@ -66,6 +73,7 @@ export async function POST(req) {
     let thumbnailStatus = "skipped";
 
     try {
+      const buildMayaThumbnail = await getBuildMayaThumbnail();
       const thumbBuffer = await buildMayaThumbnail({ title, thumbnailText, script, bgImageUrl });
       await youtube.thumbnails.set({
         videoId,

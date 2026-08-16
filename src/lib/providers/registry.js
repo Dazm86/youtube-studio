@@ -17,8 +17,21 @@
 //     و mayaThumbnail.js هر دو شکل رو می‌فهمن.
 
 import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
-import { extractKeywords } from "./textUtils";
-import { pickMayaPose } from "../mayaThumbnail";
+import { extractKeywords } from "@/lib/providers/textUtils";
+
+// Dynamic import pickMayaPose to avoid build-time issues on unsupported platforms
+async function getPickMayaPose() {
+  const { pickMayaPose } = await import("@/lib/rendering");
+  return pickMayaPose;
+}
+
+let pickMayaPoseCache = null;
+async function getPickMayaPoseCached() {
+  if (!pickMayaPoseCache) {
+    pickMayaPoseCache = await getPickMayaPose();
+  }
+  return pickMayaPoseCache;
+}
 
 const GROQ_TEXT_MODEL = "llama-3.3-70b-versatile";
 const OPENAI_TEXT_MODEL = "gpt-4o-mini";
@@ -224,6 +237,7 @@ async function stabilityImages({ apiKey, text, keyword, count, orientation }) {
 const CALM_TTS_MOODS = new Set(["meditating", "caring", "thinking", "surprised"]);
 
 async function msedgeTts({ text, voice }) {
+  const pickMayaPose = await getPickMayaPoseCached();
   const resolvedVoice =
     voice || (CALM_TTS_MOODS.has(pickMayaPose(text)) ? "en-US-JennyNeural" : "en-US-AriaNeural");
   const tts = new MsEdgeTTS();

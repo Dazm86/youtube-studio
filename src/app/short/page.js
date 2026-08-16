@@ -1,4 +1,4 @@
-import VideoStudio from "../../components/VideoStudio";
+import VideoStudio from "../../components/studio/VideoStudio";
 
 export const metadata = {
   title: "ویدیوی شورت | استودیوی یوتیوب",

@@ -5,6 +5,13 @@ import path from "path";
 const CANVAS_W = 1280;
 const CANVAS_H = 720;
 
+export function escapeDrawtextForShort(text) {
+  return String(text || "")
+    .replace(/'/g, "\u2019")
+    .replace(/:/g, "\\:")
+    .replace(/%/g, "\\%");
+}
+
 const POSE_KEYWORDS = {
   excited: ["amazing", "exciting", "celebrate", "celebration", "joy", "wonderful", "fantastic", "awesome"],
   thinking: ["wonder", "think", "why", "question", "curious", "ponder", "consider"],

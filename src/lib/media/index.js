@@ -4,5 +4,5 @@
 // همینا رو صدا می‌زنن)، ولی پشتِ صحنه router بر اساس اولویتِ تنظیم‌شده
 // تو صفحه‌ی «ارائه‌دهنده‌های API» تصمیم می‌گیره از کدوم سرویس استفاده کنه.
 
-export { extractKeywords } from "./providers/textUtils";
-export { fetchImages, fetchClips } from "./providers/router";
+export { extractKeywords } from "@/lib/providers/textUtils";
+export { fetchImages, fetchClips } from "@/lib/providers/router";

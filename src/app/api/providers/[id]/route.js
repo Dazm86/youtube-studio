@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "../../auth/authOptions";
-import { updateProvider, deleteProvider } from "../../../../lib/db";
-import { REGISTRY } from "../../../../lib/providers/registry";
+import { authOptions } from "@/lib/auth/authOptions";
+import { updateProvider, deleteProvider } from "@/lib/db";
+import { REGISTRY } from "@/lib/providers/registry";
+
+export const dynamic = "force-dynamic";
 
 export async function PUT(req, { params }) {
   const session = await getServerSession(authOptions);

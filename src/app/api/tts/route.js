@@ -1,7 +1,14 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "../auth/authOptions";
-import { synthesizeSpeech } from "../../../lib/providers/router";
+import { authOptions } from "@/lib/auth/authOptions";
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+async function getSynthesizeSpeech() {
+  const { synthesizeSpeech } = await import("@/lib/providers/router");
+  return synthesizeSpeech;
+}
 
 export async function POST(req) {
   const session = await getServerSession(authOptions);
@@ -20,6 +27,7 @@ export async function POST(req) {
     // voice اختیاریه — هر ارائه‌دهنده‌ی صدا (msedge-tts، OpenAI،
     // ElevenLabs...) فضای اسم صدای خودش رو داره، پس اگه فرستاده نشه
     // همون پیش‌فرض provider انتخاب‌شده استفاده می‌شه.
+    const synthesizeSpeech = await getSynthesizeSpeech();
     const { buffer, mimeType } = await synthesizeSpeech({ text, voice });
 
     return new NextResponse(buffer, {

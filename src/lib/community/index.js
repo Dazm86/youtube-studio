@@ -6,7 +6,7 @@
 // روتِ کنارش (api/community-post) اون رو به‌عنوان پیش‌نویس ذخیره می‌کنه
 // تا کاربر خودش با یک کپی‌پیست تو اپ یوتیوب منتشرش کنه.
 
-import { generateText } from "./providers/router";
+import { generateText } from "@/lib/providers/router";
 
 export async function generateCommunityPost({ title, script }) {
   const prompt = `You write Community Tab posts for a YouTube mindfulness channel called "The Mindful Path", hosted by Maya (energetic, warm personality).

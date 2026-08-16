@@ -1,14 +1,23 @@
 import { google } from "googleapis";
 import { Readable } from "stream";
-import { synthesizeSpeech } from "./providers/router";
-import { fetchImages, fetchClips } from "./media";
-import { renderVideo, estimateAudioDurationSec, trimSilenceFromAudio, detectLongSilences } from "./videoRender";
-import { distributeDurations, buildSrt, validateSrt, regroupForSubtitles } from "./scriptTiming";
-import { translateCaptions } from "./translateCaptions";
-import { buildMayaThumbnail } from "./mayaThumbnail";
-import { generateChapters } from "./metadataGen";
-import { generateCommunityPost } from "./communityPost";
-import { recordVideo, recordCommunityPost } from "./db";
+import { synthesizeSpeech } from "@/lib/providers/router";
+import { fetchImages, fetchClips } from "@/lib/media";
+import { distributeDurations, buildSrt, validateSrt, regroupForSubtitles } from "@/lib/script/timing";
+import { translateCaptions } from "@/lib/script/translate";
+import { generateChapters } from "@/lib/metadata";
+import { generateCommunityPost } from "@/lib/community";
+import { recordVideo, recordCommunityPost } from "@/lib/db";
+
+// Dynamic imports for rendering functions to avoid build-time issues on unsupported platforms
+async function getRendering() {
+  const { renderVideo, estimateAudioDurationSec, trimSilenceFromAudio, detectLongSilences } = await import("@/lib/rendering");
+  return { renderVideo, estimateAudioDurationSec, trimSilenceFromAudio, detectLongSilences };
+}
+
+async function getMayaThumbnail() {
+  const { buildMayaThumbnail } = await import("@/lib/rendering/mayaThumbnail");
+  return { buildMayaThumbnail };
+}
 
 function formatChapterTime(sec) {
   const s = Math.max(0, Math.round(sec));
@@ -294,6 +303,10 @@ async function runPipelineCore(
   beginStage("audio");
   emit({ status: "مرحله ۱ از ۵: در حال ساخت صدا...", progress: 2 });
   const { buffer: rawAudioBuffer } = await synthesizeSpeech({ text: script });
+
+  // Get rendering functions dynamically
+  const { trimSilenceFromAudio, detectLongSilences, estimateAudioDurationSec: estimateAudioDuration } = await getRendering();
+
   // gTTS/msedge-tts گاهی چند دهم ثانیه سکوتِ اضافه قبل/بعدِ روایت می‌ذاره
   // — قبل از این‌که audioDurationSec (که کلِ تایمینگِ رسانه/رندر بهش
   // وابسته‌ست) محاسبه بشه می‌بریمش، تا هوکِ اولِ ویدیو معطل نمونه و این
@@ -321,7 +334,7 @@ async function runPipelineCore(
 
   // --- ۲. تقسیم اسکریپت به بخش‌های زمان‌بندی‌شده + گرفتن عکس/کلیپ مخصوص هر بخش ---
   const isShort = videoMode === "short";
-  const audioDurationSec = await estimateAudioDurationSec(audioBuffer);
+  const audioDurationSec = await estimateAudioDuration(audioBuffer);
   if (!isShort && audioDurationSec < 480) {
     // هدفِ پرامپتِ اسکریپت (scriptGen.js) رد شدن از ۸ دقیقه‌ست، چون زیرِ
     // این آستانه یوتیوب اجازه‌ی چند تبلیغِ میان‌ویدیو نمی‌ده — این فقط یک
@@ -394,6 +407,7 @@ async function runPipelineCore(
   // --- ۳. رندر ویدیو ---
   beginStage("render");
   emit({ status: "مرحله ۳ از ۵: در حال رندر ویدیو...", progress: 16 });
+  const { renderVideo } = await getRendering();
   const videoBuffer = await renderVideo({
     durations,
     captions,
@@ -469,6 +483,7 @@ async function runPipelineCore(
   // --- ۵. تامبنیل ---
   let thumbnailStatus = "skipped";
   try {
+    const { buildMayaThumbnail } = await getMayaThumbnail();
     const thumbBuffer = await buildMayaThumbnail({
       title,
       thumbnailText,

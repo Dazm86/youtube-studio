@@ -1,6 +1,6 @@
-import { getRecentVideoTitles } from "./channelHistory";
-import { getTopPerformingVideos } from "./db";
-import { generateText } from "./providers/router";
+import { getRecentVideoTitles } from "@/lib/utils/channelHistory";
+import { getTopPerformingVideos } from "@/lib/db";
+import { generateText } from "@/lib/providers/router";
 
 // این تابع دقیقاً همون منطقِ api/generate-script/route.js هست، فقط از
 // یک route جدا شده تا هم مسیر تعاملی (کاربر تو UI دکمه می‌زنه) و هم

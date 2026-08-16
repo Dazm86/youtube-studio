@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "../auth/authOptions";
-import { generateMetadata } from "../../../lib/metadataGen";
+import { authOptions } from "@/lib/auth/authOptions";
+import { generateMetadata } from "@/lib/metadata";
+
+export const dynamic = "force-dynamic";
 
 export async function POST(req) {
   const session = await getServerSession(authOptions);

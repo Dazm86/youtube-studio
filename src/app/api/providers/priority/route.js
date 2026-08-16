@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "../../auth/authOptions";
-import { setPriorityOrder } from "../../../../lib/db";
+import { authOptions } from "@/lib/auth/authOptions";
+import { setPriorityOrder } from "@/lib/db";
 
 export async function PUT(req) {
   const session = await getServerSession(authOptions);

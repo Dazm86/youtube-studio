@@ -1,9 +1,16 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "../../../auth/authOptions";
-import { getProviderById, recordProviderCheck } from "../../../../../lib/db";
-import { REGISTRY } from "../../../../../lib/providers/registry";
-import { resolveApiKey } from "../../../../../lib/providers/router";
+import { authOptions } from "@/lib/auth/authOptions";
+import { getProviderById, recordProviderCheck } from "@/lib/db";
+import { REGISTRY } from "@/lib/providers/registry";
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+async function getResolveApiKey() {
+  const { resolveApiKey } = await import("@/lib/providers/router");
+  return resolveApiKey;
+}
 
 export async function POST(req, { params }) {
   const session = await getServerSession(authOptions);
@@ -28,6 +35,7 @@ export async function POST(req, { params }) {
       return NextResponse.json({ ok: true, message: "همیشه در دسترسه ✅" });
     }
 
+    const resolveApiKey = await getResolveApiKey();
     const apiKey = resolveApiKey(provider);
     if (!apiKey) {
       const msg = "کلیدی در دسترس نیست";

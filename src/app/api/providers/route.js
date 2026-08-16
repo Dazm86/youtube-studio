@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "../auth/authOptions";
-import { listProviders, createProvider, getAllPriorities } from "../../../lib/db";
-import { detectService, REGISTRY, TASK_LABELS } from "../../../lib/providers/registry";
+import { authOptions } from "@/lib/auth/authOptions";
+import { listProviders, createProvider, getAllPriorities } from "@/lib/db";
+import { detectService, REGISTRY, TASK_LABELS } from "@/lib/providers/registry";
+
+export const dynamic = "force-dynamic";
 
 export async function GET() {
   const session = await getServerSession(authOptions);

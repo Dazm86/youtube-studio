@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "../../auth/authOptions";
+import { authOptions } from "@/lib/auth/authOptions";
 import { google } from "googleapis";
 
 export async function POST() {
