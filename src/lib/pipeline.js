@@ -1,5 +1,9 @@
 import { google } from "googleapis";
 import { Readable } from "stream";
+import fs from "fs";
+import fsp from "fs/promises";
+import path from "path";
+import os from "os";
 import { synthesizeSpeech } from "./providers/router.js";
 import { fetchImages, fetchClips } from "./media/index.js";
 import { distributeDurations, buildSrt, validateSrt, regroupForSubtitles } from "./script/timing.js";
@@ -408,17 +412,49 @@ async function runPipelineCore(
   beginStage("render");
   emit({ status: "مرحله ۳ از ۵: در حال رندر ویدیو...", progress: 16 });
   const { renderVideo } = await getRendering();
-  const videoBuffer = await renderVideo({
-    durations,
-    captions,
-    videoMode,
-    useVideoClips,
-    mediaItems,
-    audioBuffer,
-    onStatus: (s) => emit({ status: "مرحله ۳ از ۵: " + s }),
-    onProgress: (p) => emit({ progress: 15 + p * 65 }),
-  });
-  emit({ status: "ویدیو رندر شد ✅", progress: 80 });
+
+  const isShort = videoMode === "short";
+  const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), "pipeline-render-"));
+  const outputPath = path.join(tmpDir, "output.mp4");
+
+  try {
+    const assets = mediaItems.map((item, i) => ({
+      type: useVideoClips ? "video" : "image",
+      buffer: item.buffer || null,
+      path: item.path || null,
+      durationSec: item.durationSec,
+      loop: item.loop,
+    }));
+
+    const { probeDurationSec } = await getRendering();
+
+    await renderVideo({
+      script,
+      segments: captions.map((text, i) => ({
+        text,
+        startSec: durations[i].startSec,
+        endSec: durations[i].endSec,
+      })),
+      assets,
+      outputPath,
+      opts: {
+        width: isShort ? 720 : 1920,
+        height: isShort ? 1280 : 1080,
+        fps: 30,
+        fontPath: path.join(process.cwd(), "public", "fonts", "DejaVuSans-Bold.ttf"),
+        fontSize: isShort ? 44 : 48,
+        bgmPath: null,
+        bgmVolume: 0.12,
+      },
+    });
+
+    const videoBuffer = await fsp.readFile(outputPath);
+    const durationSec = await probeDurationSec(outputPath);
+
+    emit({ status: "ویدیو رندر شد ✅", progress: 80 });
+  } finally {
+    await fsp.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+  }
   endStage("render");
 
   // --- ۴. آپلود در یوتیوب ---
