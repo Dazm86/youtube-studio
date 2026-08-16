@@ -312,8 +312,15 @@ async function probeDurationSec(filePath) {
 
 // ---------- estimateAudioDurationSec (heuristic) ----------
 
-function estimateAudioDurationSec(text, wpm = 150) {
-  const words = text.trim().split(/\s+/).filter(Boolean).length;
+function estimateAudioDurationSec(input, wpm = 150) {
+  // Accept either text string or Buffer
+  if (Buffer.isBuffer(input)) {
+    // If Buffer, we need to estimate duration from file size (rough approximation)
+    // 128kbps MP3 = ~16KB/sec, so duration = bufferSize / 16000
+    return input.length / 16000;
+  }
+  // String text
+  const words = input.trim().split(/\s+/).filter(Boolean).length;
   return (words / wpm) * 60;
 }
 
@@ -321,15 +328,26 @@ function estimateAudioDurationSec(text, wpm = 150) {
 
 async function trimSilenceFromAudio(input, outputPath) {
   // Accept either file path (string) or Buffer
+  // If called with just a Buffer (no outputPath), return processed Buffer
+  const returnBuffer = Buffer.isBuffer(input) && !outputPath;
+  const tmpPath = path.join(os.tmpdir(), `audio-in-${Date.now()}.mp3`);
+
   if (Buffer.isBuffer(input)) {
-    const tmpPath = path.join(os.tmpdir(), `audio-in-${Date.now()}.mp3`);
     await fsp.writeFile(tmpPath, input);
-    await fsp.copyFile(tmpPath, outputPath);
-    await fsp.unlink(tmpPath).catch(() => {});
-    return outputPath;
+  } else {
+    // String path - copy to temp for processing
+    await fsp.copyFile(input, tmpPath);
   }
-  // String path
-  await fsp.copyFile(input, outputPath);
+
+  // For now just copy (placeholder - no actual silence trimming)
+  if (returnBuffer) {
+    const result = await fsp.readFile(tmpPath);
+    await fsp.unlink(tmpPath).catch(() => {});
+    return result;
+  }
+
+  await fsp.copyFile(tmpPath, outputPath);
+  await fsp.unlink(tmpPath).catch(() => {});
   return outputPath;
 }
 
@@ -337,14 +355,20 @@ async function trimSilenceFromAudio(input, outputPath) {
 
 async function detectLongSilences(input, thresholdDb = -40, minDurationSec = 1) {
   // Accept either file path (string) or Buffer
+  // If called with just a Buffer (no outputPath), treat as file path
+  const tmpPath = path.join(os.tmpdir(), `audio-silence-${Date.now()}.mp3`);
+
   if (Buffer.isBuffer(input)) {
-    const tmpPath = path.join(os.tmpdir(), `audio-silence-${Date.now()}.mp3`);
     await fsp.writeFile(tmpPath, input);
-    const result = await detectLongSilences(tmpPath, thresholdDb, minDurationSec);
-    await fsp.unlink(tmpPath).catch(() => {});
-    return result;
+  } else if (typeof input === 'string') {
+    // String path - use directly
+    await fsp.copyFile(input, tmpPath);
+  } else {
+    return [];
   }
-  // String path - placeholder returns empty array
+
+  // Placeholder returns empty array (no actual silence detection yet)
+  await fsp.unlink(tmpPath).catch(() => {});
   return [];
 }
 
@@ -444,7 +468,7 @@ export async function renderVerticalShortFromSource({
       "-y", outputPath,
     ];
 
-    await runFfmpeg(args, durationSec, onStatus ? () => {} : null);
+    await runFfmpeg(args);
 
     const outputBuffer = await fsp.readFile(outputPath);
     return outputBuffer;
