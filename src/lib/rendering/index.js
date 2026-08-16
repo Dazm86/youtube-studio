@@ -319,15 +319,32 @@ function estimateAudioDurationSec(text, wpm = 150) {
 
 // ---------- trimSilenceFromAudio (skip - not implemented fully) ----------
 
-async function trimSilenceFromAudio(inputPath, outputPath) {
-  // For now just copy
-  await fsp.copyFile(inputPath, outputPath);
+async function trimSilenceFromAudio(input, outputPath) {
+  // Accept either file path (string) or Buffer
+  if (Buffer.isBuffer(input)) {
+    const tmpPath = path.join(os.tmpdir(), `audio-in-${Date.now()}.mp3`);
+    await fsp.writeFile(tmpPath, input);
+    await fsp.copyFile(tmpPath, outputPath);
+    await fsp.unlink(tmpPath).catch(() => {});
+    return outputPath;
+  }
+  // String path
+  await fsp.copyFile(input, outputPath);
   return outputPath;
 }
 
 // ---------- detectLongSilences (placeholder) ----------
 
-async function detectLongSilences(audioPath, thresholdDb = -40, minDurationSec = 1) {
+async function detectLongSilences(input, thresholdDb = -40, minDurationSec = 1) {
+  // Accept either file path (string) or Buffer
+  if (Buffer.isBuffer(input)) {
+    const tmpPath = path.join(os.tmpdir(), `audio-silence-${Date.now()}.mp3`);
+    await fsp.writeFile(tmpPath, input);
+    const result = await detectLongSilences(tmpPath, thresholdDb, minDurationSec);
+    await fsp.unlink(tmpPath).catch(() => {});
+    return result;
+  }
+  // String path - placeholder returns empty array
   return [];
 }
 
