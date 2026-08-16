@@ -416,6 +416,9 @@ async function runPipelineCore(
   const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), "pipeline-render-"));
   const outputPath = path.join(tmpDir, "output.mp4");
 
+  let videoBuffer;
+  let durationSec;
+
   try {
     const assets = mediaItems.map((item, i) => ({
       type: useVideoClips ? "video" : "image",
@@ -447,8 +450,8 @@ async function runPipelineCore(
       },
     });
 
-    const videoBuffer = await fsp.readFile(outputPath);
-    const durationSec = await probeDurationSec(outputPath);
+    videoBuffer = await fsp.readFile(outputPath);
+    durationSec = await probeDurationSec(outputPath);
 
     emit({ status: "ویدیو رندر شد ✅", progress: 80 });
   } finally {
