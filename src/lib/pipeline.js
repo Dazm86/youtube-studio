@@ -413,7 +413,6 @@ async function runPipelineCore(
   emit({ status: "مرحله ۳ از ۵: در حال رندر ویدیو...", progress: 16 });
   const { renderVideo } = await getRendering();
 
-  const isShort = videoMode === "short";
   const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), "pipeline-render-"));
   const outputPath = path.join(tmpDir, "output.mp4");
 
@@ -438,11 +437,11 @@ async function runPipelineCore(
       assets,
       outputPath,
       opts: {
-        width: isShort ? 720 : 1920,
-        height: isShort ? 1280 : 1080,
+        width: videoMode === "short" ? 720 : 1920,
+        height: videoMode === "short" ? 1280 : 1080,
         fps: 30,
         fontPath: path.join(process.cwd(), "public", "fonts", "DejaVuSans-Bold.ttf"),
-        fontSize: isShort ? 44 : 48,
+        fontSize: videoMode === "short" ? 44 : 48,
         bgmPath: null,
         bgmVolume: 0.12,
       },
