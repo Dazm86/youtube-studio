@@ -16,6 +16,17 @@ async function getMayaThumbnail() {
   return { pickMayaPose, escapeDrawtextForShort };
 }
 
+// Sync getter for direct imports (like in registry.js)
+function getPickMayaPoseSync() {
+  if (!pickMayaPoseSync) {
+    throw new Error("pickMayaPose not initialized yet - import mayaThumbnail first");
+  }
+  return pickMayaPoseSync;
+}
+
+let pickMayaPoseSync = null;
+getMayaThumbnail().then(({ pickMayaPose }) => { pickMayaPoseSync = pickMayaPose; }).catch(() => {});
+
 const ffmpegPath = ffmpegInstaller.path;
 
 // --- فاز ۳: انتخاب موزیک زمینه‌ی پویا بر اساس حس‌وحال متن ---
@@ -434,6 +445,7 @@ export {
   trimSilenceFromAudio,
   detectLongSilences,
   pickBgmPath,
+  getPickMayaPoseSync as pickMayaPose,
   BATCH_SIZE,
 };
 

@@ -18,20 +18,7 @@
 
 import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
 import { extractKeywords } from "./textUtils.js";
-
-// Dynamic import pickMayaPose to avoid build-time issues on unsupported platforms
-async function getPickMayaPose() {
-  const { pickMayaPose } = await import("../rendering/index.js");
-  return pickMayaPose;
-}
-
-let pickMayaPoseCache = null;
-async function getPickMayaPoseCached() {
-  if (!pickMayaPoseCache) {
-    pickMayaPoseCache = await getPickMayaPose();
-  }
-  return pickMayaPoseCache;
-}
+import { pickMayaPose } from "../rendering/index.js";
 
 const GROQ_TEXT_MODEL = "llama-3.3-70b-versatile";
 const OPENAI_TEXT_MODEL = "gpt-4o-mini";
@@ -237,9 +224,8 @@ async function stabilityImages({ apiKey, text, keyword, count, orientation }) {
 const CALM_TTS_MOODS = new Set(["meditating", "caring", "thinking", "surprised"]);
 
 async function msedgeTts({ text, voice }) {
-  const pickMayaPose = await getPickMayaPoseCached();
   const resolvedVoice =
-    voice || (CALM_TTS_MOODS.has(pickMayaPose(text)) ? "en-US-JennyNeural" : "en-US-AriaNeural");
+    voice || (CALM_TTS_MOODS.has(pickMayaPose()(text)) ? "en-US-JennyNeural" : "en-US-AriaNeural");
   const tts = new MsEdgeTTS();
   await tts.setMetadata(resolvedVoice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
   const { audioStream } = await tts.toStream(text);
