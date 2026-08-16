@@ -1,4 +1,4 @@
-import { generateText } from "@/lib/providers/router";
+import { generateText } from "../providers/router.js";
 
 const STOPWORDS = new Set([
   "the", "a", "an", "and", "or", "but", "is", "are", "was", "were", "be",

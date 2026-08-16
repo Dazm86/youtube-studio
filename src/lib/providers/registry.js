@@ -17,11 +17,11 @@
 //     و mayaThumbnail.js هر دو شکل رو می‌فهمن.
 
 import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
-import { extractKeywords } from "@/lib/providers/textUtils";
+import { extractKeywords } from "./textUtils.js";
 
 // Dynamic import pickMayaPose to avoid build-time issues on unsupported platforms
 async function getPickMayaPose() {
-  const { pickMayaPose } = await import("@/lib/rendering");
+  const { pickMayaPose } = await import("../rendering/index.js");
   return pickMayaPose;
 }
 

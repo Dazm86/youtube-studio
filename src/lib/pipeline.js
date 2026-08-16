@@ -1,21 +1,21 @@
 import { google } from "googleapis";
 import { Readable } from "stream";
-import { synthesizeSpeech } from "@/lib/providers/router";
-import { fetchImages, fetchClips } from "@/lib/media";
-import { distributeDurations, buildSrt, validateSrt, regroupForSubtitles } from "@/lib/script/timing";
-import { translateCaptions } from "@/lib/script/translate";
-import { generateChapters } from "@/lib/metadata";
-import { generateCommunityPost } from "@/lib/community";
-import { recordVideo, recordCommunityPost } from "@/lib/db";
+import { synthesizeSpeech } from "./providers/router.js";
+import { fetchImages, fetchClips } from "./media/index.js";
+import { distributeDurations, buildSrt, validateSrt, regroupForSubtitles } from "./script/timing.js";
+import { translateCaptions } from "./script/translate.js";
+import { generateChapters } from "./metadata/index.js";
+import { generateCommunityPost } from "./community/index.js";
+import { recordVideo, recordCommunityPost } from "./db/index.js";
 
 // Dynamic imports for rendering functions to avoid build-time issues on unsupported platforms
 async function getRendering() {
-  const { renderVideo, estimateAudioDurationSec, trimSilenceFromAudio, detectLongSilences } = await import("@/lib/rendering");
+  const { renderVideo, estimateAudioDurationSec, trimSilenceFromAudio, detectLongSilences } = await import("./rendering/index.js");
   return { renderVideo, estimateAudioDurationSec, trimSilenceFromAudio, detectLongSilences };
 }
 
 async function getMayaThumbnail() {
-  const { buildMayaThumbnail } = await import("@/lib/rendering/mayaThumbnail");
+  const { buildMayaThumbnail } = await import("./rendering/mayaThumbnail.js");
   return { buildMayaThumbnail };
 }
 

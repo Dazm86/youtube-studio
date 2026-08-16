@@ -1,5 +1,5 @@
 import { Pool } from "pg";
-import { encrypt } from "@/lib/providers/crypto";
+import { encrypt } from "../providers/crypto.js";
 
 let pool = null;
 let schemaReady = null;

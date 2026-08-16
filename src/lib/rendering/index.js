@@ -233,7 +233,7 @@ async function renderVideo({
 
     // ۳. синтеز صدا (TTS) برای کل اسکریپت
     const ttsPath = path.join(tmpDir, "tts.mp3");
-    const { buffer: ttsBuffer } = await import("@/lib/providers/router").then((m) =>
+    const { buffer: ttsBuffer } = await import("../providers/router.js").then((m) =>
       m.synthesizeSpeech({ text: script })
     );
     await fsp.writeFile(ttsPath, ttsBuffer);

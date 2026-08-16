@@ -16,9 +16,9 @@
 
 import fs from "fs";
 import path from "path";
-import { getProvidersForCapability } from "@/lib/db";
-import { REGISTRY, TASK_LABELS } from "@/lib/providers/registry";
-import { decrypt } from "@/lib/providers/crypto";
+import { getProvidersForCapability } from "../db/index.js";
+import { REGISTRY, TASK_LABELS } from "./registry.js";
+import { decrypt } from "./crypto.js";
 
 // providerهای bootstrap (ساخته‌شده‌ی خودکار از env var قدیمی) هیچ کلیدی
 // تو دیتابیس ندارن (api_key = NULL) — یعنی «از همون env var قدیمی استفاده کن».
