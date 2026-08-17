@@ -15,7 +15,7 @@ import {
   buildSrt,
   validateSrt,
   regroupForSubtitles,
-} from "../src/lib/scriptTiming.js";
+} from "../src/lib/script/timing.js";
 
 let passed = 0;
 let failed = 0;
