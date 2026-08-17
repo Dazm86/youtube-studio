@@ -165,7 +165,7 @@ async function renderVideo({
         } else {
           await fsp.copyFile(asset.path, clipPath);
         }
-        inputArg = `-i "${clipPath}"`;
+        inputArg = ["-i", clipPath];
         // برای ویدیو: اسکیل/پد + لپ در صورت نیاز
         filterComplex = buildScaleFilter(width, height);
         if (asset.loop || dur > asset.durationSec) {
@@ -179,7 +179,7 @@ async function renderVideo({
         } else {
           await fsp.copyFile(asset.path, imgPath);
         }
-        inputArg = `-loop 1 -i "${imgPath}"`;
+        inputArg = ["-loop", "1", "-i", imgPath];
         filterComplex = buildScaleFilter(width, height);
       }
 
@@ -200,7 +200,7 @@ async function renderVideo({
       const segOut = path.join(tmpDir, `seg_${i}.mp4`);
       const args = [
         "-y",
-        inputArg,
+        ...inputArg,
         "-filter_complex",
         filterComplex,
         "-map",
