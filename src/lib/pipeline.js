@@ -12,6 +12,13 @@ import { generateChapters } from "./metadata/index.js";
 import { generateCommunityPost } from "./community/index.js";
 import { recordVideo, recordCommunityPost } from "./db/index.js";
 
+// Download media from URL to local buffer
+async function downloadMedia(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to download media: ${res.status} ${res.statusText}`);
+  return Buffer.from(await res.arrayBuffer());
+}
+
 // Dynamic imports for rendering functions to avoid build-time issues on unsupported platforms
 async function getRendering() {
   const { renderVideo, estimateAudioDurationSec, trimSilenceFromAudio, detectLongSilences } = await import("./rendering/index.js");
@@ -388,7 +395,10 @@ async function runPipelineCore(
     const mediaResult = useVideoClips
       ? await fetchClips({ keyword: imageKeyword, count: mediaCount, orientation })
       : await fetchImages({ keyword: imageKeyword, count: mediaCount, orientation });
-    mediaItems.push(...(useVideoClips ? mediaResult.clips : mediaResult.images));
+    const items = useVideoClips ? mediaResult.clips : mediaResult.images;
+    if (items && items.length > 0) {
+      mediaItems.push(...items);
+    }
   } else {
     for (let i = 0; i < captions.length; i++) {
       emit({
@@ -400,7 +410,21 @@ async function runPipelineCore(
       const mediaResult = useVideoClips
         ? await fetchClips({ text: captions[i], count: 1, orientation })
         : await fetchImages({ text: captions[i], count: 1, orientation });
-      mediaItems.push(useVideoClips ? mediaResult.clips[0] : mediaResult.images[0]);
+      const item = useVideoClips ? mediaResult.clips?.[0] : mediaResult.images?.[0];
+      if (item) mediaItems.push(item);
+    }
+  }
+
+  // Ensure we have at least one media item (fallback to local media if needed)
+  if (mediaItems.length === 0) {
+    console.warn("No media items retrieved from providers, using local fallback media");
+    const { fetchImages, fetchClips } = await import("./providers/router.js");
+    const fallbackResult = useVideoClips
+      ? await fetchClips({ keyword: "nature", count: Math.max(1, mediaCount), orientation })
+      : await fetchImages({ keyword: "nature", count: Math.max(1, mediaCount), orientation });
+    const fallbackItems = useVideoClips ? fallbackResult.clips : fallbackResult.images;
+    if (fallbackItems && fallbackItems.length > 0) {
+      mediaItems.push(...fallbackItems);
     }
   }
 
@@ -419,8 +443,23 @@ async function runPipelineCore(
   let videoBuffer;
   let durationSec;
 
+  // Download any URL-based media items to local buffers before rendering
+  const mediaItemsWithBuffers = await Promise.all(mediaItems.map(async (item) => {
+    if (item.buffer) return item;
+    if (item.path && (item.path.startsWith('http://') || item.path.startsWith('https://'))) {
+      try {
+        const buffer = await downloadMedia(item.path);
+        return { ...item, buffer };
+      } catch (err) {
+        console.error(`Failed to download media from ${item.path}:`, err.message);
+        return item; // Keep original, renderVideo will handle missing
+      }
+    }
+    return item;
+  }));
+
   try {
-    const assets = mediaItems.map((item, i) => ({
+    const assets = mediaItemsWithBuffers.map((item, i) => ({
       type: useVideoClips ? "video" : "image",
       buffer: item.buffer || null,
       path: item.path || null,

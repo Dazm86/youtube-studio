@@ -118,7 +118,7 @@ async function pexelsImages({ apiKey, text, keyword, count, orientation }) {
   );
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "خطا در دریافت عکس از Pexels");
-  const images = (data.photos || []).map((p) => p.src.large2x);
+  const images = (data.photos || []).map((p) => ({ path: p.src.large2x }));
   if (images.length === 0) throw new Error("عکسی برای این موضوع پیدا نشد");
   return { query, images };
 }
@@ -135,7 +135,7 @@ async function pexelsClips({ apiKey, text, keyword, count, orientation }) {
   const clips = (data.videos || [])
     .map((v) => pickVideoFile(v.video_files, safeOrientation === "portrait"))
     .filter(Boolean)
-    .map((f) => f.link);
+    .map((f) => ({ path: f.link, durationSec: f.duration }));
   if (clips.length === 0) throw new Error("کلیپی برای این موضوع پیدا نشد");
   return { query, clips };
 }
@@ -165,7 +165,7 @@ async function openaiImages({ apiKey, text, keyword, count, orientation }) {
     if (!res.ok) throw new Error(data?.error?.message || "خطای تولید عکس OpenAI");
     for (const item of data.data || []) {
       if (item.b64_json) images.push({ buffer: Buffer.from(item.b64_json, "base64"), ext: "png" });
-      else if (item.url) images.push(item.url);
+      else if (item.url) images.push({ path: item.url });
     }
     if (!data.data || data.data.length === 0) break; // جلوی حلقه‌ی بی‌نهایت
   }
