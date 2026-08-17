@@ -91,14 +91,11 @@ async function runFfmpeg(args, { stdinData } = {}) {
 // ---------- توابع کمکی رندر ----------
 
 function buildScaleFilter(targetW, targetH) {
-  // محاسبه مقیاس تا ویدیو/عکس در کادرziel جا بشه (contain) —
-  // aspect ratio حفظ می‌شه، اضلاع خالی با رنگ مشکی پر می‌شن.
-  return `[0:v]scale=${targetW}:${targetH}:force_original_aspect_ratio=decrease,pad=${targetW}:${targetH}:(ow-iw)/2:(oh-ih)/2:color=black@1[v]`;
+  return `[0:v]scale=${targetW}:${targetH}:force_original_aspect_ratio=decrease,pad=${targetW}:${targetH}:(ow-iw)/2:(oh-ih)/2:color=black@1[v0]`;
 }
 
 function buildCaptionFilter(captionLine, videoW, videoH, fontPath, fontsize, lineIndex) {
   const margin = Math.round(videoH * 0.08);
-  const safeW = videoW - 120;
   const escaped = captionLine.text
     .replace(/\\/g, "\\\\")
     .replace(/:/g, "\\:")
@@ -108,14 +105,12 @@ function buildCaptionFilter(captionLine, videoW, videoH, fontPath, fontsize, lin
     .replace(/\]/g, "\\]");
   const xExpr = `(w-text_w)/2`;
   const yExpr = `h-${margin}-text_h`;
-  // Chain drawtext after scale filter: take [v] as input, output to [v]
-  return `[v]drawtext=fontfile=${fontPath}:text='${escaped}':fontsize=${fontsize}:fontcolor=white:borderw=3:bordercolor=black@0.8:x=${xExpr}:y=${yExpr}[v]`;
+  return `[v0]drawtext=fontfile=${fontPath}:text='${escaped}':fontsize=${fontsize}:fontcolor=white:borderw=3:bordercolor=black@0.8:x=${xExpr}:y=${yExpr}[v1]`;
 }
 
 function buildMayaFilter(poseImgPath, videoW, videoH) {
   const scale = Math.min(videoW, videoH) * 0.35;
-  // When maya image is second input (index 1), use [1:v] for it
-  return `[1:v]scale=${scale}:${scale}[maya];[v][maya]overlay=(W-w)/2:H-h-40[v]`;
+  return `[1:v]scale=${scale}:${scale}[maya];[v1][maya]overlay=(W-w)/2:H-h-40[v2]`;
 }
 
 // ---------- تابع اصلی رندر ----------
@@ -190,6 +185,7 @@ async function renderVideo({
 
       // مایا (اگر اسکریپت کلی 있으면)
       let mayaInputArg = [];
+      let finalVideoLabel = "v1"; // default: after caption filter
       if (script) {
         // pickMayaPose از متن کل اسکریپت موود می‌گیره
         const { pickMayaPose } = await getMayaThumbnail();
@@ -198,6 +194,7 @@ async function renderVideo({
         if (fs.existsSync(posePath)) {
           filterComplex += `;${buildMayaFilter(posePath, width, height)}`;
           mayaInputArg = ["-i", posePath];
+          finalVideoLabel = "v2"; // Maya filter outputs [v2]
         }
       }
 
@@ -209,7 +206,7 @@ async function renderVideo({
         "-filter_complex",
         filterComplex,
         "-map",
-        "[v]",
+        `[${finalVideoLabel}]`,
         "-t",
         String(dur),
         "-r",
