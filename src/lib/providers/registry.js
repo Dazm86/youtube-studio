@@ -20,7 +20,7 @@ import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
 import { extractKeywords } from "./textUtils.js";
 import { pickMayaPose } from "../rendering/index.js";
 
-const GROQ_TEXT_MODEL = "llama-3.3-70b-versatile";
+const GROQ_TEXT_MODEL = "llama-3.1-70b-versatile";
 const OPENAI_TEXT_MODEL = "gpt-4o-mini";
 const OPENAI_IMAGE_MODEL = "gpt-image-1";
 const OPENAI_TTS_MODEL = "gpt-4o-mini-tts";
