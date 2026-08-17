@@ -108,11 +108,13 @@ function buildCaptionFilter(captionLine, videoW, videoH, fontPath, fontsize, lin
     .replace(/\]/g, "\\]");
   const xExpr = `(w-text_w)/2`;
   const yExpr = `h-${margin}-text_h`;
-  return `drawtext=fontfile=${fontPath}:text='${escaped}':fontsize=${fontsize}:fontcolor=white:borderw=3:bordercolor=black@0.8:x=${xExpr}:y=${yExpr}`;
+  // Chain drawtext after scale filter: take [v] as input, output to [v]
+  return `[v]drawtext=fontfile=${fontPath}:text='${escaped}':fontsize=${fontsize}:fontcolor=white:borderw=3:bordercolor=black@0.8:x=${xExpr}:y=${yExpr}[v]`;
 }
 
 function buildMayaFilter(poseImgPath, videoW, videoH) {
   const scale = Math.min(videoW, videoH) * 0.35;
+  // When maya image is second input (index 1), use [1:v] for it
   return `[1:v]scale=${scale}:${scale}[maya];[v][maya]overlay=(W-w)/2:H-h-40[v]`;
 }
 
@@ -187,6 +189,7 @@ async function renderVideo({
       filterComplex += `;${buildCaptionFilter(seg, width, height, fontPath, fontSize, i)}`;
 
       // مایا (اگر اسکریپت کلی 있으면)
+      let mayaInputArg = [];
       if (script) {
         // pickMayaPose از متن کل اسکریپت موود می‌گیره
         const { pickMayaPose } = await getMayaThumbnail();
@@ -194,6 +197,7 @@ async function renderVideo({
         const posePath = path.join(process.cwd(), "public", "assets", "images", "maya", `${pose}.png`);
         if (fs.existsSync(posePath)) {
           filterComplex += `;${buildMayaFilter(posePath, width, height)}`;
+          mayaInputArg = ["-i", posePath];
         }
       }
 
@@ -201,6 +205,7 @@ async function renderVideo({
       const args = [
         "-y",
         ...inputArg,
+        ...mayaInputArg,
         "-filter_complex",
         filterComplex,
         "-map",
