@@ -21,24 +21,30 @@ const sections = [
   },
   {
     index: "03",
+    href: "/ai-studio",
+    title: "🎨 AI Studio",
+    desc: "تولید متن، عکس، ویدیو و صدا با هوش مصنوعی",
+  },
+  {
+    index: "04",
     href: "/providers",
     title: "ارائه‌دهنده‌های API",
     desc: "یک کلید بده، خودش تشخیص می‌ده چیکار می‌تونه بکنه و اولویتش رو تنظیم کن",
   },
   {
-    index: "04",
+    index: "05",
     href: "/api-check",
     title: "بررسی API ها",
     desc: "وضعیت اتصال Pexels، Groq، یوتیوب، دیتابیس",
   },
   {
-    index: "05",
+    index: "06",
     href: "/analytics",
     title: "آنالیز کانال",
     desc: "آمار واقعی ویدیوها: ویو، سابسکرایب، لایک",
   },
   {
-    index: "06",
+    index: "07",
     href: "/schedule",
     title: "زمان‌بندی خودکار",
     desc: "ساخت و انتشار خودکار ویدیو در روز و ساعت مشخص، بدون دست زدن",
