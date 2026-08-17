@@ -469,13 +469,18 @@ async function runPipelineCore(
 
     const { probeDurationSec } = await getRendering();
 
+    // Convert durations (array of segment durations) to cumulative startSec/endSec
+    let cursor = 0;
+    const segments = captions.map((text, i) => {
+      const startSec = cursor;
+      const endSec = cursor + durations[i];
+      cursor = endSec;
+      return { text, startSec, endSec };
+    });
+
     await renderVideo({
       script,
-      segments: captions.map((text, i) => ({
-        text,
-        startSec: durations[i].startSec,
-        endSec: durations[i].endSec,
-      })),
+      segments,
       assets,
       outputPath,
       opts: {
