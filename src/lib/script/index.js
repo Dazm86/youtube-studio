@@ -88,7 +88,11 @@ Respond with ONLY the narration text itself, nothing else.`;
   let script = await generateText({
     prompt,
     temperature: 1,
-    maxTokens: isShort ? 400 : 3000,
+    // قبلاً ۴۰۰ بود — با مدلِ reasoning جدید (gpt-oss-120b، از ۲۰۲۶-۰۸-۱۸)
+    // حتی با reasoning_effort="low" یه مقدار توکن صرفِ فکرکردنِ پنهان
+    // می‌شه؛ ۷۰۰ برای یک اسکریپتِ ۹۰-۱۳۰ کلمه‌ای (~۱۵۰-۲۰۰ توکن) حاشیه‌ی
+    // امنِ کافی می‌ذاره تا content خالی برنگرده.
+    maxTokens: isShort ? 700 : 3000,
   });
 
   // شبکه‌ی ایمنیِ کیفیت: طول + تنوعِ شروعِ جمله + وجودِ حداقل یک مثال/عددِ

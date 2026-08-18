@@ -371,6 +371,44 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-18 — Fallout from the gpt-oss-120b switch: empty script responses + a concat.txt hardening
+Tested the model swap from the entry below; found two more issues live:
+1. **Short scripts: "پاسخ خالی از هوش مصنوعی دریافت شد"**. gpt-oss-120b defaults to
+   `reasoning_effort: "medium"` on Groq, and its hidden chain-of-thought draws from the *same*
+   `max_tokens` budget as the visible answer — with the short-script budget of 400 tokens, it
+   could burn the whole budget on reasoning and return empty `content` before writing a single
+   word of the actual script. Long-form (3000 tokens) had enough headroom to not hit this, which
+   is why only short failed. Fix: added `reasoning_effort: "low"` to every Groq text call
+   (`lib/providers/registry.js`, this task doesn't need real reasoning — it's creative writing),
+   and raised the short-script budget 400 -> 700 as a margin (`lib/script/index.js`). Applied the
+   same margin preventively to the two other tight-budget Groq JSON calls that share the same
+   exposure even though they hadn't failed yet: chapter generation 500 -> 900
+   (`lib/metadata/index.js`), community-post generation 400 -> 600 (`lib/community/index.js`).
+2. **Short render: `ffmpeg exit 1: ... concat.txt: Invalid data found when processing input`**.
+   Root cause not confirmed with certainty from code alone (would need the actual segment count/
+   sizes from a live failing run to be sure) — plausible causes include a segment ffmpeg call
+   reporting success but writing a 0-byte file, or the segment list ending up empty. Rather than
+   guess-fix, added explicit validation right before the concat step in
+   `lib/rendering/index.js`: throws a clear, specific error (empty segment list, or which exact
+   segment file is missing/0 bytes) instead of letting ffmpeg's opaque concat-demuxer error
+   surface. If this fires again, the error message itself will now say exactly what's wrong.
+   Side note, not addressed here: `@ffmpeg-installer/ffmpeg` (package.json, pinned `^1.1.0`) still
+   bundles a ~2018-era static ffmpeg build (its version banner shows "Copyright (c) 2000-2018");
+   worth keeping in mind if odd ffmpeg behavior keeps showing up, since it's long unmaintained
+   upstream.
+3. **Long render: "اتصال به سرور وسط پردازش قطع شد"** — not fixed this round. Same class of
+   issue as the 2026-08-xx free-tier spin-down finding above: a long-form generate-and-upload
+   call can run well past Render free tier's connection limits. The segment loop already renders
+   one image/clip at a time internally (`BATCH_SIZE=1`), so that's not the bottleneck — the whole
+   multi-minute process (script -> TTS -> every segment -> concat -> mux -> YouTube upload) is
+   still tied to one continuous HTTP request/response, which is what actually needs to change
+   (background job + client polling, not a single long-lived stream). This is exactly what the
+   GitHub Actions worker path was meant to solve, but the 2026-08-18 bug audit found it
+   currently broken end-to-end (see `youtube-studio-review.md`) — properly fixing this needs that
+   work finished, not a quick patch here.
+Files: `lib/providers/registry.js`, `lib/script/index.js`, `lib/metadata/index.js`,
+`lib/community/index.js`, `lib/rendering/index.js`.
+
 ### 2026-08-18 — Hotfix: Groq deprecated llama-3.3-70b-versatile, all text generation was failing
 Live error while writing a scenario: every text provider (script, title, translation, community
 post) failed with "The model `llama-3.3-70b-versatile` does not exist or you do not have access

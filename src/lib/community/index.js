@@ -27,7 +27,7 @@ Rules:
 - If type is "poll", options must have 2-4 short entries. If type is "quote", options must be null.
 - Never mention "link in bio", "swipe up", or generic engagement-bait phrases ("comment below", "like this post") — let the content itself invite interaction.`;
 
-  const rawText = await generateText({ prompt, jsonMode: true, temperature: 0.8, maxTokens: 400 });
+  const rawText = await generateText({ prompt, jsonMode: true, temperature: 0.8, maxTokens: 600 });
 
   let parsed;
   try {

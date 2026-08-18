@@ -85,7 +85,7 @@ Rules:
 - "title": a short (2-5 word) label describing what that chapter covers (e.g. "Why This Happens", "A Real Story", "3 Steps to Fix It") — a clear label, not a full sentence, not clickbait.
 - "firstWords": the exact first 4-6 words of the sentence where that chapter begins, copied verbatim from the script (so its position can be located later) — never paraphrased.`;
 
-  const rawText = await generateText({ prompt, jsonMode: true, temperature: 0.3, maxTokens: 500 });
+  const rawText = await generateText({ prompt, jsonMode: true, temperature: 0.3, maxTokens: 900 });
   const cleaned = rawText.replace(/```json|```/g, "").trim();
   const parsed = JSON.parse(cleaned);
   if (!Array.isArray(parsed.chapters) || parsed.chapters.length < 3) {

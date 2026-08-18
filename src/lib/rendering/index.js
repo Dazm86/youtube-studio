@@ -224,6 +224,30 @@ async function renderVideo({
     }
 
     // ۲. کانکت کردن همه سگمنت‌ها (concat demuxer)
+    //
+    // شبکه‌ی ایمنی (از ۲۰۲۶-۰۸-۱۸): قبل از این‌جا segmentFiles می‌تونست
+    // خالی باشه (هیچ سگمنتی ساخته نشد) یا یکی از فایل‌هاش ۰ بایت/ناموجود
+    // باشه، و concat demuxer به‌جای یک خطای واضح فقط می‌گفت
+    // «concat.txt: Invalid data found when processing input» — که معلوم
+    // نمی‌کرد مشکل از کجاست. این‌جا صریح چک می‌کنیم تا خطا همون‌جایی که
+    // واقعاً رخ داده مشخص بشه.
+    if (segmentFiles.length === 0) {
+      throw new Error(
+        "هیچ سگمنتی برای رندر ساخته نشد — احتمالاً همه‌ی durationها صفر/منفی بودن یا اسکریپت/مدیا خالی بود."
+      );
+    }
+    for (const f of segmentFiles) {
+      let stat;
+      try {
+        stat = await fsp.stat(f);
+      } catch {
+        throw new Error(`فایلِ سگمنتِ رندرشده گم شده: ${f}`);
+      }
+      if (stat.size === 0) {
+        throw new Error(`فایلِ سگمنتِ رندرشده خالیه (۰ بایت) — ffmpeg موفق اعلام کرد ولی خروجی واقعی نساخت: ${f}`);
+      }
+    }
+
     const listPath = path.join(tmpDir, "concat.txt");
     await fsp.writeFile(
       listPath,
