@@ -371,6 +371,23 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-18 — Hotfix: Groq deprecated llama-3.3-70b-versatile, all text generation was failing
+Live error while writing a scenario: every text provider (script, title, translation, community
+post) failed with "The model `llama-3.3-70b-versatile` does not exist or you do not have access
+to it" for both configured Groq keys. Not a code bug — Groq announced deprecation of
+`llama-3.3-70b-versatile` on 2026-06-17 and has since shut it down for free/developer-tier keys
+(enterprise committed-spend contracts still get it). Groq's own migration guidance recommends
+`openai/gpt-oss-120b` (production-grade, fully supported) or `qwen/qwen3.6-27b` (preview-only,
+not recommended for production). Swapped `GROQ_TEXT_MODEL` in `lib/providers/registry.js` from
+`llama-3.3-70b-versatile` to `openai/gpt-oss-120b` — same `/chat/completions` endpoint shape, no
+other code changes needed. It's a reasoning model: Groq's docs say by default its chain-of-thought
+goes into a separate `reasoning` response field, not `message.content` (which is all this codebase
+reads), so no JSON-parsing changes were needed for the `jsonMode` call sites (suggest-metadata,
+community-post generation, caption translation) — but if raw reasoning/preamble text ever starts
+showing up inside generated scripts/titles, that's the first thing to check (there are scattered
+community reports of it leaking under some conditions).
+Files: `src/lib/providers/registry.js` (1 line changed).
+
 ### 2026-08-18 — Full codebase bug audit (find-only, no fixes yet)
 Reviewed every file in `src/`, `tests/`, `.github/workflows/`, and the root docs/config, plus how
 they all import/call each other — no code changed this session, audit only (explicitly requested:
