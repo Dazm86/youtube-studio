@@ -371,6 +371,44 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-18 — Full codebase bug audit (find-only, no fixes yet)
+Reviewed every file in `src/`, `tests/`, `.github/workflows/`, and the root docs/config, plus how
+they all import/call each other — no code changed this session, audit only (explicitly requested:
+find bugs, don't fix them yet). Full 17-item bug list + Mermaid dependency graphs + a file↔file
+import table were delivered as a separate file, `youtube-studio-review.md`, meant to live at the
+repo root (not yet applied — see commands below). The three most severe, worth knowing before
+touching anything else:
+1. **`renderVideo()`'s final ffmpeg mux always fails** — `-c:v copy` combined with a
+   `-filter_complex` output is a hard, unconditional ffmpeg error ("Filtering and streamcopy
+   cannot be used together"), so every long-form render currently breaks at the last step. Same
+   block also drops the video filter entirely and inverts narration/BGM volume once BGM files
+   exist (`public/audio/bgm/` is still empty, so that half is currently dormant).
+   `lib/rendering/index.js`.
+2. **The GitHub Actions worker path is broken two separate ways**: `render-worker.yml`
+   interpolates `${{ payload }}` straight into a shell `run:` step — GitHub's own docs list this
+   exact pattern as their canonical script-injection example, and separately any apostrophe in a
+   real script/title (very common in English) breaks the command before `node` even starts. Even
+   if it ran, `worker/index.js` never uploads to YouTube or calls back `/api/jobs/callback` — it
+   only renders and logs a giant buffer to stdout. The HMAC credential built in
+   `generateWorkerCredential()` is also never attached to the dispatched payload, so that
+   verification path is dead code.
+3. **A real background photo never reaches a Maya thumbnail on any path** — three independent
+   bugs (wrong `bgImageUrl` shape coming out of the auto-pipeline, a `VideoStudio.js` state
+   variable that's never set for manual uploads, and `ab-test/route.js` not passing it at all)
+   all converge on the same silent gradient-only fallback.
+Also found: A/B title-switch buttons never render (`getAllVideos()` doesn't select the columns
+the UI checks), the Community-Post button calls a route that doesn't exist
+(`/api/community-post` vs. the real `/api/community`), a client component (`ImageGenerator.js`)
+uses Node's `Buffer` in the browser and crashes on non-Pexels image providers,
+`AudioGenerator.js` misuses `useState` where `useEffect` was needed (default-voice logic only
+ever runs once), next-auth's Google token refresh check is always-true due to an
+`expires_in`/`expires_at` field mismatch, and Maya's *video* overlay (separate from the
+thumbnail) looks for pose PNGs in `public/assets/images/maya/`, a folder that doesn't exist.
+Full detail, file:line references, and a suggested fix-priority order are all in
+`youtube-studio-review.md` — intentionally not repeated in full here to avoid this file drifting
+out of sync with that one; if any of this gets fixed later, update both together.
+Files changed: none. New file delivered: `youtube-studio-review.md`.
+
 ### 2026-08-14 — Hotfix: Phase 8's globals.css broke the real Turbopack build
 The `@layer components` block added in Phase 8 (below) used `@apply` for
 every custom class; the actual `next build` on Render failed immediately
