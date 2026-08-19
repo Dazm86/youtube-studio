@@ -70,8 +70,18 @@ jobs:
         run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: Install FFmpeg
+        timeout-minutes: 5
+        env:
+          # ۲۰۲۶-۰۸-۱۹ — بدونِ این، apt-get می‌تونه رو یه promptِ debconf
+          # (معمولاً tzdata که به‌عنوانِ dependency می‌کِشه بالا) بی‌نهایت
+          # منتظرِ ورودی بمونه، چون تو یک shellِ غیرتعاملی هیچ ورودی‌ای
+          # نمی‌رسه — دقیقاً چیزی که باعثِ گیرکردنِ ۳۰+ دقیقه‌ایِ این مرحله
+          # شد. -y فقط سوال‌های «مطمئنی؟» رو جواب می‌ده، نه دیالوگ‌های
+          # debconf رو.
+          DEBIAN_FRONTEND: noninteractive
         run: |
-          sudo apt-get update && sudo apt-get install -y ffmpeg
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
           ffmpeg -version
 
       - name: Preflight check - DATABASE_URL

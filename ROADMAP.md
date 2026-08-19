@@ -371,6 +371,25 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-19 — First live worker run: repo policy block + apt-get hang
+First real end-to-end test of the rebuilt worker (previous entry). Hit two separate issues,
+neither in the worker's own logic:
+1. **Run refused at "Set up job"**: `The actions actions/checkout@v4, actions/setup-node@v4, and
+   actions/upload-artifact@v4 are not allowed ... because all actions must be pinned to a
+   full-length commit SHA.` This is a repo-level policy (Settings → Actions → General → Action
+   permissions → "Require actions to be pinned to a full-length commit SHA"), not a code issue —
+   overkill for a single-user personal project. User turned it off; not changed in this repo's
+   files since it's a GitHub setting, not something `render-worker.yml` controls.
+2. **"Install FFmpeg" step stuck ~30 min** (should take ~1-2 min): `apt-get install -y ffmpeg` had
+   no `DEBIAN_FRONTEND=noninteractive`, so if any pulled-in dependency (classically `tzdata`) hits
+   a debconf prompt, apt just hangs waiting for input that a non-interactive CI shell never sends
+   — `-y` only auto-answers "are you sure?" prompts, not debconf dialogs. Fixed: added
+   `DEBIAN_FRONTEND: noninteractive` + `--no-install-recommends` (also shrinks the dependency
+   tree, so less chance of hitting a prompt-triggering package at all), plus a 5-minute
+   `timeout-minutes` on just this step so a future hang fails fast instead of quietly burning
+   into the job's 45-minute budget (and GitHub Actions free-tier minutes).
+Files: `.github/workflows/render-worker.yml`.
+
 ### 2026-08-18 — Worker path rebuilt end-to-end (was broken per the bug audit)
 Full rebuild of the GitHub Actions render-worker path, following the 2026-08-18 bug-audit
 findings in `youtube-studio-review.md`. Setup checklist walked through with the user first
