@@ -32,7 +32,8 @@ jobs:
       NODE_OPTIONS: "--max-old-space-size=4096"
       # Worker authentication
       WORKER_API_KEY: ${{ secrets.WORKER_API_KEY }}
-      # Database (if needed for status updates)
+      WORKER_SIGNING_SECRET: ${{ secrets.WORKER_SIGNING_SECRET }}
+      # Database (persistent job status + the actual pipeline needs it too)
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       # Provider API keys (encrypted in DB, but worker may need some)
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
@@ -41,9 +42,19 @@ jobs:
       ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
       STABILITY_API_KEY: ${{ secrets.STABILITY_API_KEY }}
       PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
-      # YouTube OAuth (for worker uploads if needed)
+      # YouTube OAuth (worker uploads directly)
       YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
       YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+      # ۲۰۲۶-۰۸-۱۸ — این سه‌تا رو *اینجا*، تو env سطحِ job تعریف می‌کنیم
+      # (نه مستقیم تو یک run: با ${{ }}) تا مقدارشون به‌عنوان یک متغیرِ
+      # محیطیِ shell دیده بشه، نه این‌که قبل از اجرای shell متنی جایگزین
+      # بشه. تزریقِ مستقیمِ ${{ }} تو یک run: دقیقاً همون الگوی
+      # command-injection ایه که خودِ GitHub بهش هشدار می‌ده — و چون
+      # payload شامل متنِ واقعیِ اسکریپت/عنوانه، هر آپاستروف توش
+      # (خیلی رایج تو متنِ انگلیسی) دستور رو با یک syntax error می‌شکست.
+      JOB_ID: ${{ github.event.inputs.job_id || github.event.client_payload.job_id }}
+      JOB_TYPE: ${{ github.event.inputs.job_type || github.event.client_payload.job_type }}
+      JOB_PAYLOAD: ${{ github.event.inputs.payload || github.event.client_payload.payload }}
 
     steps:
       - name: Checkout repository
@@ -79,17 +90,17 @@ jobs:
 
       - name: Run worker
         id: worker
-        run: |
-          node src/worker/index.js "${{ github.event.inputs.job_id || github.event.client_payload.job_id }}" \
-            "${{ github.event.inputs.job_type || github.event.client_payload.job_type }}" \
-            '${{ github.event.inputs.payload || github.event.client_payload.payload }}'
+        # JOB_ID/JOB_TYPE/JOB_PAYLOAD از env سطحِ job میان — اینجا فقط
+        # ارجاعِ shell به یک متغیرِ محیطیه (کاملاً امن حتی اگه شامل
+        # کوتیشن یا هر کاراکترِ دیگه‌ای باشه)، نه جایگزینیِ متنیِ GitHub.
+        run: node src/worker/index.js "$JOB_ID" "$JOB_TYPE" "$JOB_PAYLOAD"
         shell: bash
 
       - name: Upload artifacts on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: worker-logs-${{ github.event.inputs.job_id || github.event.client_payload.job_id }}
+          name: worker-logs-${{ env.JOB_ID }}
           path: |
             /tmp/worker-*.log
           retention-days: 7
@@ -97,7 +108,5 @@ jobs:
       - name: Notify completion
         if: always()
         run: |
-          STATUS="${{ job.status }}"
-          JOB_ID="${{ github.event.inputs.job_id || github.event.client_payload.job_id }}"
-          echo "Job $JOB_ID completed with status: $STATUS"
+          echo "Job $JOB_ID completed with status: ${{ job.status }}"
           # Could call webhook here if ALERT_WEBHOOK_URL is set

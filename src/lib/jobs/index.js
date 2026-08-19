@@ -10,6 +10,7 @@
 
 import crypto from "crypto";
 import { v4 as uuidv4 } from "uuid";
+import { createWorkerJob } from "../db/index.js";
 
 // Job types
 export const JOB_TYPES = {
@@ -70,8 +71,13 @@ export function verifyWorkerCredential(credential) {
     .update(payload)
     .digest("hex");
 
-  // Constant-time comparison
-  if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature))) {
+  // Constant-time comparison — طول‌های نامساوی رو قبل از timingSafeEqual
+  // چک می‌کنیم چون خودِ اون تابع رو بافرهای هم‌طول‌نشده استثنا پرت
+  // می‌کنه (نه false برمی‌گردونه)، که یک credentialِ بدشکل رو به‌جای
+  // ۴۰۱ تمیز، ۵۰۰ می‌کرد.
+  const sigBuf = Buffer.from(signature);
+  const expectedBuf = Buffer.from(expectedSignature);
+  if (sigBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(sigBuf, expectedBuf)) {
     return false;
   }
 
@@ -130,7 +136,9 @@ export function verifyJobPayload(payload, signature) {
     .createHmac("sha256", WORKER_SIGNING_SECRET)
     .update(payloadStr)
     .digest("hex");
-  return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature));
+  const sigBuf = Buffer.from(signature || "");
+  const expectedBuf = Buffer.from(expectedSignature);
+  return sigBuf.length === expectedBuf.length && crypto.timingSafeEqual(sigBuf, expectedBuf);
 }
 
 /**
@@ -232,20 +240,26 @@ export async function getWorkflowRunStatus(runId, githubToken) {
 /**
  * Poll for job completion (for synchronous operations)
  */
-export async function pollJobCompletion(jobId, githubToken, options = {}) {
-  const { intervalMs = 10000, timeoutMs = 30 * 60 * 1000 } = options;
-  const startTime = Date.now();
+/**
+ * جایگزینِ ۲۰۲۶-۰۸-۱۸ — هر دو مسیرِ dispatch (generate-and-upload و
+ * jobs/dispatch) این تابع رو صدا می‌زنن تا منطقشون یکی بمونه: payload
+ * می‌سازه، امضا می‌کنه، credential تولید می‌کنه و *واقعاً* بهش وصل
+ * می‌کنه (قبلاً credential ساخته می‌شد ولی هیچ‌وقت به payload ارسالی
+ * اضافه نمی‌شد — یعنی worker هیچ credentialی برای callback نداشت)،
+ * رکوردِ اولیه رو تو دیتابیس ثبت می‌کنه، و در آخر workflow رو دیسپچ
+ * می‌کنه.
+ */
+export async function dispatchAndTrackJob(jobType, input, { githubToken, callbackUrl, webhookUrl } = {}) {
+  if (!githubToken) throw new Error("توکن GitHub تنظیم نشده (GITHUB_TOKEN)");
 
-  while (Date.now() - startTime < timeoutMs) {
-    // In a real implementation, this would check a job status store
-    // For now, we'll check GitHub Actions runs
-    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  const jobPayload = createJobPayload(jobType, input, { callbackUrl, webhookUrl });
+  const { payload, signature } = signJobPayload(jobPayload);
+  const credential = generateWorkerCredential(jobPayload.jobId);
 
-    // Could implement checking workflow runs here
-    // This is a placeholder for the polling logic
-  }
+  await createWorkerJob({ jobId: jobPayload.jobId, jobType, input });
+  await dispatchWorkerJob({ ...payload, signature, credential }, githubToken);
 
-  throw new Error(`Job ${jobId} timed out after ${timeoutMs}ms`);
+  return { jobId: jobPayload.jobId };
 }
 
 /**
@@ -290,7 +304,7 @@ export default {
   triggerWorkerJob,
   dispatchWorkerJob,
   getWorkflowRunStatus,
-  pollJobCompletion,
+  dispatchAndTrackJob,
   createJobResult,
   parseWorkerResult,
 };

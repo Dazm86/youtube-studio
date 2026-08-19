@@ -2,7 +2,7 @@ import { getServerSession } from "next-auth";
 import { getToken } from "next-auth/jwt";
 import { authOptions, refreshAccessToken } from "@/lib/auth/authOptions";
 import { NextResponse } from "next/server";
-import { createJobPayload, signJobPayload, generateWorkerCredential, dispatchWorkerJob, JOB_TYPES } from "@/lib/jobs";
+import { dispatchAndTrackJob, JOB_TYPES } from "@/lib/jobs";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -78,40 +78,35 @@ export async function POST(req) {
           // Dispatch to worker
           send({ status: "در صف پردازش ویدیو (Worker)...", progress: 5 });
 
-          const jobPayload = createJobPayload(JOB_TYPES.RENDER_VIDEO, {
-            script,
-            title,
-            description,
-            thumbnailText,
-            tags: tagsRaw,
-            privacyStatus,
-            publishAt,
-            videoMode,
-            useVideoClips,
-            imageKeyword,
-            titleB,
-            thumbnailTextB,
-            accessToken,
-          }, {
-            callbackUrl: `${process.env.NEXTAUTH_URL}/api/jobs/callback`,
-            webhookUrl: process.env.ALERT_WEBHOOK_URL,
-          });
-
-          const { payload, signature } = signJobPayload(jobPayload);
-          const credential = generateWorkerCredential(jobPayload.jobId);
-
           const githubToken = process.env.GITHUB_TOKEN || process.env.GITHUB_PAT;
           if (!githubToken) {
             throw new Error("Worker dispatch not configured (missing GITHUB_TOKEN)");
           }
 
-          const { dispatched, jobId } = await dispatchWorkerJob({ ...payload, signature }, githubToken);
+          // accessToken اینجا عمداً فرستاده نمی‌شه — worker خودش موقعِ
+          // آپلود (که ممکنه دقیقه‌ها بعد از dispatch باشه) یک توکنِ تازه
+          // مستقیم از دیتابیس/گوگل می‌گیره (همون الگویِ scheduler/run)،
+          // پس این توکنِ کوتاه‌عمر تا اون موقع منقضی می‌شد.
+          const { jobId } = await dispatchAndTrackJob(
+            JOB_TYPES.RENDER_VIDEO,
+            {
+              script, title, description, thumbnailText, tags: tagsRaw, privacyStatus, publishAt,
+              videoMode, useVideoClips, imageKeyword, titleB, thumbnailTextB,
+            },
+            {
+              githubToken,
+              callbackUrl: `${process.env.NEXT_PUBLIC_APP_URL}/api/jobs/callback`,
+              webhookUrl: process.env.ALERT_WEBHOOK_URL,
+            }
+          );
 
-          send({ status: `ویدیو در صف پردازش قرار گرفت (Job: ${jobId})`, progress: 10, jobId });
-
-          // For now, return job ID and let client poll
-          // In production, you'd set up SSE to stream progress from callback
-          send({ done: true, jobId, status: "queued", progress: 100, message: "Job dispatched to worker. Check status via /api/jobs/status" });
+          send({
+            done: true,
+            jobId,
+            status: "queued",
+            progress: 10,
+            message: `ویدیو به worker سپرده شد (Job: ${jobId}) — رندر/آپلود ممکنه چند دقیقه طول بکشه؛ از همین صفحه وضعیتش قابل پیگیریه.`,
+          });
         } else {
           // Run in-process (current behavior)
           const runPipeline = await getRunPipeline();

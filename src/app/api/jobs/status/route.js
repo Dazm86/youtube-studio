@@ -1,8 +1,15 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth/authOptions";
-import { getWorkflowRunStatus } from "@/lib/jobs";
+import { getWorkerJob } from "@/lib/db/index.js";
 
+// ۲۰۲۶-۰۸-۱۸ — قبلاً این route وضعیت رو با runId از GitHub Actions API
+// می‌گرفت، ولی هیچ‌جای کد runId واقعیِ گیت‌هاب رو برنمی‌گردوند (dispatch
+// از طریق workflow_dispatch جواب ۲۰۴ بدونِ بدنه می‌ده، جایی که runId
+// توش نیست) — یعنی این route عملاً از هیچ مسیری صدا زده نمی‌شد. حالا
+// مستقیم رو jobId خودمون (که از همون لحظه‌ی dispatch در دسترسه) و
+// جدولِ worker_jobs کار می‌کنه؛ همون jobIdی که وقتِ dispatch به کلاینت
+// برگردونده می‌شه.
 export async function GET(request) {
   try {
     const session = await getServerSession(authOptions);
@@ -11,30 +18,24 @@ export async function GET(request) {
     }
 
     const { searchParams } = new URL(request.url);
-    const runId = searchParams.get("runId");
-
-    if (!runId) {
-      return NextResponse.json({ error: "Missing runId" }, { status: 400 });
+    const jobId = searchParams.get("jobId");
+    if (!jobId) {
+      return NextResponse.json({ error: "Missing jobId" }, { status: 400 });
     }
 
-    const githubToken = process.env.GITHUB_TOKEN || process.env.GITHUB_PAT;
-    if (!githubToken) {
-      return NextResponse.json(
-        { error: "GitHub token not configured" },
-        { status: 503 }
-      );
+    const job = await getWorkerJob(jobId);
+    if (!job) {
+      return NextResponse.json({ error: "Job not found" }, { status: 404 });
     }
-
-    const run = await getWorkflowRunStatus(runId, githubToken);
 
     return NextResponse.json({
-      runId: run.id,
-      status: run.status,
-      conclusion: run.conclusion,
-      createdAt: run.created_at,
-      updatedAt: run.updated_at,
-      htmlUrl: run.html_url,
-      jobsUrl: run.jobs_url,
+      jobId: job.job_id,
+      jobType: job.job_type,
+      status: job.status,
+      result: job.result,
+      error: job.error,
+      createdAt: job.created_at,
+      updatedAt: job.updated_at,
     });
   } catch (err) {
     console.error("Job status error:", err);

@@ -12,7 +12,7 @@ async function getSharp() {
 }
 
 async function getMayaThumbnail() {
-  const { pickMayaPose, escapeDrawtextForShort } = await import("./mayaThumbnail");
+  const { pickMayaPose, escapeDrawtextForShort } = await import("./mayaThumbnail.js");
   return { pickMayaPose, escapeDrawtextForShort };
 }
 
@@ -308,8 +308,10 @@ async function renderVideo({
     );
     await runFfmpeg(finalArgs);
 
-    // محاسبه مدت زمان نهایی
-    const { probeDurationSec } = await import("./index");
+    // محاسبه مدت زمان نهایی — probeDurationSec همین پایین‌تر تو همین
+    // فایل تعریف شده (hoisted)، نیازی به import (خودارجاعِ بی‌فایده و
+    // بدونِ پسوند .js که زیرِ Node ESM خالص، مثلِ اجرای worker با
+    // node، اصلاً resolve نمی‌شد) نبود.
     const durationSec = await probeDurationSec(outputPath);
     return { durationSec };
   } finally {
@@ -518,6 +520,6 @@ export {
 
 // Re-export from mayaThumbnail (will be loaded dynamically at runtime)
 export async function getMayaThumbnailExports() {
-  const { pickMayaPose, capThumbnailWords, buildMayaThumbnail, buildMayaThumbnailVariants, escapeDrawtextForShort } = await import("./mayaThumbnail");
+  const { pickMayaPose, capThumbnailWords, buildMayaThumbnail, buildMayaThumbnailVariants, escapeDrawtextForShort } = await import("./mayaThumbnail.js");
   return { pickMayaPose, capThumbnailWords, buildMayaThumbnail, buildMayaThumbnailVariants, escapeDrawtextForShort };
 }

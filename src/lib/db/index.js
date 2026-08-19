@@ -159,6 +159,24 @@ async function ensureSchema() {
           PRIMARY KEY (task_type, provider_id)
         );
       `);
+      // ۲۰۲۶-۰۸-۱۸ — بازسازیِ مسیر worker: قبلاً وضعیتِ jobها فقط تو یک
+      // Map درون‌حافظه‌ای بود که با هر ری‌استارتِ سرور (رایج تو Render
+      // free tier) کامل پاک می‌شد و بینِ چند instance هم به اشتراک
+      // گذاشته نمی‌شد؛ حالا تو دیتابیس ماندگاره. worker خودش این جدول رو
+      // نمی‌خونه/نمی‌نویسه (فقط در آخر یک callback HTTP می‌زنه)، فقط
+      // وب‌اپ (dispatch و callback) باهاش کار داره.
+      await getPool().query(`
+        CREATE TABLE IF NOT EXISTS worker_jobs (
+          job_id TEXT PRIMARY KEY,
+          job_type TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'queued',
+          input JSONB,
+          result JSONB,
+          error TEXT,
+          created_at TIMESTAMPTZ DEFAULT now(),
+          updated_at TIMESTAMPTZ DEFAULT now()
+        );
+      `);
       await ensureBuiltInProviders();
     })().catch((err) => {
       // اگه راه‌اندازیِ schema شکست بخوره، schemaReady رو null کن تا
@@ -583,6 +601,54 @@ export async function listRecentScheduleRuns(limit = 20) {
     `SELECT id, schedule_id, status, video_id, error, started_at, finished_at
      FROM schedule_runs ORDER BY started_at DESC LIMIT $1`,
     [limit]
+  );
+  return res.rows;
+}
+
+// ===================== worker_jobs (فاز بازسازیِ worker، ۲۰۲۶-۰۸-۱۸) =====================
+
+export async function createWorkerJob({ jobId, jobType, input }) {
+  await ensureSchema();
+  await getPool().query(
+    `INSERT INTO worker_jobs (job_id, job_type, status, input) VALUES ($1, $2, 'queued', $3)
+     ON CONFLICT (job_id) DO NOTHING`,
+    [jobId, jobType, JSON.stringify(input || {})]
+  );
+}
+
+export async function updateWorkerJob(jobId, { status, result, error }) {
+  await ensureSchema();
+  await getPool().query(
+    `UPDATE worker_jobs
+     SET status = COALESCE($2, status),
+         result = COALESCE($3, result),
+         error = COALESCE($4, error),
+         updated_at = now()
+     WHERE job_id = $1`,
+    [jobId, status || null, result ? JSON.stringify(result) : null, error || null]
+  );
+}
+
+export async function getWorkerJob(jobId) {
+  await ensureSchema();
+  const res = await getPool().query(
+    `SELECT job_id, job_type, status, input, result, error, created_at, updated_at
+     FROM worker_jobs WHERE job_id = $1`,
+    [jobId]
+  );
+  return res.rows[0] || null;
+}
+
+// jobهای «گیرکرده» — queued/processing که خیلی وقته آپدیت نشدن (مثلاً
+// worker به‌خاطر یک کرشِ بدونِ callback هیچ‌وقت گزارش نداد) — برای
+// نمایشِ هشدار تو UI، نه پاک‌سازیِ خودکار.
+export async function listStaleWorkerJobs(olderThanMinutes = 30) {
+  await ensureSchema();
+  const res = await getPool().query(
+    `SELECT job_id, job_type, status, created_at, updated_at FROM worker_jobs
+     WHERE status IN ('queued', 'processing') AND updated_at < now() - ($1 || ' minutes')::interval
+     ORDER BY created_at DESC`,
+    [olderThanMinutes]
   );
   return res.rows;
 }

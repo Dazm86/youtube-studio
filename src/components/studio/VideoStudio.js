@@ -189,6 +189,7 @@ export default function VideoStudio({ mode }) {
       let buffer = "";
       let finalError = null;
       let streamEndedCleanly = false;
+      let dispatchedJobId = null;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -213,7 +214,16 @@ export default function VideoStudio({ mode }) {
             finalError = obj.error;
             streamEndedCleanly = true;
           }
-          if (obj.done) {
+          if (obj.done && obj.jobId && obj.status === "queued") {
+            // ۲۰۲۶-۰۸-۱۸ — این یعنی ویدیو به Worker (GitHub Actions) سپرده
+            // شد، نه این‌که کارش تموم شده. استریمِ این درخواست همین‌جا
+            // طبیعتاً می‌بنده (نه یک قطعیِ اتصال) — رندر/آپلودِ واقعی چند
+            // دقیقه‌ی دیگه، جدا از این اتصال، تو worker انجام می‌شه؛ بعد از
+            // پایانِ حلقه‌ی پایین با poll کردنِ jobId دنبالش می‌کنیم.
+            streamEndedCleanly = true;
+            dispatchedJobId = obj.jobId;
+            setVideoGenStatus(obj.message || `در صف Worker (Job: ${obj.jobId})...`);
+          } else if (obj.done) {
             streamEndedCleanly = true;
             setUploadedVideoId(obj.videoId);
             setVideoGenProgress(100);
@@ -237,6 +247,8 @@ export default function VideoStudio({ mode }) {
 
       if (finalError) {
         throw new Error(finalError);
+      } else if (dispatchedJobId) {
+        await pollJobStatus(dispatchedJobId);
       } else if (!streamEndedCleanly) {
         throw new Error(
           "اتصال به سرور وسط پردازش قطع شد — مشخص نیست ویدیو کامل شده یا نه. کانالت رو چک کن، یا دوباره امتحان کن."
@@ -255,6 +267,42 @@ export default function VideoStudio({ mode }) {
       }
     }
     setGeneratingVideo(false);
+  }
+
+  // ۲۰۲۶-۰۸-۱۸ — بعد از dispatch به Worker، هر ۱۰ ثانیه وضعیتِ jobId رو
+  // چک می‌کنه تا کامل/شکست‌خورده بشه، حداکثر تا ۴۰ دقیقه (سقفِ
+  // timeout=45 دقیقه‌ی خودِ render-worker.yml). اگه شبکه لحظه‌ای قطع بشه
+  // فقط دورِ بعدی رو امتحان می‌کنه، throw نمی‌کنه — فقط شکستِ *واقعیِ* job
+  // (status="failed" از خودِ worker) throw می‌شه.
+  async function pollJobStatus(jobId) {
+    const maxAttempts = 240;
+    for (let i = 0; i < maxAttempts; i++) {
+      await new Promise((r) => setTimeout(r, 10000));
+      let data;
+      try {
+        const res = await fetch(`/api/jobs/status?jobId=${encodeURIComponent(jobId)}`);
+        data = await res.json();
+        if (!res.ok) continue;
+      } catch {
+        continue;
+      }
+      if (data.status === "completed") {
+        setUploadedVideoId(data.result?.videoId);
+        setVideoGenProgress(100);
+        const thumbNote =
+          data.result?.thumbnailStatus === "ok" ? " (تامبنیل مایا هم ست شد)" : " (تامبنیل ست نشد ⚠️)";
+        const captionNote = data.result?.captionStatus === "ok" ? " (زیرنویس هم آپلود شد)" : "";
+        setVideoGenStatus("آپلود کامل شد ✅" + thumbNote + captionNote);
+        return;
+      }
+      if (data.status === "failed") {
+        throw new Error(data.error || "رندر توی Worker شکست خورد");
+      }
+      setVideoGenStatus(`در حال پردازش توی Worker... (بررسیِ ${i + 1})`);
+    }
+    throw new Error(
+      "بررسیِ وضعیتِ Worker بیشتر از ۴۰ دقیقه طول کشید — رندر شاید هنوز در حال انجامه؛ از تبِ Actions تو گیت‌هاب یا خودِ کانالت چک کن."
+    );
   }
 
   async function handleSuggestMetadata() {

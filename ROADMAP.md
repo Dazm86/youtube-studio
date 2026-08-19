@@ -371,6 +371,74 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-18 — Worker path rebuilt end-to-end (was broken per the bug audit)
+Full rebuild of the GitHub Actions render-worker path, following the 2026-08-18 bug-audit
+findings in `youtube-studio-review.md`. Setup checklist walked through with the user first
+(GitHub repo secrets incl. `WORKER_SIGNING_SECRET`, a classic PAT with `repo` scope for
+`GITHUB_TOKEN`, Actions enabled, 5 Render env vars) — confirmed working via a successful
+redeploy. Design decision: instead of the original per-stage job-type model (render → separate
+upload → separate thumbnail, none of it wired together), the worker now just calls the exact
+same `runPipeline()` that the non-worker path already uses — script/metadata are still generated
+fast on Render before dispatch; only the slow part (render + upload + thumbnail + captions +
+db record) moves to the worker, and it reports back with one callback POST at the end. This also
+made the old job-type taxonomy (`generate_thumbnail`, `generate_script`, `synthesize_speech`,
+`fetch_media` as separate worker jobs) unnecessary — dropped, since only render_video/render_short
+were ever actually dispatched.
+Specific things fixed, one per file:
+- `.github/workflows/render-worker.yml`: moved `job_id`/`job_type`/`payload` out of the `run:`
+  step's `${{ }}` interpolation into job-level `env:` vars (the shell-injection bug from the
+  audit — this alone was breaking every job with an apostrophe in the script/title). Also added
+  the missing `WORKER_SIGNING_SECRET` secret to the job env (needed to verify payload signatures).
+- `lib/db/index.js`: new `worker_jobs` table + `createWorkerJob`/`updateWorkerJob`/`getWorkerJob`/
+  `listStaleWorkerJobs`, replacing the in-memory `Map` that reset on every Render restart.
+- `lib/jobs/index.js`: new `dispatchAndTrackJob()` shared by both dispatch call sites — builds
+  the payload, signs it, generates the credential, and *actually attaches the credential to what
+  gets sent* (previously generated and silently dropped, so the worker never had anything to
+  authenticate its callback with). Removed `pollJobCompletion` (a placeholder that always threw
+  after its timeout, never called anywhere). Also fixed `verifyWorkerCredential`/`verifyJobPayload`
+  to return `false` on a length-mismatched signature instead of letting `crypto.timingSafeEqual`
+  throw (turned malformed-credential requests into clean 401s instead of 500s).
+- `worker/index.js`: full rewrite. Verifies the payload signature (previously never checked —
+  `verifyJobPayload` existed but nothing called it), calls `runPipeline()` with a
+  `getUploadAccessToken` that pulls the refresh token straight from `channel_auth` via
+  `getRefreshToken()` + `refreshAccessToken()` (same pattern `scheduler/run` already uses — no
+  NextAuth session available in a GH Actions runner), then POSTs the result to
+  `payload.metadata.callbackUrl` with `Authorization: Bearer <credential>`. No more raw video
+  buffer dumped into a `WORKER_RESULT:` stdout line.
+- `app/api/generate-and-upload/route.js`: worker branch now calls `dispatchAndTrackJob`; dropped
+  the short-lived session `accessToken` from the job payload entirely (worker gets its own fresh
+  one at upload time, same reasoning as above — a token grabbed at dispatch time would likely be
+  stale by the time a multi-minute render finishes anyway); fixed the callback URL to read
+  `NEXT_PUBLIC_APP_URL` (it was reading `NEXTAUTH_URL`, inconsistent with what `jobs/index.js`
+  and `jobs/dispatch` already used and what the docs/setup checklist tell the user to set).
+- `app/api/jobs/callback/route.js`: persists to the new `worker_jobs` table instead of the
+  in-memory Map.
+- `app/api/jobs/status/route.js`: repurposed to look up `?jobId=` in `worker_jobs` instead of
+  `?runId=` against GitHub's workflow-run API — the old approach was unreachable in practice
+  since `workflow_dispatch` returns 204 with no body, so nothing ever captured a real GitHub run
+  ID to poll with.
+- `app/api/jobs/dispatch/route.js`: also uses `dispatchAndTrackJob` now; `GET` actually queries
+  the DB instead of returning a hardcoded `"not_implemented"` / empty array.
+- `lib/rendering/index.js`: fixed 3 extensionless relative dynamic imports (`import("./mayaThumbnail")`
+  / `import("./index")`, missing `.js`) — harmless under Next.js's bundler (which resolves
+  extensionless imports fine) but a guaranteed `ERR_MODULE_NOT_FOUND` under the worker's plain
+  `node src/worker/index.js` execution, since Node's native ESM loader requires explicit
+  extensions. Also removed a pointless self-import of the module's own already-in-scope
+  `probeDurationSec` function.
+- `components/studio/VideoStudio.js`: worker-mode branch no longer claims "آپلود کامل شد ✅" the
+  instant a job is dispatched. Now shows a queued message and polls `/api/jobs/status?jobId=`
+  every 10s (up to 40 min, matching the workflow's 45-min timeout) until `completed`/`failed`.
+Known residual risk, not fixed this round: `pickMayaPose`'s lazy-init race condition (audit
+finding) is still there in principle — a dynamic import kicked off at module load with no guard
+against a caller running before it resolves. Left alone because fixing it properly means changing
+call-site async semantics in `registry.js` too, and reasoning through the actual call order
+(module graph loads well before `runPipeline` reaches `synthesizeSpeech`) suggests it's unlikely
+to fire in practice; flagging it here rather than quietly leaving it out of the record.
+Files: `.github/workflows/render-worker.yml`, `lib/db/index.js`, `lib/jobs/index.js`,
+`worker/index.js`, `app/api/generate-and-upload/route.js`, `app/api/jobs/callback/route.js`,
+`app/api/jobs/status/route.js`, `app/api/jobs/dispatch/route.js`, `lib/rendering/index.js`,
+`components/studio/VideoStudio.js`.
+
 ### 2026-08-18 — Fallout from the gpt-oss-120b switch: empty script responses + a concat.txt hardening
 Tested the model swap from the entry below; found two more issues live:
 1. **Short scripts: "پاسخ خالی از هوش مصنوعی دریافت شد"**. gpt-oss-120b defaults to
