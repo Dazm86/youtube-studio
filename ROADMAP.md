@@ -371,6 +371,30 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-19 — Worker crashed with "GoogleProvider is not a function"
+Import-resolution now clean (previous entry); next run failed with
+`TypeError: GoogleProvider is not a function` at `authOptions.js:39`, the moment the module
+loads (evaluating `export const authOptions = {providers: [GoogleProvider({...})]}` — this runs
+immediately on import, even though the worker only actually needs `refreshAccessToken` from this
+file). Root cause: `next-auth/providers/google` is CommonJS, compiled with
+`exports.default = Google; exports.__esModule = true`. Node's *native* ESM/CJS interop for a
+plain `import X from "cjs-pkg"` always binds X to the *whole* `module.exports` object — verified
+directly (`import('next-auth/providers/google')` → `{ default: [Function default] }` two levels
+deep, i.e. the real `Google` function sits at `.default.default`). Webpack/Next.js's bundler
+applies its own `__esModule`-aware "interopRequireDefault" unwrapping that Node itself doesn't do,
+which is why this only ever broke under the worker's plain-node execution and never inside the
+Next.js app. Fixed by unwrapping explicitly (`GoogleProviderModule.default ||
+GoogleProviderModule`) — written to work correctly under both environments, not just the worker's.
+Given this makes 3 bundler-only-resolution bugs in a row (extensionless imports, `@/` alias, now
+this), did a full sweep of every third-party default-import in the whole worker-reachable graph
+(`src/lib` + `src/worker`) for the same CJS-interop shape: `sharp` and `@ffmpeg-installer/ffmpeg`
+both do a direct `module.exports = X` (no `.default`/`__esModule` nesting) — statically confirmed
+safe, no fix needed there. Verified the fix locally by reproducing the exact error and re-running
+past it (got to a sandbox-only "ffmpeg binary missing" failure next, which is this container's
+own incomplete `node_modules` from the zip extraction, not a real issue — GitHub Actions' fresh
+`npm ci` shouldn't hit it).
+Files: `lib/auth/authOptions.js`.
+
 ### 2026-08-19 — Worker crashed with ERR_MODULE_NOT_FOUND: '@/lib' path alias doesn't exist under plain Node
 FFmpeg step now passes; next run failed immediately with `ERR_MODULE_NOT_FOUND` during module
 linking (before any of the worker's own code runs). Reproduced locally: `lib/auth/authOptions.js`

@@ -1,5 +1,15 @@
-import GoogleProvider from "next-auth/providers/google";
+import GoogleProviderModule from "next-auth/providers/google";
 import { saveRefreshToken } from "../db/index.js";
+
+// ۲۰۲۶-۰۸-۱۹ — این پکیج CommonJSه (exports.default = Google). زیرِ
+// باندلرِ Next.js (که تا الان همیشه این فایل رو ازش لود می‌کردیم)،
+// import پیش‌فرض خودش .default رو باز می‌کنه و مستقیم تابع رو می‌ده.
+// ولی زیرِ ESM خالصِ Node (که worker باهاش اجرا می‌شه)، import پیش‌فرض
+// از یک ماژولِ CJS برابرِ کل module.exports می‌شه — یعنی نتیجه‌اش
+// `{ default: Google }` هست (خودِ تابع، تو دلِ یک آبجکت)، نه خودِ تابع؛
+// همین باعثِ «GoogleProvider is not a function» شد. این خط هر دو حالت
+// رو درست هندل می‌کنه.
+const GoogleProvider = GoogleProviderModule.default || GoogleProviderModule;
 
 export async function refreshAccessToken(token) {
   try {
