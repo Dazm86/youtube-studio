@@ -69,20 +69,16 @@ jobs:
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --no-fund
 
-      - name: Install FFmpeg
-        timeout-minutes: 5
-        env:
-          # ۲۰۲۶-۰۸-۱۹ — بدونِ این، apt-get می‌تونه رو یه promptِ debconf
-          # (معمولاً tzdata که به‌عنوانِ dependency می‌کِشه بالا) بی‌نهایت
-          # منتظرِ ورودی بمونه، چون تو یک shellِ غیرتعاملی هیچ ورودی‌ای
-          # نمی‌رسه — دقیقاً چیزی که باعثِ گیرکردنِ ۳۰+ دقیقه‌ایِ این مرحله
-          # شد. -y فقط سوال‌های «مطمئنی؟» رو جواب می‌ده، نه دیالوگ‌های
-          # debconf رو.
-          DEBIAN_FRONTEND: noninteractive
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ffmpeg
-          ffmpeg -version
+      - name: Verify bundled FFmpeg (from @ffmpeg-installer/ffmpeg via npm)
+        # ۲۰۲۶-۰۸-۱۹ — این مرحله قبلاً apt-get install ffmpeg بود، که هم
+        # کند بود (~۷۰+ پکیجِ وابسته، چند دقیقه دانلود) هم یک‌بار رو یک
+        # promptِ debconf ۳۰+ دقیقه گیر کرد — و اصلاً *لازم* هم نبود:
+        # هیچ‌جای کدِ اپ (rendering/index.js) بایننریِ سیستمیِ ffmpeg رو
+        # صدا نمی‌زنه، همیشه از ffmpegInstaller.path استفاده می‌کنه (که
+        # همین الان با npm ci نصب شد) — دقیقاً همون‌طور که رو Render هم
+        # کار می‌کنه (اونجا هم apt در کار نیست). این مرحله فقط یه چکِ
+        # سریعِ سلامتیه، نه یک نصبِ جدا.
+        run: node -e "const p=require('@ffmpeg-installer/ffmpeg').path; require('child_process').execFileSync(p,['-version'],{stdio:'inherit'});"
 
       - name: Preflight check - DATABASE_URL
         run: |

@@ -371,6 +371,21 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-19 — Removed the "Install FFmpeg" apt step entirely — it was never needed
+Follow-up to the entry right below: the `DEBIAN_FRONTEND=noninteractive` fix stopped the
+indefinite hang, but the very next real run still timed out — `apt-get install ffmpeg` pulls
+~70+ dependency packages (libx264, libx265, libvpx, librubberband, etc.), which legitimately
+took past the 5-minute cap on a cold runner. Rather than just raising the timeout, checked
+whether the app even needs it: it doesn't. `rendering/index.js` never spawns a bare `ffmpeg` —
+every invocation goes through `ffmpegInstaller.path` from the `@ffmpeg-installer/ffmpeg` npm
+package (already pinned in `package.json`, already installed by the `npm ci` step that runs
+right before this one) — the exact same static binary approach Render itself already relies on
+(no system apt there either). So the whole apt-get step was dead weight from day one, not just
+slow. Replaced it with a two-line Node check that runs the *actual* binary the app will use
+(`ffmpegInstaller.path -version`) — fails fast with a clear error if that npm package's
+postinstall ever breaks, instead of silently discovering it deep in a render.
+Files: `.github/workflows/render-worker.yml`.
+
 ### 2026-08-19 — First live worker run: repo policy block + apt-get hang
 First real end-to-end test of the rebuilt worker (previous entry). Hit two separate issues,
 neither in the worker's own logic:
@@ -383,11 +398,9 @@ neither in the worker's own logic:
 2. **"Install FFmpeg" step stuck ~30 min** (should take ~1-2 min): `apt-get install -y ffmpeg` had
    no `DEBIAN_FRONTEND=noninteractive`, so if any pulled-in dependency (classically `tzdata`) hits
    a debconf prompt, apt just hangs waiting for input that a non-interactive CI shell never sends
-   — `-y` only auto-answers "are you sure?" prompts, not debconf dialogs. Fixed: added
-   `DEBIAN_FRONTEND: noninteractive` + `--no-install-recommends` (also shrinks the dependency
-   tree, so less chance of hitting a prompt-triggering package at all), plus a 5-minute
-   `timeout-minutes` on just this step so a future hang fails fast instead of quietly burning
-   into the job's 45-minute budget (and GitHub Actions free-tier minutes).
+   — `-y` only auto-answers "are you sure?" prompts, not debconf dialogs. Fixed at the time by
+   adding `DEBIAN_FRONTEND: noninteractive` + `--no-install-recommends` + a 5-min step timeout —
+   superseded by the entry above, which removes the step altogether.
 Files: `.github/workflows/render-worker.yml`.
 
 ### 2026-08-18 — Worker path rebuilt end-to-end (was broken per the bug audit)
