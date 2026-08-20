@@ -35,6 +35,11 @@ jobs:
       WORKER_SIGNING_SECRET: ${{ secrets.WORKER_SIGNING_SECRET }}
       # Database (persistent job status + the actual pipeline needs it too)
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      # ۲۰۲۶-۰۸-۲۰ — لازمه چون providers/crypto.js از همین متغیر به‌عنوان
+      # کلیدِ AES برای decrypt کردنِ کلیدهای API که تو دیتابیس ذخیره شدن
+      # استفاده می‌کنه (به‌جای یک secret جداگانه). بدونش هر provider
+      # دیتابیسی (نه env-var-based) تو worker شکست می‌خورد.
+      NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET }}
       # Provider API keys (encrypted in DB, but worker may need some)
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}

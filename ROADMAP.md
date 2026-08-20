@@ -371,6 +371,36 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-20 — Worker got past infrastructure entirely — hit (and fixed) the real render bugs from the original audit
+Two runs today. First one failed instantly with `getaddrinfo EAI_AGAIN host` — the very first
+thing `tryProviders()` does is a DB query, and a hostname that short/literal failing in ~25ms
+pointed straight at the `DATABASE_URL` GitHub secret having a literal unreplaced `host` placeholder
+in it (classic copy-paste-the-template-without-editing-it mistake) rather than the real Supabase
+hostname. Not a code issue — user fixed the secret value directly.
+Second run got much further — script, TTS, and all 29 image segments fetched successfully
+("رسانه‌ها آماده شد ✅") — but two things surfaced:
+1. **Noisy but non-fatal**: `decrypt failed for provider 5: NEXTAUTH_SECRET تنظیم نشده`, repeated
+   once per segment. `providers/crypto.js` reuses `NEXTAUTH_SECRET` as the AES key for decrypting
+   DB-stored provider API keys (by design, to avoid needing a separate secret) — it was never
+   added to the worker's env in the original setup checklist. Fell back to an env-var-based
+   provider each time so it didn't block this run, but would silently never work for anyone whose
+   *preferred* provider is DB-stored. Added `NEXTAUTH_SECRET` to `render-worker.yml`'s env.
+2. **The actual blocker**: `ffmpeg exit 1: ... Output with label 'v' does not exist in any
+   defined filter graph, or was already used elsewhere.` This is bug #1 from the 2026-08-18 audit
+   (`youtube-studio-review.md`), left unfixed at the time per "find only, don't fix yet" — now
+   that every infrastructure layer works, this is what we finally hit. Root cause, more precisely
+   than originally written up: `let filter = "[0:v]copy[v]"` gets *overwritten* (not appended) in
+   **both** branches of the following if/else (not just the BGM one) — so the video output pad
+   never actually existed in the filter graph, no matter what. Fixed by dropping the video filter
+   entirely: `-map 0:v` directly (video needs no filtering at this stage — captions/Maya/etc. were
+   already burned in per-segment before concat) with `-c:v copy`, which is now valid since that
+   stream no longer comes from a filter graph — this also resolves the *other* original-audit
+   finding (`-c:v copy` + `-filter_complex` together is always rejected by ffmpeg) for free, since
+   there's no longer a video filter graph at all. Also fixed the BGM/narration volume swap from
+   the same audit finding while in this code (still dormant today, no BGM files exist yet, but no
+   reason to leave it wrong).
+Files: `.github/workflows/render-worker.yml`, `lib/rendering/index.js`.
+
 ### 2026-08-19 — Worker crashed with "GoogleProvider is not a function"
 Import-resolution now clean (previous entry); next run failed with
 `TypeError: GoogleProvider is not a function` at `authOptions.js:39`, the moment the module

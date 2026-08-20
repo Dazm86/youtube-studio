@@ -276,6 +276,23 @@ async function renderVideo({
     await fsp.writeFile(ttsPath, ttsBuffer);
 
     // ۴. ترکیب صدا + ویدیو (+ BGM اختیاری)
+    //
+    // فیکسِ ۲۰۲۶-۰۸-۲۰ — دو باگ که از بررسیِ اولیه (۲۰۲۶-۰۸-۱۸) مونده
+    // بودن، امروز با اولین رندرِ واقعیِ worker بالاخره لو رفتن:
+    // ۱. قبلاً `filter` با `[0:v]copy[v]` مقداردهی اولیه می‌شد، ولی توی
+    //    *هر دو* شاخه‌ی if/else بلافاصله overwrite می‌شد (نه append) —
+    //    یعنی گره‌ی ویدیو همیشه گم می‌شد و `-map [v]` به یک pad ناموجود
+    //    اشاره می‌کرد → دقیقاً همون ارورِ «Output with label 'v' does
+    //    not exist». چون ویدیو اصلاً نیازی به فیلتر نداره (کارِ ترکیب/
+    //    زیرنویس/مایا از قبل رو تک‌تک سگمنت‌ها انجام شده)، دیگه از
+    //    filter_complex برای ویدیو استفاده نمی‌کنیم — مستقیم `-map 0:v`
+    //    با `-c:v copy`، که هم این باگ رو حل می‌کنه هم باگِ بعدی رو:
+    // ۲. `-c:v copy` با یک stream که از filter_complex میاد اصلاً برای
+    //    ffmpeg مجاز نیست («Filtering and streamcopy cannot be used
+    //    together») — با حذفِ فیلترِ ویدیو، `-map 0:v` دیگه از هیچ
+    //    filter graphی نمیاد، پس `-c:v copy` معتبره.
+    // ۳. تو حالتِ BGM، `[1:a]` (روایتِ TTS) کم می‌شد نه `[2:a]` (خودِ
+    //    موزیک) — برعکسِ منطقِ درست؛ اینجا هم سواپ شد.
     const finalArgs = [
       "-y",
       "-i",
@@ -283,18 +300,18 @@ async function renderVideo({
       "-i",
       ttsPath,
     ];
-    let filter = "[0:v]copy[v]";
+    let audioFilter;
     if (bgmPath && fs.existsSync(bgmPath)) {
       finalArgs.push("-i", bgmPath);
-      filter = `[1:a]volume=${bgmVolume}[bgm];[2:a][bgm]amix=inputs=2:duration=first[a]`;
+      audioFilter = `[2:a]volume=${bgmVolume}[bgm];[1:a][bgm]amix=inputs=2:duration=first[a]`;
     } else {
-      filter = "[1:a]anull[a]";
+      audioFilter = "[1:a]anull[a]";
     }
     finalArgs.push(
       "-filter_complex",
-      filter,
+      audioFilter,
       "-map",
-      "[v]",
+      "0:v",
       "-map",
       "[a]",
       "-c:v",
