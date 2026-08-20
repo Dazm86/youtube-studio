@@ -21,8 +21,9 @@ async function downloadMedia(url) {
 
 // Dynamic imports for rendering functions to avoid build-time issues on unsupported platforms
 async function getRendering() {
-  const { renderVideo, estimateAudioDurationSec, trimSilenceFromAudio, detectLongSilences } = await import("./rendering/index.js");
-  return { renderVideo, estimateAudioDurationSec, trimSilenceFromAudio, detectLongSilences };
+  const { renderVideo, probeDurationSec, estimateAudioDurationSec, trimSilenceFromAudio, detectLongSilences } =
+    await import("./rendering/index.js");
+  return { renderVideo, probeDurationSec, estimateAudioDurationSec, trimSilenceFromAudio, detectLongSilences };
 }
 
 async function getMayaThumbnail() {

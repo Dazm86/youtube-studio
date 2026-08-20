@@ -371,6 +371,24 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-20 — Render itself succeeded, then crashed on the final duration probe: "probeDurationSec is not a function"
+Confirms the previous entry's mux fix worked — the video actually rendered this time (progress
+reached "مرحله ۳" and stayed there noticeably longer, consistent with real ffmpeg work happening
+instead of an instant syntax-error crash). Failed right after, on the post-render duration check.
+Pre-existing bug in `pipeline.js`, unrelated to anything touched today or in the worker rebuild —
+just never reachable before now. `getRendering()` (a dynamic-import wrapper around
+`rendering/index.js`) explicitly destructures and returns only `{ renderVideo,
+estimateAudioDurationSec, trimSilenceFromAudio, detectLongSilences }` — `probeDurationSec` was
+missing from that list even though `rendering/index.js` exports it and a caller further down
+does `const { probeDurationSec } = await getRendering()`. Since it's not in the returned object,
+that destructure silently gives `undefined`, and calling it throws exactly this error. Added
+`probeDurationSec` to both the destructure and the return statement.
+Also note: the `NEXTAUTH_SECRET` decrypt warnings are still appearing in this same run's log —
+that fix (added to `render-worker.yml`'s env in the previous entry) needs the matching GitHub
+*secret* actually added too (Settings → Secrets and variables → Actions), which is a separate
+manual step from pushing the workflow file; looks like that step is still pending.
+Files: `lib/pipeline.js`.
+
 ### 2026-08-20 — Worker got past infrastructure entirely — hit (and fixed) the real render bugs from the original audit
 Two runs today. First one failed instantly with `getaddrinfo EAI_AGAIN host` — the very first
 thing `tryProviders()` does is a DB query, and a hostname that short/literal failing in ~25ms
