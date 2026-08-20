@@ -371,6 +371,20 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-19 — Worker crashed with ERR_MODULE_NOT_FOUND: '@/lib' path alias doesn't exist under plain Node
+FFmpeg step now passes; next run failed immediately with `ERR_MODULE_NOT_FOUND` during module
+linking (before any of the worker's own code runs). Reproduced locally: `lib/auth/authOptions.js`
+had `import { saveRefreshToken } from "@/lib/db"` — the `@/` alias only exists inside Next.js's
+own bundler (webpack/Turbopack resolve it via `jsconfig.json` paths), which is why it always
+worked when this file loaded through the Next.js app; plain `node src/worker/index.js` has no
+idea what `@/` means and tries to resolve it as an npm package name. Same root-cause class as the
+2026-08-18 extensionless-import fixes in `rendering/index.js` (bundler-only resolution tricks
+that break under the worker's plain-Node execution) — re-scanned all of `src/lib` and
+`src/worker` for any other `@/` alias; this was the only one. Fixed by switching to a real
+relative import (`../db/index.js`). Confirmed the whole import graph now links cleanly by running
+`node src/worker/index.js` directly (got past module resolution into actual pipeline code).
+Files: `lib/auth/authOptions.js`.
+
 ### 2026-08-19 — Removed the "Install FFmpeg" apt step entirely — it was never needed
 Follow-up to the entry right below: the `DEBIAN_FRONTEND=noninteractive` fix stopped the
 indefinite hang, but the very next real run still timed out — `apt-get install ffmpeg` pulls

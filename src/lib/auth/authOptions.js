@@ -1,5 +1,5 @@
 import GoogleProvider from "next-auth/providers/google";
-import { saveRefreshToken } from "@/lib/db";
+import { saveRefreshToken } from "../db/index.js";
 
 export async function refreshAccessToken(token) {
   try {
