@@ -51,7 +51,11 @@ const MAX_TIMEOUT_RETRIES = 2;
 const TIMEOUT_RETRY_DELAY_MS = 1500;
 
 function isTimeoutOrNetworkError(message) {
-  return /timeout|timed out|ETIMEDOUT|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|network error|fetch failed/i.test(
+  // «Stream closed before the synthesis completed» مستقیم از خودِ پکیجِ
+  // msedge-tts میاد (۲۰۲۶-۰۸-۲۰) — وقتی WebSocketِ سرویسِ غیررسمیِ Edge
+  // وسطِ کار قطع بشه. یه خطای موقتیِ شبکه‌ایه، ولی چون هیچ‌کدوم از
+  // کلیدواژه‌های زیر توش نبود، تا الان هیچ‌وقت retry نمی‌شد.
+  return /timeout|timed out|ETIMEDOUT|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|network error|fetch failed|stream closed before the synthesis completed/i.test(
     message || ""
   );
 }

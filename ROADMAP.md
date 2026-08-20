@@ -371,6 +371,24 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-20 — msedge-tts stream drop wasn't being retried
+New run, upload never reached — failed at stage 1 (TTS): `Stream closed before the synthesis
+completed (no turn.end received). The audio is likely truncated.` This message comes directly
+from the `msedge-tts` package (confirmed by reading its source) — it's an unofficial,
+reverse-engineered client for Edge's internal TTS service, and its WebSocket connection to
+Microsoft occasionally gets cut mid-stream. `router.js`'s retry logic already exists for exactly
+this kind of transient failure, but only fires when the error message matches a keyword list
+(timeout/ECONNRESET/etc.) — this exact message matched none of them, so it failed instantly with
+no retry, and since `msedge-tts` looks like the only configured "audio" provider, there was
+nothing to fall back to either. Added this message to the retryable-error patterns (2 retries,
+1.5s apart, same as the existing timeout/network handling).
+Caveat, not something code alone can fix: if this turns out to be Microsoft rate-limiting or
+blocking GitHub Actions' Azure IP ranges specifically (a known risk for unofficial APIs called
+from datacenter IPs) rather than a one-off blip, retries within the same run won't help — worth
+adding a second "audio" provider (e.g. ElevenLabs' free tier) from the Providers page as a real
+fallback if this keeps recurring.
+Files: `lib/providers/router.js`.
+
 ### 2026-08-20 — First full render success end-to-end; upload blocked by another env-var name mismatch
 Confirms the `probeDurationSec` fix worked — this run got all the way through: audio, all 33
 image segments, and **the actual video render completed** ("ویدیو رندر شد ✅"), which is the
