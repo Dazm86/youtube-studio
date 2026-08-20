@@ -48,8 +48,14 @@ jobs:
       STABILITY_API_KEY: ${{ secrets.STABILITY_API_KEY }}
       PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
       # YouTube OAuth (worker uploads directly)
-      YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
-      YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+      # ۲۰۲۶-۰۸-۲۰ — کدِ authOptions.js همیشه GOOGLE_CLIENT_ID/SECRET رو
+      # می‌خونه (نه YOUTUBE_CLIENT_ID/SECRET که قبلاً اینجا بود) — یعنی
+      # درخواستِ رفرشِ توکن همیشه با client_id خالی می‌رفت و گوگل با
+      # invalid_client رد می‌کرد. همون secretِ از قبل ساخته‌شده رو نگه
+      # می‌داریم، فقط اسمِ env var رو با چیزی که کد واقعاً می‌خونه یکی
+      # می‌کنیم.
+      GOOGLE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+      GOOGLE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
       # ۲۰۲۶-۰۸-۱۸ — این سه‌تا رو *اینجا*، تو env سطحِ job تعریف می‌کنیم
       # (نه مستقیم تو یک run: با ${{ }}) تا مقدارشون به‌عنوان یک متغیرِ
       # محیطیِ shell دیده بشه، نه این‌که قبل از اجرای shell متنی جایگزین

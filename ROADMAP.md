@@ -371,6 +371,28 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-20 — First full render success end-to-end; upload blocked by another env-var name mismatch
+Confirms the `probeDurationSec` fix worked — this run got all the way through: audio, all 33
+image segments, and **the actual video render completed** ("ویدیو رندر شد ✅"), which is the
+first time the whole render pipeline has worked since the worker rebuild started. Blocked one
+step later, at upload: `خطا در تمدید توکن: { error: 'invalid_client', error_description: 'The
+OAuth client was not found.' }`. Same bug class as the earlier `NEXTAUTH_SECRET`/`DATABASE_URL`
+misses — `render-worker.yml`'s env block exposed the Google OAuth credentials as `YOUTUBE_CLIENT_ID`
+/`YOUTUBE_CLIENT_SECRET`, but `lib/auth/authOptions.js` (used for the worker's own token refresh,
+per the 2026-08-18 worker rebuild) only ever reads `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` — so
+the refresh request always sent an empty `client_id`, which Google correctly rejects as
+`invalid_client`. Fixed by renaming the *env var* exposed to the process (kept referencing the
+same already-created `secrets.YOUTUBE_CLIENT_ID`/`YOUTUBE_CLIENT_SECRET` — no new GitHub secret
+needed).
+Also noted, not fixed yet: every one of the 33 Pexels image requests in this run failed
+("provider ominiRoute (pexels) در «عکس» شکست خورد: خطا در دریافت عکس از Pexels") and silently
+fell back to local fallback images — didn't block the run, but means none of this video's images
+were actually topic-relevant. `registry.js`'s `pexelsImages()` swallows Pexels' real error body
+into a generic message (`data.error || "خطا در دریافت عکس از Pexels"`), so the actual cause
+(rate limit vs. bad key vs. something else) isn't visible in the log — worth tightening that
+error message next time this comes up, once upload is confirmed working.
+Files: `.github/workflows/render-worker.yml`.
+
 ### 2026-08-20 — Render itself succeeded, then crashed on the final duration probe: "probeDurationSec is not a function"
 Confirms the previous entry's mux fix worked — the video actually rendered this time (progress
 reached "مرحله ۳" and stayed there noticeably longer, consistent with real ffmpeg work happening
