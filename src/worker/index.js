@@ -12,17 +12,19 @@
  * POST به callbackUrl (که تو payload اومده) با نتیجه/خطا می‌زنه — دقیقاً
  * همون چیزی که WORKER_ARCHITECTURE.md از اول توصیفش کرده بود.
  *
- * چون worker دسترسیِ مستقیم به DATABASE_URL داره (تو render-worker.yml
- * ست شده)، برای توکنِ آپلودِ یوتیوب هم از همون الگوی scheduler/run
- * استفاده می‌کنه: refresh token رو از جدولِ channel_auth می‌خونه، نه از
- * یک NextAuth session (که worker اصلاً نداره).
+ * فیکسِ ۲۰۲۶-۰۸-۲۰ — قبلاً worker خودش مستقیم با GOOGLE_CLIENT_ID/SECRET
+ * به گوگل رفرش می‌زد (مثلِ scheduler/run)، ولی نگه‌داشتنِ یه کپیِ دومِ
+ * این اعتبارنامه‌ها تو GitHub secrets چند دور خطای مختلف داد
+ * (invalid_client، deleted_client). حالا به‌جاش از یک endpointِ داخلیِ
+ * خودِ وب‌اپ (`/api/internal/youtube-token`) توکن می‌گیره — همون کدِ
+ * رفرشی که لاگینِ سایت باهاش کار می‌کنه، رو همون Render اجرا می‌شه؛
+ * worker فقط با WORKER_API_KEY (که همیشه درست کار کرده) احراز هویت
+ * می‌کنه. دیگه هیچ اعتبارنامه‌ی گوگلی تو GitHub لازم نیست.
  *
  * Usage: node src/worker/index.js <job_id> <job_type> <payload_json>
  */
 
 import { runPipeline } from "../lib/pipeline.js";
-import { getRefreshToken } from "../lib/db/index.js";
-import { refreshAccessToken } from "../lib/auth/authOptions.js";
 import { verifyJobPayload } from "../lib/jobs/index.js";
 
 function log(level, message, data = {}) {
@@ -31,17 +33,20 @@ function log(level, message, data = {}) {
 }
 
 async function getUploadAccessToken() {
-  const refreshToken = await getRefreshToken();
-  if (!refreshToken) {
-    throw new Error(
-      "هیچ حساب گوگلی وصل نیست — یک‌بار باید از خودِ سایت وارد شده باشی تا worker بتونه توکن بگیره."
-    );
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  const workerApiKey = process.env.WORKER_API_KEY;
+  if (!appUrl || !workerApiKey) {
+    throw new Error("NEXT_PUBLIC_APP_URL یا WORKER_API_KEY تو worker تنظیم نشده");
   }
-  const refreshed = await refreshAccessToken({ refreshToken });
-  if (refreshed.error || !refreshed.accessToken) {
-    throw new Error("تمدید توکن گوگل تو worker شکست خورد");
+  const res = await fetch(`${appUrl}/api/internal/youtube-token`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${workerApiKey}` },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.accessToken) {
+    throw new Error(data.error || `گرفتنِ توکنِ آپلود از وب‌اپ شکست خورد (${res.status})`);
   }
-  return refreshed.accessToken;
+  return data.accessToken;
 }
 
 // نتیجه/خطا رو به وب‌اپ گزارش می‌ده — همون Authorization: Bearer که

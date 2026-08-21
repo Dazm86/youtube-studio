@@ -371,6 +371,31 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-20 — Worker no longer needs Google OAuth credentials at all (architecture change)
+Two runs in a row hit `deleted_client` on the token refresh even after re-copying
+`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` into GitHub secrets — confirmed via a fresh sign-in on
+the live site that the *real* credentials work fine (site login succeeded), so the problem was
+specifically about keeping a second, GitHub-side copy of them in sync, which kept going wrong in
+different ways across several attempts (name mismatch, wrong value, now this). Rather than
+debug a fourth copy-paste attempt, removed the need for a second copy entirely: user's own
+suggestion (route the finished video back through Render for upload) would have solved the
+credential-duplication problem but reintroduced the exact long-running-HTTP-request risk the
+whole worker was built to avoid, plus a new file-storage dependency — so kept just the actual
+useful part of that idea (Render does the Google-facing work) without the costly parts (no video
+file transfer, no long request).
+New design: added `POST /api/internal/youtube-token`, a small endpoint on the web app that
+takes a `WORKER_API_KEY` bearer token, runs the *exact* refresh-token code path that normal user
+sign-in already proves works, and returns a fresh access token — this runs on Render, where the
+Google credentials have only ever needed to exist once. `worker/index.js`'s `getUploadAccessToken`
+now just calls this endpoint instead of importing `lib/db` + `lib/auth/authOptions` and talking to
+Google directly. `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` removed entirely from
+`render-worker.yml` — no Google credential of any kind needs to live in GitHub secrets anymore,
+which also closes off this whole class of "which copy is stale" bug for good. Added
+`NEXT_PUBLIC_APP_URL` as a plain (non-secret) value in the workflow so the worker knows where to
+call.
+Files: `app/api/internal/youtube-token/route.js` (new), `worker/index.js`,
+`.github/workflows/render-worker.yml`.
+
 ### 2026-08-20 — msedge-tts stream drop wasn't being retried
 New run, upload never reached — failed at stage 1 (TTS): `Stream closed before the synthesis
 completed (no turn.end received). The audio is likely truncated.` This message comes directly
