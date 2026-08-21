@@ -371,6 +371,20 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-21 — New token endpoint returned 401: swapped WORKER_API_KEY for WORKER_SIGNING_SECRET
+First real test of yesterday's `/api/internal/youtube-token` endpoint — video rendered fine again,
+but the token call itself failed with a plain `Unauthorized`. Root cause, on reflection: the auth
+check used `WORKER_API_KEY`, which — unlike `WORKER_SIGNING_SECRET` — has never actually been
+load-bearing anywhere in this codebase before yesterday (`jobs/index.js` only ever reads it as a
+fallback *for* `WORKER_SIGNING_SECRET`, which the user set explicitly from the start) — so nobody
+had ever actually confirmed the Render copy and the GitHub copy of `WORKER_API_KEY` matched.
+`WORKER_SIGNING_SECRET`, in contrast, has been proven correctly in sync all day: every single
+successful "callback به وب‌اپ موفق بود" today depended on it matching between the two sides.
+Switched the new endpoint (and the worker's call to it) to check `WORKER_SIGNING_SECRET` instead
+— picking the secret with an actual track record rather than asking for yet another manual
+copy-paste verification.
+Files: `app/api/internal/youtube-token/route.js`, `worker/index.js`.
+
 ### 2026-08-20 — Worker no longer needs Google OAuth credentials at all (architecture change)
 Two runs in a row hit `deleted_client` on the token refresh even after re-copying
 `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` into GitHub secrets — confirmed via a fresh sign-in on

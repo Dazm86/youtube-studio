@@ -18,8 +18,9 @@
  * (invalid_client، deleted_client). حالا به‌جاش از یک endpointِ داخلیِ
  * خودِ وب‌اپ (`/api/internal/youtube-token`) توکن می‌گیره — همون کدِ
  * رفرشی که لاگینِ سایت باهاش کار می‌کنه، رو همون Render اجرا می‌شه؛
- * worker فقط با WORKER_API_KEY (که همیشه درست کار کرده) احراز هویت
- * می‌کنه. دیگه هیچ اعتبارنامه‌ی گوگلی تو GitHub لازم نیست.
+ * worker فقط با WORKER_SIGNING_SECRET (که همون secretیه که امضای
+ * جاب‌ها و callbackها رو هم تأیید می‌کنه، پس مطمئنیم درست sync شده)
+ * احراز هویت می‌کنه. دیگه هیچ اعتبارنامه‌ی گوگلی تو GitHub لازم نیست.
  *
  * Usage: node src/worker/index.js <job_id> <job_type> <payload_json>
  */
@@ -34,13 +35,13 @@ function log(level, message, data = {}) {
 
 async function getUploadAccessToken() {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL;
-  const workerApiKey = process.env.WORKER_API_KEY;
-  if (!appUrl || !workerApiKey) {
-    throw new Error("NEXT_PUBLIC_APP_URL یا WORKER_API_KEY تو worker تنظیم نشده");
+  const signingSecret = process.env.WORKER_SIGNING_SECRET || process.env.WORKER_API_KEY;
+  if (!appUrl || !signingSecret) {
+    throw new Error("NEXT_PUBLIC_APP_URL یا WORKER_SIGNING_SECRET تو worker تنظیم نشده");
   }
   const res = await fetch(`${appUrl}/api/internal/youtube-token`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${workerApiKey}` },
+    headers: { Authorization: `Bearer ${signingSecret}` },
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.accessToken) {

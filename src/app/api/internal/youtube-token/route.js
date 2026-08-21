@@ -12,10 +12,17 @@ import { refreshAccessToken } from "@/lib/auth/authOptions";
 // داره) یه توکنِ آماده از همین‌جا می‌گیره — همون کدِ رفرشی که خودِ
 // لاگینِ سایت باهاش کار می‌کنه، همین‌جا رو Render اجرا می‌شه، نه تو
 // runnerِ گیت‌هاب.
+// ۲۰۲۶-۰۸-۲۱ — از WORKER_SIGNING_SECRET استفاده می‌کنیم، نه
+// WORKER_API_KEY. WORKER_API_KEY تا امروز هیچ‌وقت واقعاً جایی چک نمی‌شد
+// (فقط یه fallback برای WORKER_SIGNING_SECRET بود که خودِ کاربر صریحاً
+// ستش کرده بود) — یعنی هیچ‌کس مطمئن نبود دو تا کپیِ WORKER_API_KEY
+// (Render و GitHub) واقعاً یکی‌ان. WORKER_SIGNING_SECRET برعکس، امروز
+// بارها امتحان پس داده: هر callbackِ موفقِ امروز دقیقاً به یکی‌بودنِ
+// همین مقدار بینِ دو طرف بستگی داشته.
 export async function POST(request) {
   const authHeader = request.headers.get("authorization");
   const provided = authHeader?.replace("Bearer ", "") || "";
-  const expected = process.env.WORKER_API_KEY || "";
+  const expected = process.env.WORKER_SIGNING_SECRET || process.env.WORKER_API_KEY || "";
 
   const providedBuf = Buffer.from(provided);
   const expectedBuf = Buffer.from(expected);
