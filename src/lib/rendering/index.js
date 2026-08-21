@@ -96,10 +96,21 @@ function buildScaleFilter(targetW, targetH) {
 
 function buildCaptionFilter(captionLine, videoW, videoH, fontPath, fontsize, lineIndex) {
   const margin = Math.round(videoH * 0.08);
+  // فیکسِ ۲۰۲۶-۰۸-۲۱ — `\'` به‌عنوان escape برای آپاستروف تو یک مقدارِ
+  // تکی‌کوتیشن‌شده‌ی ffmpeg اصلاً کار نمی‌کنه (برخلافِ escapeِ معمولیِ
+  // shell) — با ffmpegِ واقعی تست شد: دقیقاً همون خطای «Output with
+  // label 'v1' does not exist» رو می‌ده، چون کوتیشن زودتر از موعد بسته
+  // می‌شه و بقیه‌ی رشته دیگه به‌عنوان متنِ داخلِ کوتیشن خونده نمی‌شه. چون
+  // اسکریپت‌های انگلیسی پر از آپاستروفن («I've»، «don't»، «Alex's»)، این
+  // عملاً هر رندرِ لانگی که به این خط می‌رسید رو می‌شکست. به‌جای escapeِ
+  // درستِ ffmpeg (که پیچیده‌تره: '\''), از همون ترفندی استفاده می‌کنیم
+  // که mayaThumbnail.js و script/timing.js از قبل برای همین دقیقاً
+  // مشکل استفاده می‌کنن: آپاستروف رو با کوتیشنِ گردِ یونیکد (’) عوض
+  // می‌کنیم — دیگه اصلاً کاراکترِ خاصِ ffmpeg نیست، نیازی به escape نداره.
   const escaped = captionLine.text
     .replace(/\\/g, "\\\\")
     .replace(/:/g, "\\:")
-    .replace(/'/g, "\\'")
+    .replace(/'/g, "\u2019")
     .replace(/%/g, "\\%")
     .replace(/\[/g, "\\[")
     .replace(/\]/g, "\\]");

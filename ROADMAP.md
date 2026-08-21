@@ -371,6 +371,33 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-21 — Per-segment captions with an apostrophe broke the whole render: confirmed and fixed with real ffmpeg
+Token endpoint now returns a real access token (previous entry's fix confirmed working, upload got
+further); render itself failed instead, back at the per-segment stage this time: `ffmpeg exit 1:
+... Input #0, image2, from '/tmp/render-o2Ro7x/img_16.png' ... Output with label 'v1' does not
+exist in any defined filter graph, or was already used elsewhere.` — a different instance of the
+same *symptom* as the final-mux bug fixed on 2026-08-20, but a genuinely different bug, this time
+in the per-segment caption filter, not the final mux.
+Root cause, this time verified empirically rather than by reading alone (installed a throwaway
+system ffmpeg and reproduced the exact crash locally before touching any code): `buildCaptionFilter`
+escapes a literal apostrophe in caption text as `\'` before embedding it in a single-quoted ffmpeg
+filter value (`text='...'`). That doesn't work — ffmpeg's filtergraph parser doesn't treat `\'` as
+an escaped quote inside a `'...'`-quoted value the way a shell would; reproduced the "label does
+not exist" crash directly by feeding `I've lived...` through the exact same escaping code and
+piping the result into real ffmpeg. Since this project's scripts are full of contractions and
+possessives ("I've", "don't", "Alex's"), essentially any long-form script was one unlucky caption
+segment away from crashing here — this is likely why *no* long-form render had fully succeeded
+until now even with everything else fixed.
+Verified two candidate fixes against real ffmpeg before picking one: ffmpeg's own correct escape
+for a literal quote inside `'...'` (the `'\''` close-quote/escaped-quote/reopen-quote trick) does
+work, but `mayaThumbnail.js` and `script/timing.js` already solve the identical problem a simpler
+way — substituting a Unicode curly quote (’) for the apostrophe entirely, sidestepping the need to
+escape anything. Matched that existing, already-proven convention instead of introducing a third
+escaping style into the codebase. Confirmed the fix renders correctly (clean colon, percent sign,
+and brackets, no stray backslashes visible) with a caption exercising every escaped character at
+once.
+Files: `lib/rendering/index.js`.
+
 ### 2026-08-21 — New token endpoint returned 401: swapped WORKER_API_KEY for WORKER_SIGNING_SECRET
 First real test of yesterday's `/api/internal/youtube-token` endpoint — video rendered fine again,
 but the token call itself failed with a plain `Unauthorized`. Root cause, on reflection: the auth
