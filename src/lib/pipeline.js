@@ -6,7 +6,7 @@ import path from "path";
 import os from "os";
 import { synthesizeSpeech } from "./providers/router.js";
 import { fetchImages, fetchClips } from "./media/index.js";
-import { distributeDurations, buildSrt, validateSrt, regroupForSubtitles } from "./script/timing.js";
+import { distributeDurations, buildSrt, validateSrt, buildSentenceCaptions } from "./script/timing.js";
 import { translateCaptions } from "./script/translate.js";
 import { generateChapters } from "./metadata/index.js";
 import { generateCommunityPost } from "./community/index.js";
@@ -615,13 +615,16 @@ async function runPipelineCore(
     console.error("transcript comment error (نادیده گرفته می‌شه):", commentErr.message);
   }
 
-  // بخش‌های بالا (captions/durations) با تعداد آیتم‌های رسانه هماهنگن، نه با
-  // طول خوانا برای زیرنویس — قبل از ساختِ SRT به بلوک‌های ۵ تا ۱۰ ثانیه‌ای
-  // بازچینی می‌شن؛ segmentation رسانه/رندرِ بالا (mediaItems، renderVideo)
-  // دست‌نخورده می‌مونه.
-  const { captions: subtitleCaptions, durations: subtitleDurations } = regroupForSubtitles(
-    captions,
-    durations
+  // فیکسِ ۲۰۲۶-۰۸-۲۱ — قبلاً اینجا از regroupForSubtitles استفاده
+  // می‌شد که بخش‌های رسانه (که segmentation‌شون بر اساسِ تعدادِ
+  // عکس/کلیپ بود، نه مرزِ جمله) رو صرفاً بر اساسِ مدت‌زمان به بلوک‌های
+  // ۵-۱۰ ثانیه‌ای می‌چسبوند — نتیجه بلوک‌هایی بود که چند جمله رو قاطی
+  // می‌کردن یا وسطِ جمله می‌بریدن. حالا مستقیم از خودِ متنِ اسکریپت
+  // جمله‌جمله جدا می‌شه، با زمان‌بندیِ دقیقِ متناسب با تعدادِ کلمه‌ی هر
+  // جمله — یک جمله در هر خط، نه یک بلوکِ زمانیِ ثابت.
+  const { captions: subtitleCaptions, durations: subtitleDurations } = buildSentenceCaptions(
+    script,
+    audioDurationSec
   );
 
   // --- ۶. زیرنویس انگلیسی ---

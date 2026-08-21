@@ -371,6 +371,33 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-21 — First fully successful worker render end-to-end 🎉 + sentence-based subtitles, batched translation
+`Video Render Worker #24` succeeded (8m 59s) — first complete render+upload since the worker
+rebuild began. User asked why every language's translated captions were failing, and separately
+asked for subtitles to be restructured to one sentence per line with precise timing. Both landed
+together:
+1. **Caption translation failing everywhere**: `Failed to validate JSON. Please adjust your
+   prompt. See 'failed_generation' for more details.` — this is Groq's own server-side rejection
+   when `response_format: json_object` is set and the model's raw output doesn't parse as JSON
+   (happens before the client-side `JSON.parse` in `translate.js` even runs). `maxTokens: 4000`
+   was already generous, so the likelier factor is just how much harder it is for a reasoning
+   model to get a big structured array (30+ segments in one JSON response) exactly right in one
+   shot. Restructured `translateCaptions` to batch into groups of 12 segments per Groq call
+   instead of one giant call for the whole video — smaller, simpler JSON per request, and a
+   single bad batch no longer costs the whole language's subtitles.
+2. **Subtitles weren't sentence-aligned**: `regroupForSubtitles` grouped the media-render segments
+   (segmented by *image/clip count*, unrelated to sentence boundaries) into fixed 5-10 second
+   blocks — could merge multiple sentences into one subtitle or cut one mid-sentence. Added
+   `buildSentenceCaptions(script, audioDurationSec)` to `script/timing.js`: splits the actual
+   script into real sentences (via the existing but previously-unused `splitSentences`) and gives
+   each one precise, proportional timing based on its share of the script's total word count —
+   same distribution principle `distributeDurations` already uses, just per-sentence instead of
+   per-media-segment. `pipeline.js` now builds the English SRT and every translated-language SRT
+   from this instead of `regroupForSubtitles` (left in place, unused, rather than deleted — no
+   reason to remove a working utility function). Verified locally: durations sum exactly to the
+   total audio length, sentence text stays in order.
+Files: `lib/script/translate.js`, `lib/script/timing.js`, `lib/pipeline.js`.
+
 ### 2026-08-21 — Per-segment captions with an apostrophe broke the whole render: confirmed and fixed with real ffmpeg
 Token endpoint now returns a real access token (previous entry's fix confirmed working, upload got
 further); render itself failed instead, back at the per-segment stage this time: `ffmpeg exit 1:

@@ -4,6 +4,29 @@ export function splitSentences(text) {
     .filter(Boolean);
 }
 
+// ۲۰۲۶-۰۸-۲۱ — زیرنویسِ واقعاً یک‌جمله‌-در-یک‌خط، با زمان‌بندیِ دقیق.
+// برخلافِ regroupForSubtitles (که بخش‌های رسانه رو صرفاً بر اساسِ
+// مدت‌زمان به بلوک‌های ۵-۱۰ ثانیه‌ای می‌چسبونه و می‌تونه چند جمله رو
+// قاطی کنه یا وسطِ جمله ببره)، این تابع مستقیم از خودِ متنِ اسکریپت
+// (نه بخش‌های رسانه‌ای که segmentation‌شون به مرزِ جمله ربطی نداره)
+// جمله‌ها رو با splitSentences جدا می‌کنه، و زمانِ هر جمله رو دقیقاً
+// متناسب با سهمِ کلمه‌هاش از کلِ اسکریپت از کلِ audioDurationSec
+// می‌ده — همون منطقِ توزیعِ distributeDurations، فقط واحدش «جمله»ست
+// نه «تعداد بخشِ رسانه».
+export function buildSentenceCaptions(script, totalDurationSec) {
+  const sentences = splitSentences(script || "");
+  if (sentences.length === 0 || !Number.isFinite(totalDurationSec) || totalDurationSec <= 0) {
+    return { captions: [], durations: [] };
+  }
+
+  const wordCounts = sentences.map((s) => s.split(/\s+/).filter(Boolean).length || 1);
+  const totalWords = wordCounts.reduce((sum, n) => sum + n, 0) || 1;
+
+  const durations = wordCounts.map((wc) => (totalDurationSec * wc) / totalWords);
+
+  return { captions: sentences, durations };
+}
+
 export function distributeDurations(script, imageCount, totalDuration) {
   const words = (script || "").split(/\s+/).filter(Boolean);
   const totalWords = words.length || 1;

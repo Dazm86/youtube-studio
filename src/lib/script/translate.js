@@ -10,8 +10,20 @@
 // once with a stricter prompt (lower temperature, explicit warning) before
 // giving up — same "give it one more focused shot" pattern used for the
 // 8-minute script-length safety net in scriptGen.js.
+//
+// ۲۰۲۶-۰۸-۲۱ — بعد از سوییچ به زیرنویسِ یک‌جمله‌-در-یک‌خط (که تعدادِ
+// بخش‌ها رو بیشتر می‌کنه)، هر ترجمه به‌جای یک درخواستِ غول‌پیکرِ شامل
+// *همه‌ی* جمله‌ها، به دسته‌های کوچیک‌تر (BATCH_SIZE تایی) تقسیم می‌شه.
+// دلیل: Groq با response_format=json_object یه validationِ سخت‌گیرانه‌ی
+// خودش داره — هرچی خروجیِ موردانتظار بزرگ‌تر/پیچیده‌تر باشه (مثلاً
+// آرایه‌ای با ۳۰+ جمله)، احتمالِ این‌که یک reasoning modelِ خروجیِ کامل
+// ندهد (که Groq رد می‌کنه با «Failed to validate JSON») بیشتره. دسته‌ی
+// کوچیک‌تر هم این ریسک رو کم می‌کنه، هم اگه یک دسته شکست بخوره، بقیه‌ی
+// دسته‌ها (و نتیجتاً بقیه‌ی زیرنویس) هنوز سالم می‌مونن.
 
 import { generateText } from "../providers/router.js";
+
+const BATCH_SIZE = 12;
 
 async function requestTranslation(captions, languageName, strict) {
   const strictNote = strict
@@ -54,7 +66,7 @@ ${JSON.stringify(captions)}`;
   return segments;
 }
 
-export async function translateCaptions(captions, languageName) {
+async function translateBatch(captions, languageName) {
   let lastError = null;
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
@@ -69,4 +81,18 @@ export async function translateCaptions(captions, languageName) {
     }
   }
   throw lastError;
+}
+
+export async function translateCaptions(captions, languageName) {
+  if (captions.length <= BATCH_SIZE) {
+    return await translateBatch(captions, languageName);
+  }
+
+  const results = [];
+  for (let i = 0; i < captions.length; i += BATCH_SIZE) {
+    const batch = captions.slice(i, i + BATCH_SIZE);
+    const translated = await translateBatch(batch, languageName);
+    results.push(...translated);
+  }
+  return results;
 }
