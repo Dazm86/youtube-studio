@@ -553,9 +553,13 @@ export async function renderVerticalShortFromSource({
     // ناپدید شدنِ ناگهانی.
     const FADE = 0.25;
     const { escapeDrawtextForShort } = await getMayaThumbnail();
+    // فیکسِ ۲۰۲۶-۰۸-۲۲ — همون باگِ overflowِ زیرنویسِ رندرِ لانگ اینجا هم
+    // بود (fontsize ثابت، بدونِ چکِ عرض) — از همون wrapCaptionText که
+    // برای buildCaptionFilter نوشته شده استفاده می‌کنیم.
     const captionFilters = (captionLines || [])
       .map((line, i) => {
-        const text = escapeDrawtextForShort(line.text);
+        const escaped = escapeDrawtextForShort(line.text);
+        const wrappedText = wrapCaptionText(escaped, 44, W * 0.92).join("\n");
         const s = Math.max(0, line.startSec);
         const e = Math.max(s + 0.1, line.endSec);
         const alphaExpr =
@@ -564,8 +568,8 @@ export async function renderVerticalShortFromSource({
           `if(lt(t,${(e - FADE).toFixed(2)}),1,` +
           `if(lt(t,${e}),(${e}-t)/${FADE},0))))`;
         return (
-          `drawtext=fontfile=${fontPath}:text='${text}':fontsize=44:fontcolor=white:` +
-          `borderw=3:bordercolor=black@0.8:x=(w-text_w)/2:y=h-260:` +
+          `drawtext=fontfile=${fontPath}:text='${wrappedText}':fontsize=44:fontcolor=white:` +
+          `borderw=3:bordercolor=black@0.8:x=(w-text_w)/2:y=h-260:line_spacing=8:` +
           `enable='between(t,${s},${e})':alpha='${alphaExpr}'`
         );
       })
@@ -616,7 +620,6 @@ export {
   detectLongSilences,
   pickBgmPath,
   getPickMayaPoseSync as pickMayaPose,
-  BATCH_SIZE,
 };
 
 // Re-export from mayaThumbnail (will be loaded dynamically at runtime)

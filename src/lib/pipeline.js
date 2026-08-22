@@ -453,14 +453,29 @@ async function runPipelineCore(
         return { ...item, buffer };
       } catch (err) {
         console.error(`Failed to download media from ${item.path}:`, err.message);
-        return item; // Keep original, renderVideo will handle missing
+        return { ...item, downloadFailed: true }; // پایین جایگزین می‌شه
       }
     }
     return item;
   }));
 
+  // فیکسِ ۲۰۲۶-۰۸-۲۲ — قبلاً وقتی دانلود شکست می‌خورد، آیتمِ اصلی
+  // (بدونِ buffer، با path که همون URLِ ریموتِ دانلودنشده می‌مونه)
+  // دست‌نخورده برمی‌گشت. renderVideo() بعداً برای هر asset یِ بدونِ
+  // buffer، fs.copyFile(asset.path, ...) صدا می‌زد — که فقط مسیرِ محلی
+  // می‌فهمه، نه URL — یعنی یک دانلودِ ناموفق (مثلاً یک خطای شبکه‌ی
+  // لحظه‌ای) کلِ رندر رو می‌ترکوند، نه فقط همون یک سگمنت رو. حالا هر
+  // آیتمِ دانلودنشده با یک آیتمِ *واقعاً* دانلودشده (buffer معتبر)
+  // جایگزین می‌شه، اگه حداقل یکی موفق بوده باشه.
+  const successfulItems = mediaItemsWithBuffers.filter((item) => item.buffer && !item.downloadFailed);
+  const finalMediaItems = mediaItemsWithBuffers.map((item, i) => {
+    if (!item.downloadFailed) return item;
+    if (successfulItems.length === 0) return item; // چاره‌ای نیست، همون قبلی می‌مونه
+    return successfulItems[i % successfulItems.length];
+  });
+
   try {
-    const assets = mediaItemsWithBuffers.map((item, i) => ({
+    const assets = finalMediaItems.map((item, i) => ({
       type: useVideoClips ? "video" : "image",
       buffer: item.buffer || null,
       path: item.path || null,

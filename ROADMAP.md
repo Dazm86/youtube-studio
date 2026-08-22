@@ -371,6 +371,66 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-22 — Cleared the remaining findings from the 2026-08-18 bug audit
+User asked to fix everything still open from `youtube-studio-review.md`. Went through the list
+item by item:
+- **next-auth token refresh always firing**: `authOptions.js` used `account.expires_in` (always
+  `undefined` for Google in next-auth v4, which actually provides `account.expires_at`), so the
+  expiry check was always `NaN` and every `jwt` callback triggered a real refresh instead of only
+  near actual expiry. Now reads `account.expires_at` correctly.
+- **Maya thumbnail background never a real photo, on any path** — all three original causes
+  fixed together: `mayaThumbnail.js`'s `bgImageUrl` handling now accepts the `{path: url}` shape
+  Pexels items actually have (previously only handled `{buffer}` or a raw string, so Pexels —
+  the default/free provider — always silently fell through to `fetch(object)`, threw, and landed
+  on the gradient fallback); `VideoStudio.js`'s `videoBgImageUrl` state, previously declared but
+  never once set, now actually fetches a real image (debounced, from `/api/images`) whenever the
+  image keyword or title changes, so manual uploads get a real preview/thumbnail background too;
+  and both `ab-test/route.js` and `upload/route.js` had the exact same `buildMayaThumbnail`
+  import bug (destructuring it directly from `@/lib/rendering`, which doesn't export that name
+  — only via the async `getMayaThumbnailExports()`) — fixed both, so A/B thumbnail switching and
+  manual-upload thumbnails stop silently failing.
+- **Community-post button** (`ChannelAnalytics.js`) was calling `/api/community-post`, a route
+  that has never existed — real one is `/api/community`. Always 404'd.
+- **A/B title-switch buttons never rendered**: `getAllVideos()` (feeds the Channel Analytics
+  page) didn't select `title_b`/`active_variant`, but the UI gates the whole switch-button block
+  on `v.title_b` being truthy. Added both columns to the query.
+- **`ImageGenerator.js` crashed on non-Pexels image providers**: used Node's `Buffer` in a
+  browser component. Added a browser-safe, chunked base64 conversion (`bytesToBase64`) in its
+  place — handles the `{type:"Buffer", data:[...]}` shape a Buffer becomes after
+  `NextResponse.json()` serializes it.
+- **`AudioGenerator.js`'s default-voice picker** used `useState(fn)` where `fn` was meant to
+  re-run on every provider change — `useState`'s callback is a one-time lazy initializer, not a
+  reactive effect, so switching providers never re-triggered it, leaving the generate button
+  stuck disabled with no visible reason. Now a real `useEffect`.
+- **A failed media download could crash the entire render**, not just skip one segment —
+  `pipeline.js`'s catch block kept the item's `.path` as the unreachable remote URL it had just
+  failed to fetch, and `rendering/index.js` later tried `fs.copyFile` on it (only understands
+  local paths). Now substitutes another successfully-downloaded item when one fails, so a single
+  transient network blip degrades gracefully instead of failing the whole job.
+- **`renderVerticalShortFromSource`** (the `/api/repurpose` short-render path) had the exact same
+  caption-overflow bug just fixed yesterday in the main long-form renderer, plus weaker escaping
+  than `buildCaptionFilter` (no backslash/bracket handling). Applied the same word-wrap fix
+  (reusing `wrapCaptionText`/`measureTextWidthPx`) and brought `escapeDrawtextForShort` up to the
+  same escaping as everywhere else.
+- Minor cleanup: stopped exporting `BATCH_SIZE` from `rendering/index.js` (nothing ever imported
+  it; kept the constant itself for its documentation value); `lib/index.js`'s barrel dropped
+  `export * from './media'` (a thin wrapper re-exporting the exact same 3 bindings
+  `./providers` already re-exports, which is what was ambiguous — media itself was fully
+  redundant here) — matches the `VideoStudio.js` fix from yesterday for the same class of issue.
+Left alone, deliberately: `pickMayaPose`'s lazy-init race condition (still just a documented,
+low-practical-risk item per the 2026-08-18 note); the empty leftover directories from the old
+reorg plan (`lib/pipeline/`, `lib/scheduling/`, `app/api/render/`, `app/api/analytics/`) — cosmetic,
+git doesn't track empty dirs anyway, nothing to actually change; `script/timing.js`'s
+`escapeDrawtext` (still unused, but genuinely harmless dead code, not worth the churn). Also
+noticed in passing, not part of the original list: `trimSilenceFromAudio` and
+`detectLongSilences` in `rendering/index.js` are placeholder implementations (copy the file
+unchanged / always return `[]`) — wired up and called, but don't actually do anything yet. Worth
+knowing if silence-trimming quality ever comes up as a question.
+Files: `lib/auth/authOptions.js`, `lib/rendering/mayaThumbnail.js`, `components/studio/VideoStudio.js`,
+`app/api/ab-test/route.js`, `app/api/upload/route.js`, `components/analytics/ChannelAnalytics.js`,
+`lib/db/index.js`, `components/ai-studio/ImageGenerator.js`, `components/ai-studio/AudioGenerator.js`,
+`lib/pipeline.js`, `lib/rendering/index.js`, `lib/index.js`.
+
 ### 2026-08-21 — Visual review of first successful outputs: captions overflowing every frame, Maya still never appearing
 User uploaded the actual rendered short (10.5s clip) and long (180.6s) videos for review. Pulled
 frames at multiple timestamps with ffmpeg and looked directly at them — two real, visible bugs,

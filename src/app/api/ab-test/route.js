@@ -10,7 +10,14 @@ export const runtime = "nodejs";
 
 // Dynamic import sharp to avoid build-time issues on unsupported platforms
 async function getBuildMayaThumbnail() {
-  const { buildMayaThumbnail } = await import("@/lib/rendering");
+  // فیکسِ ۲۰۲۶-۰۸-۲۲ — rendering/index.js اصلاً export مستقیمی به اسمِ
+  // buildMayaThumbnail نداره (فقط از طریقِ getMayaThumbnailExports()
+  // در دسترسه) — این خط همیشه undefined می‌شد و صداکردنش با
+  // TypeError می‌ترکید (تو try/catch پایین قورت می‌شد، پس همیشه
+  // thumbnailStatus="failed" بود، بدونِ این‌که خودِ سوییچِ عنوان
+  // تحت‌تأثیر قرار بگیره).
+  const { getMayaThumbnailExports } = await import("@/lib/rendering");
+  const { buildMayaThumbnail } = await getMayaThumbnailExports();
   return buildMayaThumbnail;
 }
 

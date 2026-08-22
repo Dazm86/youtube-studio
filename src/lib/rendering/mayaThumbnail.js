@@ -7,9 +7,12 @@ const CANVAS_H = 720;
 
 export function escapeDrawtextForShort(text) {
   return String(text || "")
+    .replace(/\\/g, "\\\\")
     .replace(/'/g, "\u2019")
     .replace(/:/g, "\\:")
-    .replace(/%/g, "\\%");
+    .replace(/%/g, "\\%")
+    .replace(/\[/g, "\\[")
+    .replace(/\]/g, "\\]");
 }
 
 const POSE_KEYWORDS = {
@@ -109,13 +112,20 @@ export async function buildMayaThumbnail({
   let bg = null;
   if (bgImageUrl) {
     try {
-      // bgImageUrl یا یک URL قابل‌دانلوده یا (وقتی provider تولیدکننده‌ی
-      // عکس بوده، نه استوک‌سرچ) از قبل بایت خام { buffer, ext }.
+      // فیکسِ ۲۰۲۶-۰۸-۲۲ — bgImageUrl سه شکل ممکنه داشته باشه: رشته‌ی
+      // خامِ URL، آبجکتِ {buffer, ext} (وقتی provider تولیدکننده‌ی عکسه،
+      // مثلِ OpenAI/Stability)، یا آبجکتِ {path: url} (وقتی از استوک‌سرچ
+      // میاد، مثلِ Pexels — provider پیش‌فرض/رایگان). قبلاً فقط دو حالتِ
+      // اول رو می‌فهمید؛ برای {path: url} می‌رفت رو fetch(bgImageUrl) که
+      // چون ورودیش آبجکته نه رشته throw می‌کرد و بی‌صدا می‌فتاد رو
+      // گرادیانِ پیش‌فرض — یعنی برای رایج‌ترین provider، تامبنیل هیچ‌وقت
+      // از عکسِ واقعیِ ویدیو استفاده نمی‌کرد.
       let arrBuf;
       if (typeof bgImageUrl === "object" && bgImageUrl.buffer) {
         arrBuf = bgImageUrl.buffer;
       } else {
-        const res = await fetch(bgImageUrl);
+        const url = typeof bgImageUrl === "object" ? bgImageUrl.path : bgImageUrl;
+        const res = await fetch(url);
         arrBuf = await res.arrayBuffer();
       }
       bg = await sharp(Buffer.from(arrBuf))

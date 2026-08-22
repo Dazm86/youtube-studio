@@ -8,6 +8,23 @@ const PRESETS = [
   { id: "keywords", label: "🔍 کلمات کلیدی عکس", prompt: "Extract 5-8 visual search keywords for stock image search (Pexels/Unsplash) for the topic below. Optimize for cinematic, mindful aesthetic. Return as comma-separated list." },
 ];
 
+// فیکسِ ۲۰۲۶-۰۸-۲۲ — این کامپوننت تو مرورگر اجرا می‌شه، جایی که Buffer
+// (globalِ Node.js) اصلاً وجود نداره. وقتی provider عکس چیزی غیر از
+// Pexels باشه (که URLِ مستقیم می‌ده)، نتیجه بایتِ خامه — و چون از
+// سرور با JSON.stringify رد شده، شکلش {type:"Buffer", data:[...]}ه،
+// نه یک Buffer واقعی و نه یک رشته‌ی base64. این تابع بدونِ نیاز به
+// Buffer، خودِ آرایه‌ی بایت رو (تکه‌تکه، برای جلوگیری از سرریزِ استکِ
+// String.fromCharCode رو آرایه‌های بزرگ) به base64 تبدیل می‌کنه.
+function bytesToBase64(bufferLike) {
+  const bytes = Array.isArray(bufferLike) ? bufferLike : bufferLike?.data || [];
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode.apply(null, bytes.slice(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
 export function ImageGenerator({ providers }) {
   const [preset, setPreset] = useState("prompt");
   const [topic, setTopic] = useState("");
@@ -150,13 +167,13 @@ export function ImageGenerator({ providers }) {
                 {img.path ? (
                   <img src={img.path} alt={`Generated ${i + 1}`} className="w-full aspect-square object-cover rounded border border-border" />
                 ) : img.buffer ? (
-                  <img src={`data:image/${img.ext || "png"};base64,${Buffer.from(img.buffer).toString("base64")}`} alt={`Generated ${i + 1}`} className="w-full aspect-square object-cover rounded border border-border" />
+                  <img src={`data:image/${img.ext || "png"};base64,${bytesToBase64(img.buffer)}`} alt={`Generated ${i + 1}`} className="w-full aspect-square object-cover rounded border border-border" />
                 ) : (
                   <div className="w-full aspect-square bg-surface-raised rounded border border-border flex items-center justify-center text-text-faint">نامعتبر</div>
                 )}
                 {(img.path || img.buffer) && (
                   <a
-                    href={img.path || `data:image/${img.ext || "png"};base64,${Buffer.from(img.buffer).toString("base64")}`}
+                    href={img.path || `data:image/${img.ext || "png"};base64,${bytesToBase64(img.buffer)}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="absolute bottom-2 right-2 btn-icon bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity"

@@ -80,7 +80,7 @@ export default function ChannelAnalytics() {
   async function handleCommunityPost(videoId) {
     setPostLoading((s) => ({ ...s, [videoId]: true }));
     try {
-      const res = await fetch("/api/community-post", {
+      const res = await fetch("/api/community", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ videoId }),

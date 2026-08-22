@@ -457,6 +457,7 @@ export async function getAllVideos() {
   await ensureSchema();
   const res = await getPool().query(
     `SELECT video_id, title, video_mode, use_video_clips, image_keyword,
+            title_b, active_variant,
             views, subscribers_gained, likes, avg_view_duration_sec,
             retention_pct, thumbnail_impressions, thumbnail_ctr,
             stats_updated_at, created_at

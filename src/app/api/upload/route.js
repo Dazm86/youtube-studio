@@ -8,7 +8,11 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 async function getBuildMayaThumbnail() {
-  const { buildMayaThumbnail } = await import("@/lib/rendering");
+  // فیکسِ ۲۰۲۶-۰۸-۲۲ — همون باگی که تو ab-test/route.js بود: rendering/index.js
+  // مستقیم buildMayaThumbnail رو export نمی‌کنه، فقط از طریقِ
+  // getMayaThumbnailExports() در دسترسه.
+  const { getMayaThumbnailExports } = await import("@/lib/rendering");
+  const { buildMayaThumbnail } = await getMayaThumbnailExports();
   return buildMayaThumbnail;
 }
 

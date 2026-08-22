@@ -63,7 +63,16 @@ export const authOptions = {
       if (account) {
         token.accessToken = account.access_token;
         token.refreshToken = account.refresh_token;
-        token.accessTokenExpires = Date.now() + account.expires_in * 1000;
+        // فیکسِ ۲۰۲۶-۰۸-۲۲ (باگِ اصلیِ بررسیِ ۲۰۲۶-۰۸-۱۸) — next-auth v4
+        // برای Google، فیلدِ account.expires_at (timestamp به ثانیه) رو
+        // می‌ده، نه account.expires_in که اینجا استفاده می‌شد. نتیجه
+        // همیشه NaN بود، یعنی چکِ `Date.now() < token.accessTokenExpires`
+        // همیشه false می‌شد و refreshAccessToken روی *هر* فراخوانیِ jwt
+        // callback صدا زده می‌شد (نه فقط وقتی واقعاً نزدیکِ انقضا بود) —
+        // فشارِ غیرضروریِ مکرر رو endpointِ رفرشِ گوگل.
+        token.accessTokenExpires = account.expires_at
+          ? account.expires_at * 1000
+          : Date.now() + 3600 * 1000;
         // فاز ۴: این refresh_token رو تو DB هم ذخیره می‌کنیم (نه فقط تو
         // کوکیِ رمزنگاری‌شده‌ی NextAuth) — چون پایپ‌لاینِ زمان‌بندی‌شده
         // (بدون نشست مرورگرِ فعال) باید بتونه هر وقت خواست توکن تازه

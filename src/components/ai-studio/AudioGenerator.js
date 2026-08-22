@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 const VOICES = {
   "msedge-tts": [
@@ -34,12 +34,16 @@ export function AudioGenerator({ providers }) {
   const providerInfo = providers.find((p) => p.id === provider);
   const availableVoices = providerInfo ? VOICES[providerInfo.service] || [] : [];
 
-  // Auto-select default voice when provider changes
-  useState(() => {
+  // فیکسِ ۲۰۲۶-۰۸-۲۲ — قبلاً اینجا useState(fn) بود، نه useEffect(fn,
+  // deps). initializerِ useState فقط یک‌بار (موقعِ mount) اجرا می‌شه،
+  // نه هر بار provider عوض بشه — یعنی بعد از سوییچِ provider (که voice
+  // رو خالی می‌کنه)، این منطق دیگه هیچ‌وقت دوباره اجرا نمی‌شد و دکمه‌ی
+  // تولید بدونِ دلیلِ واضح غیرفعال می‌موند.
+  useEffect(() => {
     if (provider && availableVoices.length > 0 && !voice) {
       setVoice(availableVoices[0].id);
     }
-  });
+  }, [provider, availableVoices, voice]);
 
   async function handleGenerate(e) {
     e.preventDefault();

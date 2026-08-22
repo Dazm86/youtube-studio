@@ -53,6 +53,35 @@ export default function VideoStudio({ mode }) {
   const [videoBgImageUrl, setVideoBgImageUrl] = useState("");
   const [useVideoClips, setUseVideoClips] = useState(false);
 
+  // فیکسِ ۲۰۲۶-۰۸-۲۲ — قبلاً videoBgImageUrl هیچ‌وقت set نمی‌شد، پس
+  // آپلودِ دستی همیشه bgImageUrl خالی می‌فرستاد و تامبنیل همیشه فقط
+  // گرادیانِ پیش‌فرض می‌شد. حالا با تغییرِ imageKeyword (یا title، اگه
+  // کلیدواژه خالی باشه)، با یه تأخیرِ کوتاه یک عکسِ واقعی از همون
+  // provider هایی که خودِ pipeline استفاده می‌کنه می‌گیره.
+  useEffect(() => {
+    const query = imageKeyword || title;
+    if (!query || !query.trim()) {
+      setVideoBgImageUrl("");
+      return;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch("/api/images", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ keyword: query, count: 1, orientation: mode === "short" ? "portrait" : "landscape" }),
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        const firstUrl = data?.images?.[0]?.path;
+        if (firstUrl) setVideoBgImageUrl(firstUrl);
+      } catch {
+        // اگه شکست بخوره، همون گرادیانِ پیش‌فرض می‌مونه — مشکلی نیست
+      }
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [imageKeyword, title, mode]);
+
   useEffect(() => {
     if (!generatingVideo) return;
     const interval = setInterval(() => {
@@ -345,7 +374,12 @@ export default function VideoStudio({ mode }) {
     if (ffmpegLoaded) return;
     report("در حال بارگذاری موتور ویدیو (فقط بار اول کمی طول می‌کشه)...");
     const ffmpeg = getFfmpeg();
-    const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
+    // فیکسِ ۲۰۲۶-۰۸-۲۲ — قبلاً از unpkg.com (CDNِ خارجی) لود می‌شد، در
+    // حالی که همین فایل‌ها از قبل تو public/ffmpeg-core/ خودِ پروژه
+    // بودن (۳۲ مگابایت که کاملاً بلااستفاده مونده بود) — یعنی هم این
+    // فایل‌ها بی‌دلیل رو دیپلوی سوار بودن، هم خودِ فیچرِ trim به دسترسی
+    // به unpkg.com از مرورگرِ کاربر وابسته بود.
+    const baseURL = "/ffmpeg-core";
     await ffmpeg.load({
       coreURL: await toBlobURL(baseURL + "/ffmpeg-core.js", "text/javascript"),
       wasmURL: await toBlobURL(baseURL + "/ffmpeg-core.wasm", "application/wasm"),
