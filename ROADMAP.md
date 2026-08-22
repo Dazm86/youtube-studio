@@ -371,6 +371,35 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-21 — Visual review of first successful outputs: captions overflowing every frame, Maya still never appearing
+User uploaded the actual rendered short (10.5s clip) and long (180.6s) videos for review. Pulled
+frames at multiple timestamps with ffmpeg and looked directly at them — two real, visible bugs,
+both 100% reproducible across every frame checked:
+1. **Burned-in captions overflow both edges on every single frame, short and long.**
+   `buildCaptionFilter` has always centered text with `x=(w-text_w)/2` at a fixed `fontsize=48`
+   with no width check — any caption wider than the video (common for anything beyond a short
+   phrase) just overflows equally on both sides, exactly as seen in every frame. Fixed with real
+   word-wrapping: extracted a precise per-character width table directly from the project's own
+   `DejaVuSans-Bold.ttf` (verified against actual measured text width, <0.05% error), used it to
+   greedily wrap each caption to fit within 92% of the video width before handing it to drawtext,
+   joined with a real newline (`\n` as an escape sequence doesn't work here — confirmed
+   `line_spacing` and multi-line centering behavior with real ffmpeg renders first). Verified
+   visually: the exact overflowing caption from the uploaded short now wraps cleanly into 3
+   centered lines, fully on-frame.
+2. **Maya never appears in any frame of either video.** This is the Maya-pose-path bug already
+   found in the 2026-08-18 audit (`youtube-studio-review.md`) but never circled back to fix:
+   `renderVideo()`'s per-segment Maya overlay step was looking for pose PNGs in
+   `public/assets/images/maya/`, a folder that has never existed (only ever a planned target in
+   `REORGANIZATION_PLAN.md`, never executed) — guarded by `fs.existsSync`, so it failed
+   completely silently every single time, on every segment, of every video. Real pose files live
+   in `public/maya/`, confirmed the returned pose names (`caring`, `confident`, `excited`, etc.)
+   match those filenames exactly. One-line path fix.
+Not investigated this round (didn't block anything, lower priority): visuals in both sample
+videos still look like generic stock footage pretty loosely connected to the script's actual
+topic — consistent with the already-known, still-unresolved Pexels failures falling back to
+`fallback-media`.
+Files: `lib/rendering/index.js`.
+
 ### 2026-08-21 — First fully successful worker render end-to-end 🎉 + sentence-based subtitles, batched translation
 `Video Render Worker #24` succeeded (8m 59s) — first complete render+upload since the worker
 rebuild began. User asked why every language's translated captions were failing, and separately

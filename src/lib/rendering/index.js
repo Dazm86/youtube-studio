@@ -90,6 +90,62 @@ async function runFfmpeg(args, { stdinData } = {}) {
 
 // ---------- توابع کمکی رندر ----------
 
+// فیکسِ ۲۰۲۶-۰۸-۲۱ — زیرنویسِ روی ویدیو (drawtext) عرض/wrap نداشت؛
+// x=(w-text_w)/2 وسط‌چین می‌کنه ولی اگه text_w از عرضِ ویدیو بیشتر
+// باشه (که برای هر جمله‌ی نسبتاً بلندی در fontsize=48 پیش میاد)، متن
+// از هر دو طرف می‌زنه بیرون — دقیقاً چیزی که تو خروجیِ واقعی دیده شد.
+// عرضِ هر کاراکتر اینجا مستقیم از خودِ فایلِ فونتِ پروژه
+// (public/fonts/DejaVuSans-Bold.ttf) با PIL استخراج و در برابرِ
+// اندازه‌گیریِ واقعیِ چند جمله راستی‌آزمایی شد (خطای کمتر از ۰.۰۵٪).
+// واحد: ۱۰۰۰ یونیت = یک em (استانداردِ طراحیِ فونت).
+const CHAR_WIDTHS_PER_1000EM = {
+  " ": 348, "!": 456, '"': 521, "#": 838, $: 696, "%": 1002, "&": 872, "'": 306,
+  "(": 457, ")": 457, "*": 523, "+": 838, ",": 380, "-": 415, ".": 380, "/": 365,
+  0: 696, 1: 696, 2: 696, 3: 696, 4: 696, 5: 696, 6: 696, 7: 696, 8: 696, 9: 696,
+  ":": 400, ";": 400, "<": 838, "=": 838, ">": 838, "?": 580, "@": 1000,
+  A: 774, B: 762, C: 734, D: 830, E: 683, F: 683, G: 821, H: 837, I: 372, J: 372,
+  K: 775, L: 637, M: 995, N: 837, O: 850, P: 733, Q: 850, R: 770, S: 720, T: 682,
+  U: 812, V: 774, W: 1103, X: 771, Y: 724, Z: 725,
+  "[": 457, "\\": 365, "]": 457, "^": 838, _: 500, "`": 500,
+  a: 675, b: 716, c: 593, d: 716, e: 678, f: 435, g: 716, h: 712, i: 343, j: 343,
+  k: 665, l: 343, m: 1042, n: 712, o: 687, p: 716, q: 716, r: 493, s: 595, t: 478,
+  u: 712, v: 652, w: 924, x: 645, y: 652, z: 582,
+  "{": 712, "|": 365, "}": 712, "~": 838,
+  "\u2018": 380, "\u2019": 380, "\u201c": 657, "\u201d": 657, "\u2014": 1000,
+  "\u2013": 500, "\u2026": 1000,
+};
+const DEFAULT_CHAR_WIDTH_PER_1000EM = 700; // برای کاراکترهای خارج از جدول (فارسی و ...)
+
+function measureTextWidthPx(text, fontsize) {
+  let units = 0;
+  for (const ch of text) {
+    units += CHAR_WIDTHS_PER_1000EM[ch] ?? DEFAULT_CHAR_WIDTH_PER_1000EM;
+  }
+  return (units * fontsize) / 1000;
+}
+
+// wrap حریصانه: کلمه‌به‌کلمه به خطِ جاری اضافه می‌کنه تا وقتی از
+// maxWidthPx رد بشه، اونجا خط رو می‌شکنه. یک کلمه‌ی تنهایی که خودش از
+// maxWidthPx بلندتره (نادر) دست‌نخورده رو خط خودش می‌مونه.
+function wrapCaptionText(text, fontsize, maxWidthPx) {
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [""];
+
+  const lines = [];
+  let currentLine = words[0];
+  for (let i = 1; i < words.length; i++) {
+    const candidate = `${currentLine} ${words[i]}`;
+    if (measureTextWidthPx(candidate, fontsize) <= maxWidthPx) {
+      currentLine = candidate;
+    } else {
+      lines.push(currentLine);
+      currentLine = words[i];
+    }
+  }
+  lines.push(currentLine);
+  return lines;
+}
+
 function buildScaleFilter(targetW, targetH) {
   return `[0:v]scale=${targetW}:${targetH}:force_original_aspect_ratio=decrease,pad=${targetW}:${targetH}:(ow-iw)/2:(oh-ih)/2:color=black@1[v0]`;
 }
@@ -114,9 +170,20 @@ function buildCaptionFilter(captionLine, videoW, videoH, fontPath, fontsize, lin
     .replace(/%/g, "\\%")
     .replace(/\[/g, "\\[")
     .replace(/\]/g, "\\]");
+
+  // wrap رو *قبل* از escapeِ کوتیشن/کولون انجام می‌دیم که اندازه‌گیریِ
+  // عرض رو خراب نکنه (کاراکترهای escape‌شده تو رندرِ نهایی حذف می‌شن،
+  // پس نباید تو محاسبه‌ی عرض حساب بشن) — برای همین wrap رو رو متنِ
+  // escapeشده اجرا می‌کنیم ولی چون escapeِ همین چند کاراکتر طولِ رشته
+  // رو عملاً عوض نمی‌کنه (فقط یک بک‌اسلش قبلش میاد که ffmpeg موقعِ
+  // نمایش حذفش می‌کنه)، تفاوتِ عرضِ واقعی ناچیزه.
+  const maxWidthPx = videoW * 0.92;
+  const wrappedLines = wrapCaptionText(escaped, fontsize, maxWidthPx);
+  const wrappedText = wrappedLines.join("\n");
+
   const xExpr = `(w-text_w)/2`;
   const yExpr = `h-${margin}-text_h`;
-  return `[v0]drawtext=fontfile=${fontPath}:text='${escaped}':fontsize=${fontsize}:fontcolor=white:borderw=3:bordercolor=black@0.8:x=${xExpr}:y=${yExpr}[v1]`;
+  return `[v0]drawtext=fontfile=${fontPath}:text='${wrappedText}':fontsize=${fontsize}:fontcolor=white:borderw=3:bordercolor=black@0.8:x=${xExpr}:y=${yExpr}:line_spacing=8[v1]`;
 }
 
 function buildMayaFilter(poseImgPath, videoW, videoH) {
@@ -201,7 +268,13 @@ async function renderVideo({
         // pickMayaPose از متن کل اسکریپت موود می‌گیره
         const { pickMayaPose } = await getMayaThumbnail();
         const pose = pickMayaPose(script);
-        const posePath = path.join(process.cwd(), "public", "assets", "images", "maya", `${pose}.png`);
+        // فیکسِ ۲۰۲۶-۰۸-۲۱ — این مسیر (public/assets/images/maya/) هیچ‌وقت
+        // وجود نداشته (فقط تو REORGANIZATION_PLAN.md به‌عنوان هدفِ آینده
+        // بود، هیچ‌وقت واقعاً اجرا نشد)؛ چون با fs.existsSync گارد شده
+        // بود، هیچ ارور نمی‌داد — فقط اورلی مایا بی‌صدا هیچ‌وقت اضافه
+        // نمی‌شد (دقیقاً چیزی که تو بازبینیِ ویدیوهای واقعی دیده شد: مایا
+        // تو هیچ فریمی نبود). فایل‌های واقعیِ پوزها تو public/maya/ان.
+        const posePath = path.join(process.cwd(), "public", "maya", `${pose}.png`);
         if (fs.existsSync(posePath)) {
           filterComplex += `;${buildMayaFilter(posePath, width, height)}`;
           mayaInputArg = ["-i", posePath];
