@@ -371,6 +371,49 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-22 — Full visual redesign: dark navy / purple-blue "futuristic AI dashboard"
+Explicit ask: restyle the whole site's look to a dark, premium SaaS/AI dashboard aesthetic (dark
+navy background, purple/violet primary, blue secondary, green/orange/red for
+success/warning/error, very subtle glow) — with zero changes to structure, pages, routing,
+components, logic, APIs, or content.
+Turned out to be almost entirely a one-file job: every screen already routes its colors through
+a small set of `@theme` CSS custom properties + a handful of hand-rolled component classes
+(`.card`, `.btn-*`, `.field-*`, `.badge-*`, `.progress-*`, `.day-chip*`) in `globals.css` — the
+2026-08-14 UX rebuild already centralized this. So the whole redesign is a token-value swap, not
+a component rewrite:
+- Kept every CSS variable and utility class **name** exactly as-is (`--color-amber`,
+  `--color-teal`, `bg-amber`, `text-teal`, etc.) rather than renaming to `--color-primary`/
+  `--color-success` — 30+ scattered `bg-amber`/`text-teal`/etc. references across 10+ component
+  files would all need touching for a rename, which is exactly the kind of component-level
+  change this task asked to avoid. Only the *values* changed: `--color-amber` is now the purple/
+  violet primary (was warm orange), `--color-teal` is now green success (was turquoise),
+  `--color-danger` is red error (same role, new hex). Left a comment in `globals.css` explaining
+  this naming legacy so it doesn't read as a mistake later.
+- Added two new unused-but-available tokens, `--color-secondary` (blue) and `--color-warning`
+  (orange), for anything that wants a genuine info/warning distinction later — nothing currently
+  references them, so this is purely additive.
+- New dark navy background (`#070B1E`) with a fixed, very-low-opacity multi-blob radial-gradient
+  behind all content (`body::before`) for the "subtle depth" the brief asked for, deliberately
+  kept faint to avoid reading as a gaming UI.
+- Cards: lighter surface than background (for hierarchy, as specified), ~14px radius, soft
+  shadow, subtle inset highlight.
+- Primary buttons: purple→blue gradient with a soft matching glow (`box-shadow`), brighten on
+  hover rather than a hard color swap. Secondary/ghost/danger/icon buttons, badges, progress bar,
+  field inputs, and the schedule day-picker chips all got matching radius/border/glow treatment.
+- `layout.js`'s `viewport.themeColor` (the mobile browser-chrome color) updated to match the new
+  background.
+- Deliberately untouched: the Maya thumbnail-preview gradient hardcoded in `VideoStudio.js`
+  (`#7a3e9d`→`#e8672c`) — that's a preview of actual YouTube-thumbnail *content* (the channel's
+  own brand look), not dashboard UI chrome, so it's content per the brief's own distinction, not
+  something this pass should change.
+Couldn't run a real `next build` to visually confirm compilation in this sandbox (native
+lightningcss/SWC bindings aren't available here — this container's `node_modules` came from the
+uploaded zip, not a fresh `npm install`) — relied on: matching the exact `color-mix()`/`@theme`
+patterns already proven to compile in this same file, confirming zero `@apply` usage (the one
+documented past build-breaker for this file), and a full manual re-read. Worth a quick visual
+check on the real deploy before considering this fully verified.
+Files: `app/globals.css`, `app/layout.js`.
+
 ### 2026-08-22 — Cleared the remaining findings from the 2026-08-18 bug audit
 User asked to fix everything still open from `youtube-studio-review.md`. Went through the list
 item by item:

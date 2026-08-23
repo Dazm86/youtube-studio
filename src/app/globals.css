@@ -2,22 +2,40 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ---------------------------------------------------------------------
+ * Design System — بازطراحیِ ۲۰۲۶-۰۸-۲۲ («Dark Futuristic AI Dashboard»)
+ *
+ * فقط مقادیرِ توکن‌ها عوض شدن، نه اسم‌شون — بیش از ۳۰ جا تو کامپوننت‌های
+ * مختلف (VideoStudio، ChannelAnalytics، ProviderManager، AIStudio و...)
+ * مستقیم از کلاس‌های amber/teal استفاده می‌کنن؛ عوض‌کردنِ اسمِ توکن یعنی
+ * لمس‌کردنِ همه‌ی اون فایل‌ها، که دقیقاً همون کاریه که درخواست شده بود
+ * انجام نشه (ساختار/کامپوننت‌ها دست‌نخورده بمونن). پس:
+ *   --color-amber   حالا بنفش/آبیِ Primary ـه (قبلاً نارنجیِ برند بود)
+ *   --color-teal    حالا سبزِ Success ـه (قبلاً فیروزه‌ای بود)
+ *   --color-danger  قرمزِ Error (همون نقش قبلی، فقط هکسِ تازه)
+ * دو توکنِ تازه (secondary=آبی، warning=نارنجی) هم اضافه شدن برای
+ * استفاده‌ی آینده — چیزی الان بهشون گیر نکرده.
+ * ------------------------------------------------------------------- */
 @theme {
-  --color-bg: #14120F;
-  --color-surface: #1E1B17;
-  --color-surface-raised: #262119;
-  --color-border: #332E27;
-  --color-border-light: #453E33;
+  --color-bg: #070B1E;
+  --color-surface: #0D1533;
+  --color-surface-raised: #121D42;
+  --color-border: rgba(120, 130, 180, 0.16);
+  --color-border-light: rgba(146, 158, 214, 0.28);
 
-  --color-amber: #E8963C;
-  --color-amber-dim: #8A5D28;
-  --color-teal: #4FB8AE;
-  --color-teal-dim: #2E6E68;
-  --color-danger: #E8674C;
+  --color-amber: #7C5CFF;       /* Primary — بنفش/بایولت */
+  --color-amber-dim: #5A3FD1;   /* Primary، حالتِ hover/تیره‌تر */
+  --color-teal: #22C55E;        /* Success — سبز */
+  --color-teal-dim: #16A34A;    /* Success، تیره‌تر */
+  --color-danger: #EF4444;      /* Error — قرمز */
+  --color-danger-dim: #C22F2F;
 
-  --color-text: #F2EEE7;
-  --color-text-muted: #948C7E;
-  --color-text-faint: #665D4E;
+  --color-secondary: #3B82F6;   /* Secondary/Info — آبی */
+  --color-warning: #F59E0B;     /* Warning — نارنجی */
+
+  --color-text: #F5F7FF;
+  --color-text-muted: #9AA6C5;
+  --color-text-faint: #6B7699;
 
   --font-sans: var(--font-vazirmatn), system-ui, sans-serif;
   --font-mono: var(--font-mono-readout), ui-monospace, "SF Mono", Menlo, monospace;
@@ -28,6 +46,23 @@ body {
   font-family: var(--font-sans);
   background: var(--color-bg);
   color: var(--color-text);
+  min-height: 100vh;
+  position: relative;
+}
+
+/* Glowِ بسیار ظریفِ پس‌زمینه — دو تا radial gradient با opacityِ خیلی کم،
+   ثابت پشتِ همه‌ی محتوا. عمداً کم‌رنگ نگه داشته شده تا شبیه Gaming UI
+   نشه؛ صرفاً یه لایه‌ی عمقِ ظریفه، نه یه افکتِ چشمگیر. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 900px 600px at 12% -8%, color-mix(in srgb, var(--color-amber) 14%, transparent), transparent 60%),
+    radial-gradient(ellipse 800px 700px at 100% 15%, color-mix(in srgb, var(--color-secondary) 10%, transparent), transparent 65%),
+    radial-gradient(ellipse 700px 500px at 8% 100%, color-mix(in srgb, var(--color-amber) 7%, transparent), transparent 60%);
 }
 
 .readout {
@@ -57,34 +92,21 @@ body {
 }
 
 /* ---------------------------------------------------------------------
- * Shared component classes (added during the UX/UI rebuild — 2026-08-14)
+ * Shared component classes (رنگ‌ها/سایه‌ها/گردی‌ها بازطراحی شدن، ۲۰۲۶-۰۸-۲۲)
  *
- * Every screen outside the home dashboard was written with raw inline
- * styles calibrated for a *light* page (grays like #666/#777/#999, a
- * white implied background, a stray Material blue #2196F3) but the app
- * itself has always rendered on the dark body background above. These
- * classes are the one place that look now lives, so every screen reads
- * as the same product and nobody has to re-derive "what's our button"
- * from scratch again.
- *
- * Written as plain CSS on purpose — NOT @apply. First attempt used
- * @apply for these and broke the real build: "Cannot apply unknown
- * utility class `gap-1.5`" (Turbopack/Tailwind v4, 2026-08-14). Root
- * cause as best understood: @apply only resolves utilities that also
- * appear as a literal className somewhere in the scanned JSX; a
- * fractional-spacing utility used *only* inside @apply here (never as
- * a plain className) wasn't in that candidate set. Plain CSS
- * sidesteps the whole class of bug — see ROADMAP.md's "Known
- * constraints" for the permanent note. Utility classNames used
- * directly in JSX (gap-1.5, py-2.5, etc.) are unaffected by this and
- * don't need to change.
+ * همچنان plain CSS، نه @apply — دلیلش سرِ جاشه (ببین ROADMAP.md، «Known
+ * constraints»): @apply فقط utilityهایی رو resolve می‌کنه که به‌عنوانِ
+ * یک className واقعی هم جایی تو JSX اسکن شده باشن؛ یک fractional-spacing
+ * utility که فقط داخلِ @apply استفاده بشه، تو build واقعی می‌شکنه.
  * ------------------------------------------------------------------- */
 @layer components {
   .card {
     background-color: var(--color-surface);
     border: 1px solid var(--color-border);
-    border-radius: 0.65rem;
+    border-radius: 0.875rem;
     padding: 1rem;
+    box-shadow: 0 8px 28px rgba(2, 4, 16, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.02);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
   }
 
   .btn-primary,
@@ -93,35 +115,40 @@ body {
     align-items: center;
     justify-content: center;
     gap: 0.375rem;
-    border-radius: 0.375rem;
+    border-radius: 0.625rem;
     padding: 0.625rem 1rem;
     font-size: 0.875rem;
     font-weight: 600;
     min-height: 44px;
     font-family: inherit;
     cursor: pointer;
-    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease,
+      box-shadow 0.15s ease, filter 0.15s ease;
   }
   .btn-primary {
-    background-color: var(--color-amber);
-    color: var(--color-bg);
+    background: linear-gradient(135deg, var(--color-amber), var(--color-secondary));
+    color: #ffffff;
     border: none;
+    box-shadow: 0 4px 18px color-mix(in srgb, var(--color-amber) 35%, transparent);
   }
   .btn-primary:hover:not(:disabled) {
-    background-color: var(--color-amber-dim);
+    filter: brightness(1.1);
+    box-shadow: 0 4px 22px color-mix(in srgb, var(--color-amber) 50%, transparent);
   }
   .btn-secondary {
-    background-color: var(--color-surface-raised);
+    background-color: color-mix(in srgb, var(--color-surface-raised) 70%, transparent);
     color: var(--color-text);
     border: 1px solid var(--color-border-light);
   }
   .btn-secondary:hover:not(:disabled) {
     border-color: var(--color-amber);
+    background-color: color-mix(in srgb, var(--color-amber) 8%, var(--color-surface-raised));
   }
   .btn-primary:disabled,
   .btn-secondary:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+    box-shadow: none;
   }
 
   .btn-ghost,
@@ -130,7 +157,7 @@ body {
     align-items: center;
     justify-content: center;
     gap: 0.375rem;
-    border-radius: 0.375rem;
+    border-radius: 0.625rem;
     padding: 0.5rem 0.75rem;
     font-size: 0.75rem;
     font-weight: 600;
@@ -147,13 +174,15 @@ body {
   .btn-ghost:hover:not(:disabled) {
     color: var(--color-amber);
     border-color: var(--color-amber);
+    background-color: color-mix(in srgb, var(--color-amber) 6%, transparent);
   }
   .btn-danger-ghost {
-    color: var(--color-danger);
-    border: 1px solid color-mix(in srgb, var(--color-danger) 40%, transparent);
+    color: #FCA5A5;
+    border: 1px solid color-mix(in srgb, var(--color-danger) 45%, transparent);
+    background-color: color-mix(in srgb, var(--color-danger) 8%, transparent);
   }
   .btn-danger-ghost:hover:not(:disabled) {
-    background-color: color-mix(in srgb, var(--color-danger) 10%, transparent);
+    background-color: color-mix(in srgb, var(--color-danger) 16%, transparent);
   }
   .btn-ghost:disabled,
   .btn-danger-ghost:disabled {
@@ -167,12 +196,12 @@ body {
     justify-content: center;
     width: 2.5rem;
     height: 2.5rem;
-    border-radius: 0.375rem;
+    border-radius: 0.625rem;
     border: 1px solid var(--color-border-light);
     color: var(--color-text-muted);
-    background-color: transparent;
+    background-color: color-mix(in srgb, var(--color-surface-raised) 60%, transparent);
     cursor: pointer;
-    transition: color 0.15s ease, border-color 0.15s ease;
+    transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
   }
   .btn-icon:hover:not(:disabled) {
     color: var(--color-amber);
@@ -196,20 +225,21 @@ body {
   .field-textarea,
   .field-select {
     width: 100%;
-    background-color: var(--color-surface-raised);
+    background-color: color-mix(in srgb, var(--color-surface-raised) 80%, transparent);
     border: 1px solid var(--color-border-light);
-    border-radius: 0.375rem;
+    border-radius: 0.5rem;
     padding: 0.625rem 0.75rem;
     font-size: 0.875rem;
     font-family: inherit;
     color: var(--color-text);
     outline: none;
-    transition: border-color 0.15s ease;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
   }
   .field-input:focus,
   .field-textarea:focus,
   .field-select:focus {
     border-color: var(--color-amber);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-amber) 18%, transparent);
   }
   .field-input::placeholder,
   .field-textarea::placeholder {
@@ -236,29 +266,31 @@ body {
     white-space: nowrap;
   }
   .badge-ok {
-    background-color: color-mix(in srgb, var(--color-teal) 15%, transparent);
-    color: var(--color-teal);
+    background-color: color-mix(in srgb, var(--color-teal) 16%, var(--color-surface));
+    color: #6EE7A0;
   }
   .badge-fail {
-    background-color: color-mix(in srgb, var(--color-danger) 15%, transparent);
-    color: var(--color-danger);
+    background-color: color-mix(in srgb, var(--color-danger) 16%, var(--color-surface));
+    color: #FCA5A5;
   }
   .badge-neutral {
-    background-color: var(--color-border);
+    background-color: var(--color-surface-raised);
     color: var(--color-text-muted);
+    border: 1px solid var(--color-border);
   }
 
   .progress-track {
     width: 100%;
     height: 0.5rem;
     border-radius: 9999px;
-    background-color: var(--color-surface-raised);
+    background-color: color-mix(in srgb, var(--color-surface-raised) 80%, transparent);
     border: 1px solid var(--color-border);
     overflow: hidden;
   }
   .progress-fill {
     height: 100%;
-    background-color: var(--color-amber);
+    background: linear-gradient(90deg, var(--color-amber), var(--color-secondary));
+    box-shadow: 0 0 8px color-mix(in srgb, var(--color-amber) 45%, transparent);
     transition: width 0.3s ease;
   }
 
@@ -266,20 +298,22 @@ body {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border-radius: 0.375rem;
+    border-radius: 0.625rem;
     border: 1px solid var(--color-border-light);
     padding: 0.5rem 0.75rem;
     font-size: 0.875rem;
     min-height: 40px;
     min-width: 52px;
     color: var(--color-text-muted);
+    background-color: color-mix(in srgb, var(--color-surface-raised) 50%, transparent);
     cursor: pointer;
     user-select: none;
-    transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+    transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
   }
   .day-chip-active {
-    background-color: color-mix(in srgb, var(--color-amber) 15%, transparent);
+    background: linear-gradient(135deg, color-mix(in srgb, var(--color-amber) 22%, var(--color-surface)), color-mix(in srgb, var(--color-secondary) 18%, var(--color-surface)));
     border-color: var(--color-amber);
-    color: var(--color-amber);
+    color: #E4DBFF;
+    box-shadow: 0 0 14px color-mix(in srgb, var(--color-amber) 28%, transparent);
   }
 }

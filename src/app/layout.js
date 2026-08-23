@@ -24,7 +24,7 @@ export const metadata = {
 // می‌شه کنترل‌های بومی مرورگر (select، تقویم date/time، اسکرول‌بار) هم به‌جای
 // پیش‌فرض روشن، خودشون رو با تم تیره‌ی سایت هماهنگ کنن.
 export const viewport = {
-  themeColor: "#14120F",
+  themeColor: "#070B1E",
   colorScheme: "dark",
 };
 
