@@ -371,6 +371,43 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-22 — Acted on Gemini's video review: faster cuts + animated Maya (blink + talk)
+User shared a detailed third-party (Gemini) critique of an actual uploaded video, scored 6/10
+overall — script 8/10, audio 7/10, visuals 4/10 (worst), pacing 5/10. Checked the two most
+concrete claims against the actual code before doing anything: confirmed image pacing really
+does average 6.5s/segment for long-form (slower than the 3-5s rule of thumb Gemini cited), and
+confirmed Maya really is a single static PNG per segment (so "looks like it's not moving" is
+just accurate, not a matter of taste). Walked through all 5 of Gemini's suggested improvements
+with the user first (pacing, dynamic word-by-word captions, animate/remove Maya, dynamic BGM,
+sound effects) — did pacing and Maya now (self-contained, no new assets needed); dynamic
+captions still open (bigger rework, not started); BGM/SFX both need actual audio files sourced
+from outside this sandbox (no network access here) before any wiring work is worth doing.
+1. **Pacing**: `mediaCount` divisor in `pipeline.js` changed from `/6.5` to `/4` for long-form.
+   Also raised the cap from 80 to 120 media items — otherwise the faster pacing would have hit
+   that ceiling (and slowed back down) before reaching the 8+ minute lengths the project's own
+   Phase 2 spec targets.
+2. **Maya animation**: previously one static pose PNG (`${pose}.png`) overlaid for the whole
+   segment. Checked what's actually in `public/maya/` first — every one of the 8 poses already
+   has 4 pre-rendered variants (base, `-blink`, `-talk`, `-talk-blink`), so no new art was
+   needed, just filter logic. User's own suggestion (animate the mouth too, not just blinking)
+   was checked against the assets first: the `-blink`/`-talk`/`-talk-blink` trio are pixel-
+   identical in size/framing to each other (verified directly), but the base pose is a different
+   size (looks like it was generated separately) — so cycling through the base image for the
+   mouth-closed state carries a small alignment-risk the other three don't. User chose to accept
+   that risk rather than keep the mouth permanently open. Built `buildMayaAnimationFilter()`:
+   mouth alternates every ~0.28s, plus a ~0.18s blink roughly every 3.2s, using ffmpeg's
+   `enable='between(t,...)+between(t,...)+...'` per-state chained overlays. Rendered a real test
+   clip with the actual Maya assets before shipping this (not just read the code) — mouth
+   genuinely opens/closes, no visible jump at the base-image transition, positioning stayed
+   stable throughout.
+   Also fixed in the same function, spotted while working on this: the *existing* single-frame
+   overlay (`buildMayaFilter`, kept as a fallback for the rare case a pose is missing a variant)
+   scaled with `scale=X:X` — a literal square target — despite every Maya image being a portrait
+   rectangle, so Maya has been rendering slightly stretched this whole time. Both the new
+   animated path and the fallback now use `force_original_aspect_ratio=decrease` to preserve the
+   real proportions.
+Files: `lib/pipeline.js`, `lib/rendering/index.js`.
+
 ### 2026-08-22 — Full visual redesign: dark navy / purple-blue "futuristic AI dashboard"
 Explicit ask: restyle the whole site's look to a dark, premium SaaS/AI dashboard aesthetic (dark
 navy background, purple/violet primary, blue secondary, green/orange/red for

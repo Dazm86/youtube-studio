@@ -358,9 +358,14 @@ async function runPipelineCore(
       )} ثانیه) دراومد — زیرِ آستانه‌ی ۸ دقیقه‌ی یوتیوب برای تبلیغِ میان‌ویدیو.`
     );
   }
+  // فیکسِ ۲۰۲۶-۰۸-۲۲ — طبق نقدِ Gemini رو یه ویدیوی واقعی: تصاویر با
+  // میانگینِ ۶.۵ ثانیه خیلی کند عوض می‌شدن (قانونِ رایجِ صنعت: هر ۳-۵
+  // ثانیه یه تغییرِ بصری). به ۴ ثانیه تغییر کرد. سقفِ mediaCount هم از
+  // ۸۰ به ۱۲۰ رفت بالا — وگرنه برای ویدیوهای ۸+ دقیقه‌ای (هدفِ فازِ ۲ی
+  // خودِ روودمپ) این ریتمِ سریع‌تر زودتر از ۸۰ به سقف می‌خورد و دوباره کند می‌شد.
   const mediaCount = isShort
     ? Math.min(30, Math.max(8, Math.ceil(audioDurationSec / 2.5)))
-    : Math.min(80, Math.max(6, Math.ceil(audioDurationSec / 6.5)));
+    : Math.min(120, Math.max(6, Math.ceil(audioDurationSec / 4)));
   const { durations, captions } = distributeDurations(script, mediaCount, audioDurationSec);
 
   // --- فصل‌بندیِ خودکار (Chapters) — فقط ویدیوهای بلند، چون Shorts نه

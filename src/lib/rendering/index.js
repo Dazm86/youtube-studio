@@ -191,6 +191,82 @@ function buildMayaFilter(poseImgPath, videoW, videoH) {
   return `[1:v]scale=${scale}:${scale}[maya];[v1][maya]overlay=(W-w)/2:H-h-40[v2]`;
 }
 
+// ---------- انیمیشنِ مایا (پلک‌زدن + باز/بسته‌شدنِ دهن) ----------
+//
+// اضافه‌شدِ ۲۰۲۶-۰۸-۲۲ — قبلاً یک عکسِ ثابت (پوزِ بدونِ پسوند) رو کل
+// سگمنت روی ویدیو overlay می‌شد. برای هر پوز، ۴ حالت از قبل تو
+// public/maya/ موجوده: پایه (دهن‌بسته/چشم‌باز)، -blink (دهن‌بسته/
+// چشم‌بسته)، -talk (دهن‌باز/چشم‌باز)، -talk-blink (دهن‌باز/چشم‌بسته).
+// این تابع بینِ این ۴ تا، طیِ کلِ سگمنت، یک توالیِ زمان‌بندی‌شده می‌سازه:
+// دهن هر ~۰.۲۸ ثانیه باز/بسته می‌شه (شبیه‌سازیِ حرکتِ حرف‌زدن)، و هر
+// چند تیک یک‌بار (~۳ ثانیه) یک پلکِ کوتاه هم اضافه می‌شه.
+//
+// نکته‌ی مهم: عکسِ پایه اندازه‌اش با سه‌تای دیگه فرق داره (احتمالاً جدا
+// تولید شده)، برخلافِ -blink/-talk/-talk-blink که دقیقاً هم‌اندازه و
+// هم‌ترازن. یعنی وقتی نوبتِ عکسِ پایه می‌شه، یک پرشِ بصریِ کوچیک ممکنه
+// دیده بشه — این ریسک آگاهانه پذیرفته شد (جایگزینش این بود که دهن هیچ‌وقت
+// بسته نشه، که طبیعی‌تر به‌نظر نمی‌رسید).
+const MAYA_TICK_SEC = 0.28;
+const MAYA_BLINK_EVERY_TICKS = Math.round(3.2 / MAYA_TICK_SEC);
+
+function buildMayaAnimationBuckets(durationSec) {
+  const buckets = { base: [], blink: [], talk: [], talkBlink: [] };
+  let t = 0;
+  let tickIndex = 0;
+  let nextBlinkTick = MAYA_BLINK_EVERY_TICKS + Math.floor(Math.random() * 4);
+  while (t < durationSec) {
+    const end = Math.min(t + MAYA_TICK_SEC, durationSec);
+    const mouthOpen = tickIndex % 2 === 1;
+    const blinking = tickIndex === nextBlinkTick;
+    if (blinking) {
+      nextBlinkTick = tickIndex + MAYA_BLINK_EVERY_TICKS + Math.floor(Math.random() * 4);
+    }
+    const key = mouthOpen ? (blinking ? "talkBlink" : "talk") : blinking ? "blink" : "base";
+    buckets[key].push([t, end]);
+    t = end;
+    tickIndex++;
+  }
+  return buckets;
+}
+
+function mayaEnableExpr(ranges) {
+  if (ranges.length === 0) return "0";
+  return ranges.map(([s, e]) => `between(t,${s.toFixed(3)},${e.toFixed(3)})`).join("+");
+}
+
+// poseFiles: { base, blink, talk, talkBlink } — چهار مسیرِ فایل، همه از
+// قبل تأییدشده که وجود دارن. ffmpeg inputهاشون به ترتیب index ۱ تا ۴
+// اضافه می‌شن (۰ خودِ ویدیوی سگمنته).
+function buildMayaAnimationFilter(videoW, videoH, durationSec) {
+  const boxSize = Math.round(Math.min(videoW, videoH) * 0.35);
+  const buckets = buildMayaAnimationBuckets(durationSec);
+
+  // فیکسِ همزمان — قبلاً scale=X:X (یه باکسِ کاملاً مربع) بود، ولی همه‌ی
+  // عکس‌های مایا مستطیلی‌ان (نه مربع)، پس تصویر کش میومد. حالا با
+  // force_original_aspect_ratio=decrease نسبتِ ابعادِ اصلی حفظ می‌شه.
+  let filter =
+    `[1:v]scale=${boxSize}:${boxSize}:force_original_aspect_ratio=decrease[m_base];` +
+    `[2:v]scale=${boxSize}:${boxSize}:force_original_aspect_ratio=decrease[m_blink];` +
+    `[3:v]scale=${boxSize}:${boxSize}:force_original_aspect_ratio=decrease[m_talk];` +
+    `[4:v]scale=${boxSize}:${boxSize}:force_original_aspect_ratio=decrease[m_talkblink];`;
+
+  const stages = [
+    ["m_base", buckets.base],
+    ["m_blink", buckets.blink],
+    ["m_talk", buckets.talk],
+    ["m_talkblink", buckets.talkBlink],
+  ];
+
+  let prevLabel = "v1";
+  stages.forEach(([inputLabel, ranges], idx) => {
+    const outLabel = idx === stages.length - 1 ? "v2" : `vov${idx}`;
+    filter += `[${prevLabel}][${inputLabel}]overlay=(W-w)/2:H-h-40:enable='${mayaEnableExpr(ranges)}'[${outLabel}];`;
+    prevLabel = outLabel;
+  });
+
+  return filter.slice(0, -1); // یک ; اضافه‌ی آخر رو حذف کن
+}
+
 // ---------- تابع اصلی رندر ----------
 
 // ورودی:
@@ -261,7 +337,7 @@ async function renderVideo({
       // زیرنویس
       filterComplex += `;${buildCaptionFilter(seg, width, height, fontPath, fontSize, i)}`;
 
-      // مایا (اگر اسکریپت کلی 있으면)
+      // مایا (اگر اسکریپت کلی هست) — انیمیشنِ پلک/دهن، ۲۰۲۶-۰۸-۲۲
       let mayaInputArg = [];
       let finalVideoLabel = "v1"; // default: after caption filter
       if (script) {
@@ -272,13 +348,30 @@ async function renderVideo({
         // وجود نداشته (فقط تو REORGANIZATION_PLAN.md به‌عنوان هدفِ آینده
         // بود، هیچ‌وقت واقعاً اجرا نشد)؛ چون با fs.existsSync گارد شده
         // بود، هیچ ارور نمی‌داد — فقط اورلی مایا بی‌صدا هیچ‌وقت اضافه
-        // نمی‌شد (دقیقاً چیزی که تو بازبینیِ ویدیوهای واقعی دیده شد: مایا
-        // تو هیچ فریمی نبود). فایل‌های واقعیِ پوزها تو public/maya/ان.
-        const posePath = path.join(process.cwd(), "public", "maya", `${pose}.png`);
-        if (fs.existsSync(posePath)) {
-          filterComplex += `;${buildMayaFilter(posePath, width, height)}`;
-          mayaInputArg = ["-i", posePath];
-          finalVideoLabel = "v2"; // Maya filter outputs [v2]
+        // نمی‌شد. فایل‌های واقعیِ پوزها تو public/maya/ان.
+        const mayaDir = path.join(process.cwd(), "public", "maya");
+        const posePaths = {
+          base: path.join(mayaDir, `${pose}.png`),
+          blink: path.join(mayaDir, `${pose}-blink.png`),
+          talk: path.join(mayaDir, `${pose}-talk.png`),
+          talkBlink: path.join(mayaDir, `${pose}-talk-blink.png`),
+        };
+        const allExist = Object.values(posePaths).every((p) => fs.existsSync(p));
+        if (allExist) {
+          filterComplex += `;${buildMayaAnimationFilter(width, height, dur)}`;
+          mayaInputArg = [
+            "-loop", "1", "-i", posePaths.base,
+            "-loop", "1", "-i", posePaths.blink,
+            "-loop", "1", "-i", posePaths.talk,
+            "-loop", "1", "-i", posePaths.talkBlink,
+          ];
+          finalVideoLabel = "v2";
+        } else if (fs.existsSync(posePaths.base)) {
+          // اگه یکی از ۴ حالت جا افتاده بود، حداقل همون رفتارِ قبلی
+          // (عکسِ ثابتِ پایه) رو داشته باشیم، نه این‌که کل اورلی رو از دست بدیم
+          filterComplex += `;${buildMayaFilter(posePaths.base, width, height)}`;
+          mayaInputArg = ["-i", posePaths.base];
+          finalVideoLabel = "v2";
         }
       }
 
