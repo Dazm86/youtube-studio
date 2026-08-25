@@ -371,6 +371,37 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-22 — Second Gemini review (new video, 6.5/10): Maya was covering the captions, added Ken Burns zoom
+Follow-up review, comparing the previous video to a newer one made with today's earlier fixes.
+Improvements (better action steps, CTA, B-roll relevance) confirmed the script/metadata side is
+solid. Two concrete new complaints, both checked against the code before fixing:
+1. **"Big problem": Maya sits center-bottom, doesn't move, and blocks the captions/background.**
+   Did the math on the actual coordinates: Maya's overlay was `H-h-40` (bottom-anchored) at 35%
+   of the frame's shorter dimension, and captions sit at `H-margin-text_h` with the same
+   horizontal centering — for a 720x1280 frame those two zones overlap across nearly their whole
+   height, confirming this wasn't a matter of taste, the two elements were genuinely fighting for
+   the same screen region. Moved Maya to a small (22%, down from 35%) top-right corner, clear of
+   the caption zone regardless of how many lines a caption wraps to (a bottom corner was also
+   considered — rejected specifically because full-width wrapped captions could still reach a
+   bottom corner on longer lines, whereas top corner has zero overlap risk under any caption
+   length). Shared position/size logic (`mayaOverlayExpr`) now used by both the animated overlay
+   and the single-frame fallback, so they can't drift apart.
+2. **"Static images ... zoom would look far more alive."** Added a Ken Burns effect
+   (`buildKenBurnsFilter`) for image segments: scales up 2x past the frame ("cover", no padding)
+   so `zoompan` has resolution to zoom into without pixelating, then a slow, subtle zoom to 1.12x
+   over the segment's duration. Video-clip segments untouched (already have real motion, no
+   Ken Burns needed there); `renderVerticalShortFromSource` (the separate `/api/repurpose` short
+   path) also untouched — it crops from an existing rendered video, not raw images, so this
+   doesn't apply there.
+Rendered a full combined test clip (Ken Burns + wrapped caption + animated Maya, all at once, real
+ffmpeg + real assets) before shipping, not just each piece in isolation — confirmed the caption
+is now fully readable with zero overlap and Maya's corner placement holds correctly alongside
+both other effects.
+Still open, not started this round: dynamic word-by-word/highlighted captions (raised in both
+reviews now) and sound effects (still blocked on sourcing actual audio files — no network access
+in this sandbox to download any).
+Files: `lib/rendering/index.js`.
+
 ### 2026-08-22 — Acted on Gemini's video review: faster cuts + animated Maya (blink + talk)
 User shared a detailed third-party (Gemini) critique of an actual uploaded video, scored 6/10
 overall — script 8/10, audio 7/10, visuals 4/10 (worst), pacing 5/10. Checked the two most

@@ -150,6 +150,26 @@ function buildScaleFilter(targetW, targetH) {
   return `[0:v]scale=${targetW}:${targetH}:force_original_aspect_ratio=decrease,pad=${targetW}:${targetH}:(ow-iw)/2:(oh-ih)/2:color=black@1[v0]`;
 }
 
+// افکتِ Ken Burns (زومِ آرومِ رو عکسِ ثابت) — اضافه‌شدِ ۲۰۲۶-۰۸-۲۲، طبقِ
+// نقدِ Gemini («تصاویر پس‌زمینه همچنان به‌صورت عکس‌های ثابت تعویض
+// می‌شوند... زومِ آروم جلوه‌ی بسیار زنده‌تری می‌ده»). برخلافِ
+// buildScaleFilter (که کلِ عکس رو با پدینگِ مشکی جا می‌ده، «contain»)،
+// اینجا عکس رو بزرگ‌تر از قابِ نهایی اسکیل می‌کنیم («cover»، بدونِ
+// پدینگ) تا zoompan همیشه رزولوشنِ کافی برای زوم داشته باشه، بدونِ
+// این‌که لبه‌ی مشکی یا پیکسلی‌شدن دیده بشه. با ffmpegِ واقعی تست شد.
+function buildKenBurnsFilter(targetW, targetH, durationSec, fps) {
+  const totalFrames = Math.max(1, Math.round(durationSec * fps));
+  const upscaleW = targetW * 2;
+  const upscaleH = targetH * 2;
+  const zoomEnd = 1.12; // زومِ نهاییِ ظریف — ۱۲٪، نه چیزِ چشمگیر
+  const zoomStep = (zoomEnd - 1) / totalFrames;
+  return (
+    `[0:v]scale=${upscaleW}:${upscaleH}:force_original_aspect_ratio=increase,` +
+    `crop=${upscaleW}:${upscaleH},` +
+    `zoompan=z='min(zoom+${zoomStep.toFixed(6)},${zoomEnd})':d=${totalFrames}:s=${targetW}x${targetH}:fps=${fps}[v0]`
+  );
+}
+
 function buildCaptionFilter(captionLine, videoW, videoH, fontPath, fontsize, lineIndex) {
   const margin = Math.round(videoH * 0.08);
   // فیکسِ ۲۰۲۶-۰۸-۲۱ — `\'` به‌عنوان escape برای آپاستروف تو یک مقدارِ
@@ -186,9 +206,23 @@ function buildCaptionFilter(captionLine, videoW, videoH, fontPath, fontsize, lin
   return `[v0]drawtext=fontfile=${fontPath}:text='${wrappedText}':fontsize=${fontsize}:fontcolor=white:borderw=3:bordercolor=black@0.8:x=${xExpr}:y=${yExpr}:line_spacing=8[v1]`;
 }
 
+// موقعیت/اندازه‌ی اورلیِ مایا — فیکسِ ۲۰۲۶-۰۸-۲۲: قبلاً پایینِ‌وسط،
+// scale=۰.۳۵×min(W,H) بود. محاسبه‌ی دستی نشون داد این دقیقاً تو همون
+// محدوده‌ی عمودیِ زیرنویس می‌افتاد (هر دو نزدیکِ لبه‌ی پایین، وسط‌چین)
+// — دقیقاً همون چیزی که تو نقدِ Gemini به‌عنوانِ «آواتار زیرنویس رو
+// پوشونده» گزارش شد. حالا گوشه‌ی بالا-راست، کوچیک‌تر — کاملاً جدا از
+// زیرنویس (که پایینه) صرف‌نظر از این‌که زیرنویس چند خط wrap بشه.
+const MAYA_SCALE_RATIO = 0.22;
+const MAYA_MARGIN_RATIO = 0.035;
+function mayaOverlayExpr(videoW, videoH) {
+  const marginX = Math.round(videoW * MAYA_MARGIN_RATIO);
+  const marginY = Math.round(videoH * MAYA_MARGIN_RATIO);
+  return `W-w-${marginX}:${marginY}`;
+}
+
 function buildMayaFilter(poseImgPath, videoW, videoH) {
-  const scale = Math.min(videoW, videoH) * 0.35;
-  return `[1:v]scale=${scale}:${scale}[maya];[v1][maya]overlay=(W-w)/2:H-h-40[v2]`;
+  const scale = Math.round(Math.min(videoW, videoH) * MAYA_SCALE_RATIO);
+  return `[1:v]scale=${scale}:${scale}:force_original_aspect_ratio=decrease[maya];[v1][maya]overlay=${mayaOverlayExpr(videoW, videoH)}[v2]`;
 }
 
 // ---------- انیمیشنِ مایا (پلک‌زدن + باز/بسته‌شدنِ دهن) ----------
@@ -238,7 +272,7 @@ function mayaEnableExpr(ranges) {
 // قبل تأییدشده که وجود دارن. ffmpeg inputهاشون به ترتیب index ۱ تا ۴
 // اضافه می‌شن (۰ خودِ ویدیوی سگمنته).
 function buildMayaAnimationFilter(videoW, videoH, durationSec) {
-  const boxSize = Math.round(Math.min(videoW, videoH) * 0.35);
+  const boxSize = Math.round(Math.min(videoW, videoH) * MAYA_SCALE_RATIO);
   const buckets = buildMayaAnimationBuckets(durationSec);
 
   // فیکسِ همزمان — قبلاً scale=X:X (یه باکسِ کاملاً مربع) بود، ولی همه‌ی
@@ -257,10 +291,11 @@ function buildMayaAnimationFilter(videoW, videoH, durationSec) {
     ["m_talkblink", buckets.talkBlink],
   ];
 
+  const overlayPos = mayaOverlayExpr(videoW, videoH);
   let prevLabel = "v1";
   stages.forEach(([inputLabel, ranges], idx) => {
     const outLabel = idx === stages.length - 1 ? "v2" : `vov${idx}`;
-    filter += `[${prevLabel}][${inputLabel}]overlay=(W-w)/2:H-h-40:enable='${mayaEnableExpr(ranges)}'[${outLabel}];`;
+    filter += `[${prevLabel}][${inputLabel}]overlay=${overlayPos}:enable='${mayaEnableExpr(ranges)}'[${outLabel}];`;
     prevLabel = outLabel;
   });
 
@@ -323,7 +358,7 @@ async function renderVideo({
           filterComplex += `,loop=loop=-1:size=${Math.ceil(fps * (asset.durationSec || dur))},setpts=N/${fps}/TB`;
         }
       } else {
-        // عکس: یک فریم استاتیک
+        // عکس: قبلاً یک فریمِ کاملاً ثابت بود؛ حالا زومِ آرومِ Ken Burns
         const imgPath = path.join(tmpDir, `img_${i}.png`);
         if (Buffer.isBuffer(asset.buffer)) {
           await fsp.writeFile(imgPath, asset.buffer);
@@ -331,7 +366,7 @@ async function renderVideo({
           await fsp.copyFile(asset.path, imgPath);
         }
         inputArg = ["-loop", "1", "-i", imgPath];
-        filterComplex = buildScaleFilter(width, height);
+        filterComplex = buildKenBurnsFilter(width, height, dur, fps);
       }
 
       // زیرنویس
