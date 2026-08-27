@@ -371,6 +371,48 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-27 — Trend Finder: 6-hourly niche trend scan + scored topic queue
+Built as a new, mostly self-contained `lib/trends/` module rather than editing `lib/db/index.js`
+or `lib/providers/router.js` in place, since neither file was available in the session that wrote
+this feature — see `TREND_FINDER_INTEGRATION.md` for the two small adjustments worth double-checking
+(the `generateText()` call shape in `lib/trends/analyzer.js`, and the NextAuth session-check import
+in the two session-gated routes) once those files are actually diffed against this code.
+Pipeline (`lib/trends/index.js: runTrendScan()`), matches the user-specified stage order: Google
+Trends (niche seed keywords → related/rising queries, `lib/trends/sources/googleTrends.js`,
+unofficial endpoints same caveat as msedge-tts) → YouTube (`sources/youtube.js`, official Data API
+v3, needs new `YOUTUBE_API_KEY`) → TikTok/Reddit (Reddit: real, public JSON, no key needed,
+`sources/reddit.js`; TikTok: deliberate no-op stub, `sources/tiktok.js` — no free public trend API
+exists, same "ships empty" pattern as `public/fallback-media/videos/`) → News
+(`sources/news.js`, Google News RSS, hand-rolled tiny extractor, no new dependency) → AI Analyzer
+(`analyzer.js`, batched calls through the existing provider system's `generateText()`, heuristic
+fallback on failure — same pattern as `suggest-metadata`'s no-key fallback).
+Scoring (`scoring.js`) is deterministic for 4 of the 6 rubric criteria (search growth 0-25, view
+growth 0-25, freshness 0-15, competition 0-15 — computed from real Trends/YouTube numbers, not AI
+guesses) and AI-judged for the other 2 (Shorts-fit 0-10, Long-fit 0-10). Directly encodes the
+project owner's key strategy note (a new channel should chase "rising but not yet crowded," not
+"biggest") in two places: `scoreCompetition()` explicitly scores LOWER existing YouTube supply as
+HIGHER, and the AI analyzer prompt states the same principle so its qualitative judgment doesn't
+contradict the deterministic half. Only topics scoring ≥ `TREND_MIN_SCORE` (default 75, env-
+configurable) are kept, capped to `TREND_TOP_N` (default 20), saved as `status='pending'`.
+New Postgres tables `trend_scans`/`trend_topics`, via their own `ensureTrendsSchema()` in
+`lib/trends/db.js` — deliberately a separate small `pg` pool from the main one for the same "file
+wasn't shared" reason above, safe to run alongside it, trivially mergeable later.
+Two entry points: `api/trends/scan/route.js` (cron-secret-gated, same pattern as
+`scheduler/run/route.js`) for the new `.github/workflows/trend-scan.yml` (`schedule: cron: '0 */6
+* * *'` — piggybacks on GitHub Actions the same way `render-worker.yml` already does, so no new
+external cron pinger needed for this one); `api/trends/scan-now/route.js` (session-gated) for the
+UI's manual "Run scan now" button. Both stream NDJSON progress like `generate-and-upload` does, so
+the connection isn't sitting idle through however long the scan takes.
+New page `/trends` (`components/trends/TrendFinder.js`) — score-breakdown cards, live scan
+progress, approve/reject buttons, and (once approved) links into `/long?topic=...` /
+`/short?topic=...` to actually start production — the explicit human-approval gate the project
+owner asked for, not an auto-trigger.
+Files (all new): `src/lib/trends/{index,db,seeds,candidates,scoring,analyzer}.js`,
+`src/lib/trends/sources/{googleTrends,youtube,reddit,news,tiktok}.js`,
+`src/app/api/trends/{route,scan/route,scan-now/route,[id]/route}.js`, `src/app/trends/page.js`,
+`src/components/trends/TrendFinder.js`, `.github/workflows/trend-scan.yml`,
+`TREND_FINDER_INTEGRATION.md`.
+
 ### 2026-08-22 — Second Gemini review (new video, 6.5/10): Maya was covering the captions, added Ken Burns zoom
 Follow-up review, comparing the previous video to a newer one made with today's earlier fixes.
 Improvements (better action steps, CTA, B-roll relevance) confirmed the script/metadata side is
