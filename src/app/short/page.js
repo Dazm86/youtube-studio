@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import VideoStudio from "../../components/studio/VideoStudio";
 
 export const metadata = {
@@ -5,5 +6,10 @@ export const metadata = {
 };
 
 export default function ShortVideoPage() {
-  return <VideoStudio mode="short" />;
+  // همون فیکسِ /long/page.js — نگاهش کن.
+  return (
+    <Suspense fallback={null}>
+      <VideoStudio mode="short" />
+    </Suspense>
+  );
 }

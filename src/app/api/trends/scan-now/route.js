@@ -1,18 +1,21 @@
 // Manual trigger for the "Run scan now" button in the /trends UI —
 // session-gated instead of cron-secret-gated, same underlying
-// runTrendScan(). If your NextAuth session-check import differs from the
-// one below (this project's auth/authOptions.js wasn't shared in this
-// session), adjust just the two marked lines.
-
-import { getServerSession } from 'next-auth/next';
-import { authOptions } from '@/lib/auth/authOptions.js'; // ADJUST if your path differs
+// runTrendScan().
+//
+// فیکسِ ۲۰۲۶-۰۸-۲۷ — این دو ایمپورت قبلاً یه حدسِ تأییدنشده بودن (چون
+// auth/authOptions.js تو اون سشن در دسترس نبود، طبقِ یادداشتِ
+// PROJECT_STATE.md). حالا با خودِ فایل چک شد: بقیه‌ی ~۳۰ روتِ این پروژه
+// همه از "next-auth" (نه "next-auth/next") و "@/lib/auth/authOptions"
+// (بدونِ پسوندِ .js) ایمپورت می‌کنن — اینجا هم با همون الگو یکی شد.
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth/authOptions';
 import { runTrendScan } from '@/lib/trends/index.js';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
 export async function POST(request) {
-  const session = await getServerSession(authOptions); // ADJUST if your session-check differs
+  const session = await getServerSession(authOptions);
   if (!session) {
     return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 });
   }

@@ -53,30 +53,66 @@ function imagePromptFromQuery(query) {
 
 // ===================== متن (text) =====================
 
-async function groqText({ apiKey, prompt, maxTokens, temperature, jsonMode }) {
+// فیکسِ ۲۰۲۶-۰۸-۲۷ — گروق (openai/gpt-oss-120b) یک reasoning modelِ
+// واقعیه: هر تماس، صرفِ‌نظر از این‌که کد درخواستش می‌کنه یا نه، مقداری
+// توکنِ پنهان صرفِ «فکرکردن» می‌کنه، بعد جوابِ نهایی رو تو content
+// می‌ذاره. طبق مستنداتِ Groq، وقتی reasoning_effort صراحتاً ست نشه
+// پیش‌فرض «medium»ه، نه «low» — این پروژه قبلاً (کامنتِ script/index.js)
+// فرض کرده بود low هست و فقط بر همون اساس maxTokens رو تنظیم کرده بود،
+// در حالی که خودِ پارامتر هیچ‌وقت واقعاً فرستاده نمی‌شد. نتیجه: با یک
+// سقفِ توکنِ کم (مثلِ ۷۰۰ برای اسکریپتِ شورت)، مدل با تلاشِ «medium» گاهی
+// کاملِ سهمیه رو صرفِ reasoning می‌کنه و finish_reason="length" می‌خوره
+// درحالی‌که هنوز حتی شروع به نوشتنِ جوابِ نهایی نکرده — یعنی content
+// کاملاً خالی برمی‌گرده. اینجا صراحتاً "low" می‌فرستیم (فقط برای
+// مدل‌های gpt-oss که این پارامتر رو پشتیبانی می‌کنن) تا این اتفاق کمتر
+// بیفته، و اگه بازم افتاد، یک خطای مشخص throw می‌کنیم (نه یک رشته‌ی
+// خالیِ بی‌صدا) تا router.js هم بتونه retry/fallback کنه و هم لاگش
+// خوانا باشه.
+async function groqText({ apiKey, prompt, maxTokens, temperature, jsonMode, system }) {
+  const messages = [
+    ...(system ? [{ role: "system", content: system }] : []),
+    { role: "user", content: prompt },
+  ];
   const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
       model: GROQ_TEXT_MODEL,
-      messages: [{ role: "user", content: prompt }],
+      messages,
       temperature: temperature ?? 1,
       max_tokens: maxTokens || 2000,
+      ...(GROQ_TEXT_MODEL.includes("gpt-oss") ? { reasoning_effort: "low" } : {}),
       ...(jsonMode ? { response_format: { type: "json_object" } } : {}),
     }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data?.error?.message || "خطای Groq");
-  return (data?.choices?.[0]?.message?.content || "").trim();
+  const choice = data?.choices?.[0];
+  const content = (choice?.message?.content || "").trim();
+  if (!content && choice?.finish_reason === "length") {
+    // دقیقاً همون سناریویی که بالا توضیح داده شد — توکن‌ها قبل از شروعِ
+    // جوابِ نهایی تموم شدن. پیامِ روشن (برای لاگ) که عمداً با همون
+    // عبارتِ «پاسخ خالی از سرویس برگشت» شروع می‌شه تا router.js
+    // (isEmptyTextResponseError) این حالت رو هم مثلِ یک پاسخِ خالیِ
+    // معمولی retry کنه، نه این‌که مستقیم بره سراغ provider بعدی.
+    throw new Error(
+      "پاسخ خالی از سرویس برگشت — توکن‌های reasoning مدل قبل از شروعِ جواب نهایی تموم شد (finish_reason=length)"
+    );
+  }
+  return content;
 }
 
-async function openaiText({ apiKey, prompt, maxTokens, temperature, jsonMode }) {
+async function openaiText({ apiKey, prompt, maxTokens, temperature, jsonMode, system }) {
+  const messages = [
+    ...(system ? [{ role: "system", content: system }] : []),
+    { role: "user", content: prompt },
+  ];
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
       model: OPENAI_TEXT_MODEL,
-      messages: [{ role: "user", content: prompt }],
+      messages,
       temperature: temperature ?? 1,
       max_tokens: maxTokens || 2000,
       ...(jsonMode ? { response_format: { type: "json_object" } } : {}),
@@ -87,7 +123,7 @@ async function openaiText({ apiKey, prompt, maxTokens, temperature, jsonMode }) 
   return (data?.choices?.[0]?.message?.content || "").trim();
 }
 
-async function anthropicText({ apiKey, prompt, maxTokens, temperature }) {
+async function anthropicText({ apiKey, prompt, maxTokens, temperature, system }) {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -99,6 +135,7 @@ async function anthropicText({ apiKey, prompt, maxTokens, temperature }) {
       model: ANTHROPIC_TEXT_MODEL,
       max_tokens: maxTokens || 2000,
       temperature: temperature ?? 1,
+      ...(system ? { system } : {}),
       messages: [{ role: "user", content: prompt }],
     }),
   });

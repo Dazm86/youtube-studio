@@ -40,6 +40,22 @@ export function resolveApiKey(providerRow) {
   return envFn ? envFn() : null;
 }
 
+// فیکسِ ۲۰۲۶-۰۸-۲۷ — یک پاسخِ متنیِ خالی (مثلاً یک reasoning model که
+// توکن‌هاش قبل از جوابِ نهایی تموم شده) قبلاً اصلاً «شکست» حساب نمی‌شد:
+// tryProviders موفق برمی‌گشت (چون adapter استثنایی throw نکرده بود)، و
+// خالی‌بودنش فقط تو generateText، *بعد از* برگشتن از tryProviders چک
+// می‌شد — یعنی حتی اگه provider دومی هم تنظیم شده بود، هیچ‌وقت امتحان
+// نمی‌شد. حالا این چک همینجا، تو حلقه‌ی هر provider انجام می‌شه، پس هم
+// چند تلاشِ سریع رو همون provider می‌خوره (برای حالتِ رایج‌ترِ فقط-یک-
+// provider) و هم اگه بازم خالی موند، به‌جای شکستِ کامل می‌ره سراغِ
+// provider بعدی — دقیقاً همون فلسفه‌ی fallback بقیه‌ی این فایل.
+const MAX_EMPTY_RESPONSE_RETRIES = 2;
+const EMPTY_RESPONSE_RETRY_DELAY_MS = 500;
+
+function isEmptyTextResponseError(message) {
+  return /پاسخ خالی از سرویس برگشت/.test(message || "");
+}
+
 const MAX_RATE_LIMIT_RETRIES = 2;
 // تایم‌اوت با rate-limit فرق داره: rate-limit عمداً منتظر می‌مونه چون
 // دقیقاً می‌دونیم کِی پنجره رد می‌شه؛ تایم‌اوت/قطعیِ شبکه معمولاً یک اتفاقِ
@@ -143,9 +159,14 @@ async function tryProviders(taskType, invoke) {
 
     let rateLimitRetries = 0;
     let timeoutRetries = 0;
+    let emptyResponseRetries = 0;
     for (;;) {
       try {
-        return await invoke(entry, apiKey);
+        const result = await invoke(entry, apiKey);
+        if (taskType === "text" && (!result || !String(result).trim())) {
+          throw new Error("پاسخ خالی از سرویس برگشت");
+        }
+        return result;
       } catch (err) {
         const waitMs = extractRetryAfterMs(err.message);
         if (waitMs && rateLimitRetries < MAX_RATE_LIMIT_RETRIES) {
@@ -166,6 +187,18 @@ async function tryProviders(taskType, invoke) {
           await sleep(TIMEOUT_RETRY_DELAY_MS);
           continue; // همون provider رو دوباره امتحان کن
         }
+        if (
+          !waitMs &&
+          isEmptyTextResponseError(err.message) &&
+          emptyResponseRetries < MAX_EMPTY_RESPONSE_RETRIES
+        ) {
+          emptyResponseRetries++;
+          console.warn(
+            `provider "${p.name}" (${p.service}) در «${label}» پاسخ خالی داد — تلاش دوباره (${emptyResponseRetries}/${MAX_EMPTY_RESPONSE_RETRIES})`
+          );
+          await sleep(EMPTY_RESPONSE_RETRY_DELAY_MS);
+          continue; // همون provider رو دوباره امتحان کن
+        }
         console.error(`provider "${p.name}" (${p.service}) در «${label}» شکست خورد:`, err.message);
         errors.push(`${p.name}: ${err.message}`);
         break; // برو سراغ provider بعدی
@@ -176,9 +209,12 @@ async function tryProviders(taskType, invoke) {
   throw new Error(`همه‌ی ارائه‌دهنده‌های «${label}» شکست خوردن — ${errors.join(" | ")}`);
 }
 
-export async function generateText({ prompt, maxTokens, temperature, jsonMode }) {
+export async function generateText({ prompt, maxTokens, temperature, jsonMode, system }) {
+  // `system` اختیاریه (مثلاً lib/trends/analyzer.js ازش استفاده می‌کنه) —
+  // هر adapter خودش تصمیم می‌گیره چطور اعمالش کنه (پیام role:"system" برای
+  // groq/openai، فیلدِ سطحِ‌بالای system برای Anthropic).
   const text = await tryProviders("text", (entry, apiKey) =>
-    entry.adapters.text({ apiKey, prompt, maxTokens, temperature, jsonMode })
+    entry.adapters.text({ apiKey, prompt, maxTokens, temperature, jsonMode, system })
   );
   if (!text || !text.trim()) throw new Error("پاسخ خالی از هوش مصنوعی دریافت شد");
   return text.trim();

@@ -152,3 +152,54 @@ export async function updateTrendTopicStatus(id, status) {
   );
   return rows[0] || null;
 }
+
+// ===================== تولید کاملاً خودکار (۲۰۲۶-۰۸-۲۷) =====================
+// این سه تابع برای دکمه‌ی «تولید کاملاً خودکار» هستن — انتخابِ خودکارِ
+// بهترین موضوعِ approve‌شده به‌جای این‌که کاربر دستی از /trends انتخاب
+// کنه و کپی/پیست کنه تو فرم.
+
+// یک UPDATE اتمیک با یک زیرکوئریِ SELECT ... FOR UPDATE SKIP LOCKED:
+// بهترین موضوعِ approve‌شده (بالاترین score_total) که با این mode
+// سازگاره رو "claim" می‌کنه (status رو می‌بره رو 'producing') در یک
+// رفت‌وبرگشتِ واحد به دیتابیس — یعنی اگه دو اجرای هم‌زمان (مثلاً کاربر
+// دوبار دکمه رو بزنه) همین لحظه این تابع رو صدا بزنن، هرکدوم یک ردیفِ
+// متفاوت می‌گیرن (یا اگه فقط یکی مونده، دومی null می‌گیره)، نه این‌که
+// هر دو یک ویدیو رو از رویِ یک موضوع بسازن. 'producing' یک وضعیتِ
+// داخلیه (نه یکی از ALLOWED_STATUSES تو api/trends/[id]/route.js) — تو
+// UI فقط به‌شکلِ «بدونِ دکمه‌ی عمل» دیده می‌شه، مشکلی نیست.
+export async function claimNextApprovedTopic(mode) {
+  const { rows } = await getPool().query(
+    `UPDATE trend_topics
+     SET status = 'producing', updated_at = now()
+     WHERE id = (
+       SELECT id FROM trend_topics
+       WHERE status = 'approved' AND suggested_format IN ('both', $1)
+       ORDER BY score_total DESC, created_at ASC
+       LIMIT 1
+       FOR UPDATE SKIP LOCKED
+     )
+     RETURNING *`,
+    [mode]
+  );
+  return rows[0] || null;
+}
+
+// موفقیت: وضعیت نهایی 'produced' + videoId واقعی که آپلود شد.
+export async function markTrendTopicProduced(id, videoId) {
+  const { rows } = await getPool().query(
+    `UPDATE trend_topics SET status = 'produced', video_id = $2, updated_at = now() WHERE id = $1 RETURNING *`,
+    [id, videoId]
+  );
+  return rows[0] || null;
+}
+
+// شکست (مثلاً پایپ‌لاین وسط راه خطا داد): موضوع رو برمی‌گردونه به
+// 'approved' تا دفعه‌ی بعد دوباره قابلِ انتخاب باشه، به‌جای این‌که برای
+// همیشه تو حالتِ 'producing' گیر بمونه.
+export async function releaseTrendTopicClaim(id) {
+  const { rows } = await getPool().query(
+    `UPDATE trend_topics SET status = 'approved', updated_at = now() WHERE id = $1 AND status = 'producing' RETURNING *`,
+    [id]
+  );
+  return rows[0] || null;
+}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { fetchFile, toBlobURL } from "@ffmpeg/util";
@@ -9,6 +10,12 @@ import { fetchFile, toBlobURL } from "@ffmpeg/util";
 // mode: "long" | "short"
 export default function VideoStudio({ mode }) {
   const { data: session, status: sessionStatus } = useSession();
+  // فیکسِ ۲۰۲۶-۰۸-۲۷ — Trend Finder بعد از approve کردن یک موضوع، کاربر
+  // رو به `/long?topic=...` یا `/short?topic=...` می‌فرسته (طبقِ توضیحِ
+  // خودِ PROJECT_STATE.md)، ولی این کامپوننت هیچ‌وقت این query param رو
+  // نمی‌خوند — یعنی «پرشدنِ خودکارِ موضوع» عملاً هیچ‌وقت اتفاق نمی‌افتاد
+  // و کاربر مجبور بود موضوعِ approve‌شده رو دستی کپی/تایپ کنه.
+  const searchParams = useSearchParams();
 
   const [title, setTitle] = useState("");
   const [thumbnailText, setThumbnailText] = useState("");
@@ -35,7 +42,7 @@ export default function VideoStudio({ mode }) {
   }
 
   const [script, setScript] = useState("");
-  const [topic, setTopic] = useState("");
+  const [topic, setTopic] = useState(() => searchParams.get("topic") || "");
   const [generatingScript, setGeneratingScript] = useState(false);
   const [scriptGenStatus, setScriptGenStatus] = useState("");
   const [imageKeyword, setImageKeyword] = useState("");
@@ -101,6 +108,7 @@ export default function VideoStudio({ mode }) {
   const [tagsStr, setTagsStr] = useState("");
   const [suggestingMeta, setSuggestingMeta] = useState(false);
   const [suggestMetaStatus, setSuggestMetaStatus] = useState("");
+  const [autoProduceActive, setAutoProduceActive] = useState(false);
 
   async function handleGenerateScript() {
     setGeneratingScript(true);
@@ -334,6 +342,136 @@ export default function VideoStudio({ mode }) {
     );
   }
 
+  // --- تولید کاملاً خودکار: انتخابِ موضوع از Trend Finder → سناریو →
+  // عنوان/تگ → (همون مسیرِ بالا: صدا/رسانه/رندر/آپلود/زیرنویس). همون
+  // state هایی که دکمه‌های دستی استفاده می‌کنن رو زنده پر می‌کنه، تا
+  // کاربر دقیقاً ببینه چی خودکار انتخاب/نوشته شده — و اگه چیزی دلخواهش
+  // نبود، بعد از تموم‌شدن می‌تونه دستی از همین فرم اصلاح/دوباره امتحان کنه.
+  async function handleAutoProduce() {
+    setAutoProduceActive(true);
+    setGeneratingVideo(true);
+    setVideoGenProgress(0);
+    setUploadedVideoId(null);
+    setVideoGenStatus("در حال شروع تولید کاملاً خودکار...");
+    genStartRef.current = Date.now();
+    setElapsedSeconds(0);
+
+    let wakeLock = null;
+    try {
+      if ("wakeLock" in navigator) {
+        wakeLock = await navigator.wakeLock.request("screen");
+      }
+    } catch {
+      // مهم نیست اگه پشتیبانی نشه یا رد بشه
+    }
+
+    try {
+      const res = await fetch("/api/auto-produce", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          videoMode: mode,
+          privacyStatus,
+          publishAt,
+          useVideoClips,
+        }),
+      });
+
+      if (!res.ok || !res.body) {
+        let errMsg = "خطا در شروع تولید خودکار";
+        try {
+          const errData = await res.json();
+          errMsg = errData.error || errMsg;
+        } catch {
+          // پاسخ JSON نبود
+        }
+        throw new Error(errMsg);
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let finalError = null;
+      let streamEndedCleanly = false;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop();
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          let obj;
+          try {
+            obj = JSON.parse(line);
+          } catch {
+            continue;
+          }
+          // قدم‌های اضافه‌ی این مسیر نسبت به ساخت‌وآپلودِ دستی: انتخابِ
+          // موضوع، نوشتنِ سناریو، پیشنهادِ متادیتا — فرم رو زنده پر می‌کنن.
+          if (obj.topic) setTopic(obj.topic);
+          if (obj.script) setScript(obj.script);
+          if (obj.metadata) {
+            setTitle(obj.metadata.title || "");
+            setThumbnailText(obj.metadata.thumbnailText || "");
+            setDescription(obj.metadata.description || "");
+            setTagsStr(obj.metadata.tags || "");
+          }
+          if (obj.status) setVideoGenStatus(obj.status);
+          if (typeof obj.progress === "number") {
+            setVideoGenProgress(Math.round(obj.progress));
+          }
+          if (obj.error) {
+            finalError = obj.error;
+            streamEndedCleanly = true;
+          }
+          if (obj.done) {
+            streamEndedCleanly = true;
+            setUploadedVideoId(obj.videoId);
+            setVideoGenProgress(100);
+            const thumbNote =
+              obj.thumbnailStatus === "ok"
+                ? " (تامبنیل مایا هم ست شد)"
+                : " (تامبنیل ست نشد ⚠️ — احتمالاً کانال نیاز به تأیید شماره تلفن داره)";
+            const captionNote =
+              obj.captionStatus === "ok"
+                ? " (زیرنویس هم آپلود شد)"
+                : obj.captionStatus && obj.captionStatus.startsWith("failed")
+                ? " (زیرنویس آپلود نشد ⚠️)"
+                : "";
+            const translatedNote = obj.translatedCaptionsSummary
+              ? ` (زیرنویس چندزبانه: ${obj.translatedCaptionsSummary})`
+              : "";
+            setVideoGenStatus("تولید کاملاً خودکار کامل شد ✅" + thumbNote + captionNote + translatedNote);
+          }
+        }
+      }
+
+      if (finalError) {
+        throw new Error(finalError);
+      } else if (!streamEndedCleanly) {
+        throw new Error(
+          "اتصال به سرور وسط پردازش قطع شد — مشخص نیست ویدیو کامل شده یا نه. کانالت یا صفحه‌ی Trend Finder رو چک کن."
+        );
+      }
+    } catch (err) {
+      console.error("auto-produce error:", err);
+      setVideoGenStatus("خطا: " + (err.message || "خطای نامشخص"));
+    }
+
+    if (wakeLock) {
+      try {
+        await wakeLock.release();
+      } catch {
+        // مهم نیست
+      }
+    }
+    setGeneratingVideo(false);
+    setAutoProduceActive(false);
+  }
+
   async function handleSuggestMetadata() {
     if (!script.trim()) {
       setSuggestMetaStatus("اول متن رو بنویس");
@@ -514,6 +652,33 @@ export default function VideoStudio({ mode }) {
           {isShort ? "⚡ ساخت خودکار ویدیوی شورت" : "🎬 ساخت خودکار ویدیوی لانگ"}
         </h1>
       </div>
+
+      {/* ۰۰ — تولید کاملاً خودکار */}
+      <section className="card mb-4" style={{ borderColor: "var(--color-teal)" }}>
+        <div className="flex items-center gap-2 mb-2">
+          <span className="label-plate text-teal">۰۰</span>
+          <h2 className="font-semibold">تولید کاملاً خودکار</h2>
+        </div>
+        <p className="text-sm text-text-muted mb-3">
+          یک دکمه، همه‌چیز خودکار: بهترین موضوعِ تاییدشده رو از Trend Finder برمی‌داره، سناریو و عنوان/تگ می‌نویسه، صدا و
+          رسانه می‌سازه، رندر و زیرنویس می‌کنه و آپلود می‌کنه. باید حداقل یک موضوع تو صفحه‌ی Trend Finder approve شده باشه.
+        </p>
+        <button
+          type="button"
+          onClick={handleAutoProduce}
+          disabled={generatingVideo}
+          className="btn-primary w-full"
+          style={{ backgroundColor: "var(--color-teal)" }}
+        >
+          {autoProduceActive ? "در حال تولید کاملاً خودکار..." : "🤖 تولید کاملاً خودکار (از Trend Finder تا آپلود)"}
+        </button>
+        {autoProduceActive && videoGenStatus && (
+          <p className="text-sm text-text-muted mt-2">
+            {videoGenStatus}
+            {videoGenProgress > 0 ? ` (${videoGenProgress}%)` : ""}
+          </p>
+        )}
+      </section>
 
       {/* ۰۱ — سناریو */}
       <section className="card mb-4">
