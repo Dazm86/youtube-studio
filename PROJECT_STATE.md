@@ -18,11 +18,18 @@
 > the `ROADMAP.md` entry. If in doubt, update this file too — it's
 > cheaper than the next session re-deriving stale context from it.
 >
-> **Last synced against:** commit `6e593d5` (2026-08-26), verified
-> directly against the extracted source (not just commit messages) as
-> part of a full review — see `youtube-studio-review-v2.md` for the
-> detailed bug-by-bug audit this snapshot draws its "Known issues"
-> section from.
+> **Last synced against:** commit `6e593d5` (2026-08-26) on `main`,
+> verified directly against the extracted source (not just commit
+> messages) as part of a full review — see `youtube-studio-review-v2.md`
+> for the detailed bug-by-bug audit this snapshot draws its "Known
+> issues" section from. **Additional fixes/features from 2026-08-27**
+> (Trend Finder integration fixes, the empty-AI-response bug on short
+> scripts, and the new auto-produce button — full detail in `ROADMAP.md`'s
+> 2026-08-27 entry) **are on branch `fix/trend-finder-auto-produce`
+> (commit `6377a9e`), pushed but not yet merged to `main`** as of this
+> writing — this snapshot documents them as already-applied below since
+> that's the near-term reality, but double-check `main` vs that branch
+> before assuming any of this is live in production.
 
 ## What this is
 
@@ -80,8 +87,28 @@ that assumes they don't exist:
 - **`package.json` has had `"type": "module"` since 2026-08-17.** An
   older note in `ROADMAP.md` (2026-08-12) says plain `node --check` is
   unreliable on these files and recommends checking a `.mjs` copy
-  instead — that note predates the `"type": "module"` addition and may
-  no longer apply. Worth re-verifying before trusting either claim.
+  instead. **Re-verified 2026-08-27, still true, and more specific now:**
+  `node --check` reliably catches syntax errors in *top-level* code, but
+  V8's lazy parser only loosely tokenizes function *bodies* (balancing
+  braces, not fully parsing) until they're actually executed — so a real
+  syntax error nested inside a function (e.g. stray JSX in a `.js` file
+  under `"type": "module"`) can silently pass `--check` yet still throw
+  at runtime. Confirmed by deliberately breaking a JSX file and getting
+  a clean `--check` exit code. For files with JSX, `tsc --allowJs
+  --checkJs false --jsx react-jsx --noEmit` on a `.jsx`-renamed copy is a
+  real syntax check (verified against both a deliberately-broken file
+  and real project files) — plain `.js` files with no JSX are fine with
+  `node --check` as-is, since there's no `<` ambiguity for the lazy
+  parser to defer.
+- **Groq's `openai/gpt-oss-120b` (the text model) defaults `reasoning_effort`
+  to `"medium"` when a request doesn't set it explicitly — not `"low"`.**
+  Found 2026-08-27 as the root cause of empty AI responses on short
+  scripts (see ROADMAP.md): the model can spend an entire `maxTokens`
+  budget on hidden reasoning and hit `finish_reason="length"` before
+  writing any visible output. `registry.js`'s `groqText()` now sends
+  `reasoning_effort: "low"` explicitly — don't remove that without also
+  re-checking the `maxTokens` margin on every caller (`script/index.js`
+  short-mode is the tightest one, currently 1200).
 - **YouTube's Data API v3 doesn't expose comment pinning, real
   Community-tab posting, End Screens/Cards, or simultaneous A/B split
   testing.** `community/route.js` only ever produces a manual-post
@@ -206,6 +233,10 @@ source. One pipeline implementation, three ways to trigger it.
   (filterable by `status`/`minScore`) + the latest `trend_scans` row
 - **`trends/[id]/route.js`** *(new, 2026-08-27)* — PATCH: session-gated
   approve/reject/reset on one trend topic
+- **`auto-produce/route.js`** *(new, 2026-08-27)* — session-gated,
+  NDJSON-streams `lib/autoProduce.js: runAutoProduce()`; same heartbeat +
+  self-ping keepalive as `generate-and-upload/route.js`, see "Auto-produce"
+  under Key flows
 
 ### `lib/`
 - `pipeline.js` — the full TTS→media→render→upload→thumbnail→captions→
@@ -253,13 +284,20 @@ source. One pipeline implementation, three ways to trigger it.
   Reddit/News → deduped candidate pool → per-candidate deep signals),
   `scoring.js` (4 of 6 deterministic rubric scores), `analyzer.js` (AI
   judgment for the other 2 + topic naming, via `providers/router.js:
-  generateText()` — **unverified call-shape guess, see
-  `TREND_FINDER_INTEGRATION.md`**), `seeds.js` (niche keyword list,
-  `TREND_SEED_KEYWORDS`-overridable), `db.js` (own small `pg` pool +
-  `trend_scans`/`trend_topics` schema — deliberately separate from this
-  `db/index.js`, see integration doc), `sources/{googleTrends,youtube,
-  reddit,news,tiktok}.js` (one adapter per stage; `tiktok.js` is a
-  deliberate no-op stub, no free public API exists)
+  generateText()` — call shape verified + fixed 2026-08-27, `system`
+  param now actually supported, see ROADMAP.md), `seeds.js` (niche
+  keyword list, `TREND_SEED_KEYWORDS`-overridable), `db.js` (own small
+  `pg` pool + `trend_scans`/`trend_topics` schema — deliberately
+  separate from this `db/index.js`, see integration doc; also, as of
+  2026-08-27, `claimNextApprovedTopic()`/`markTrendTopicProduced()`/
+  `releaseTrendTopicClaim()` for the auto-produce flow below),
+  `sources/{googleTrends,youtube,reddit,news,tiktok}.js` (one adapter
+  per stage; `tiktok.js` is a deliberate no-op stub, no free public API
+  exists)
+- **`autoProduce.js`** *(new, 2026-08-27)* — `runAutoProduce()`: claims
+  a Trend Finder topic, generates the script + metadata, then calls the
+  same `pipeline.js: runPipeline()` as everything else. See "Auto-produce"
+  under Key flows.
 - `auth/authOptions.js` — NextAuth config, `refreshAccessToken()`,
   persists `refresh_token` to DB on sign-in
 - `utils/channelHistory.js` — `getRecentVideoTitles()` (so scripts don't
@@ -388,9 +426,28 @@ Trends interest-over-time + YouTube search/stats → 4 deterministic rubric
 scores (`scoring.js`) → AI analyzer fills the other 2 scores + topic
 naming/angle (`analyzer.js`, heuristic fallback on failure) → topics
 scoring ≥ `TREND_MIN_SCORE` saved as `pending`, capped to `TREND_TOP_N`.
-A human then approves/rejects from `/trends`; approving only links into
-`/long` or `/short` pre-filled with the topic — it does not auto-trigger
+A human then approves/rejects from `/trends`; approving links into
+`/long` or `/short` pre-filled with the topic (this pre-fill was
+previously broken — `VideoStudio.js` didn't read the query param — fixed
+2026-08-27, see ROADMAP.md) — it does not by itself auto-trigger
 production. Runs in-process, same as the scheduler and repurpose flows.
+
+**7. Auto-produce** *(new, 2026-08-27)*. One button on each of `/long`
+and `/short` that runs everything *after* approval with no manual steps:
+claims the best `approved`-but-not-yet-`produced` Trend Finder topic
+(`trends/db.js: claimNextApprovedTopic()`, one atomic
+`UPDATE ... FOR UPDATE SKIP LOCKED` so a double-click can't claim the
+same topic twice) → `script/index.js: generateScript()` → `metadata/
+index.js: generateMetadata()` → the same `pipeline.js: runPipeline()` as
+flow 1. `markTrendTopicProduced()` sets `status='produced'` + the real
+`video_id` on success; `releaseTrendTopicClaim()` puts the topic back to
+`approved` on any failure so it isn't stranded. Still requires a human
+to have approved the topic first — this doesn't bypass that gate, only
+automates what happens after it. In-process only, same rationale as
+flows 3/4 (self-ping keepalive already handles Render free-tier
+survival; deliberately not combined with the still-open worker-callback
+credential-expiry bug below). Orchestration in `lib/autoProduce.js`,
+HTTP/streaming layer in `api/auto-produce/route.js`.
 
 ## Database schema (Postgres, auto-created via `ensureSchema()`)
 
@@ -406,7 +463,7 @@ production. Runs in-process, same as the scheduler and repurpose flows.
 | `provider_priority` | `(task_type, provider_id)` PK, `priority` |
 | `worker_jobs` | `job_id` (PK, text), `job_type`, `status`, `input`/`result` (jsonb), `error`, `created_at`/`updated_at` |
 | `trend_scans` *(new, 2026-08-27)* | `started_at`/`finished_at`, `status`, `topics_found`, `candidates_considered`, `error` — one row per 6-hourly (or manual) scan run |
-| `trend_topics` *(new, 2026-08-27)* | `scan_id` FK, `topic`, `angle`, `suggested_format`, six `score_*` columns + `score_total`, `reasoning`, `source_signals` (jsonb — raw Trends/Reddit/News/YouTube data kept for audit), `status` (`pending`/`approved`/`rejected`/`produced`), `video_id` |
+| `trend_topics` *(new, 2026-08-27)* | `scan_id` FK, `topic`, `angle`, `suggested_format`, six `score_*` columns + `score_total`, `reasoning`, `source_signals` (jsonb — raw Trends/Reddit/News/YouTube data kept for audit), `status` (`pending`/`approved`/`rejected`/`produced`, plus an internal `producing` claim-state — briefly set while auto-produce has a topic checked out, see Key flows #7), `video_id` |
 
 ## Environment variables
 
@@ -474,16 +531,15 @@ previously caused `invalid_client`/`deleted_client` confusion.
   actually fires.
 - ⚪ Several component-folder `index.js` barrels and the top-level
   `lib/index.js` barrel are unused dead code (harmless).
-- 🟡 **Trend Finder's two integration guesses are unverified against the
-  real source** (new, 2026-08-27): `lib/providers/router.js` and
-  `lib/auth/authOptions.js` weren't available in the session that built
-  this feature, so `lib/trends/analyzer.js`'s `generateText()` call shape
-  and the two session-gated routes' `getServerSession`/`authOptions`
-  import are best-effort matches to what `PROJECT_STATE.md` documents,
-  not read from the actual files. Both are deliberately isolated to a
-  single, clearly-commented spot each — see `TREND_FINDER_INTEGRATION.md`
-  — so a mismatch is a one-line fix, not a rewrite. Worth a quick diff
-  against the real files before trusting this row is gone.
+- ✅ ~~Trend Finder's two integration guesses were unverified~~ —
+  checked against the real files and fixed 2026-08-27: `generateText()`
+  now actually supports the `system` param `analyzer.js` was already
+  passing (previously silently dropped), and the two session-gated
+  routes' imports were aligned to match the other ~30 routes (the
+  original guess turned out to work anyway, just inconsistent). **On
+  branch `fix/trend-finder-auto-produce` (commit `6377a9e`), not yet
+  merged to `main`** — see this file's top note and ROADMAP.md's
+  2026-08-27 entry for full detail.
 
 ---
 
