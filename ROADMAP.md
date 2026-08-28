@@ -371,6 +371,50 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-27 — Trend Finder self-audit: 2 real bugs found + fixed, verified with actual test runs
+User asked whether the Trend Finder shipped yesterday actually works. Couldn't reach the live
+Render app or its DB/API keys from this session, so instead: re-read every file line by line,
+then — more usefully — actually ran the pure-scoring logic and a full mocked end-to-end
+orchestration (fake `fetch`, in-memory DB stub standing in for `lib/trends/db.js`, mock
+`generateText`) rather than trusting a read-through alone. Found two real issues this way, not
+from a live report:
+1. **`api/trends/[id]/route.js` destructured `params` without awaiting it.** Next.js 15+ (this
+   project is on 16) made route-handler `params` a Promise; `const { id } = params` would have
+   silently worked with `id` as `undefined` on every approve/reject click. Caught by re-reading
+   against the actual Next.js 16 route-handler contract, not by running it. Fixed: `const { id } =
+   await params`.
+2. **Candidate collection was fully sequential — ~150+ external HTTP calls awaited one at a
+   time** (18 seeds × Trends explore+widgetdata, 7 subreddits, 18 seeds × News, then 25
+   candidates × Trends+YouTube). Each source already degrades gracefully on its own failure, but
+   running them one-after-another meant a single scan could plausibly take far longer than
+   intended, all on a 512MB free-tier instance. Added `lib/trends/utils.js:
+   mapWithConcurrency()` (small worker-pool helper, no new dependency) and switched every
+   seed-level and candidate-level loop to run 4 at a time (AI analyzer batches: 2 at a time,
+   kept lower since concurrent bursts are more likely to trip an AI provider's rate limit than
+   concurrent bursts against Trends/YouTube/Reddit/News).
+Also wrote `tests/trends-scoring.test.js` (plain `node:assert`, matches this project's existing
+"no test runner installed" convention) covering `scoring.js`'s four deterministic functions and
+`mapWithConcurrency`'s ordering/concurrency-limit guarantees — running it caught a third, smaller
+issue: an inline comment claimed flat (0% growth) search-interest scores "~10", the actual formula
+gives ~8.33 (rounds to 8). Not a functional bug (the formula's actual behavior — flat growth
+scoring below the 0-25 midpoint, since this criterion specifically measures growth — was already
+the intended design), just a wrong comment; fixed the comment and the test's expected range to
+match reality instead of loosening the formula to match a comment that was never right.
+Then ran a full mocked scan through the real `runTrendScan()` orchestrator (fake network
+responses for every source + an in-memory stand-in for `db.js`, since neither live network nor a
+real Postgres connection is available in this sandbox) — completed all 6 stages in the right
+order, produced correctly-bounded (0-100) and correctly-sorted scores, and persisted through a
+`db.js`-shaped interface with no exceptions.
+**What's still unverified**: everything that needs the actual live Render deployment — real
+Google Trends/YouTube/Reddit/News responses (vs. this session's mocked ones), a real Postgres
+connection, and whether `lib/providers/router.js: generateText()`'s real call shape matches
+`analyzer.js`'s guess (see `TREND_FINDER_INTEGRATION.md`, unchanged from yesterday — that file
+still wasn't shared this session). The exact smoke-test commands in that doc are the fastest way
+to close that gap.
+Files: `lib/trends/candidates.js` (rewritten), `lib/trends/utils.js` (new),
+`lib/trends/sources/reddit.js`, `lib/trends/analyzer.js`, `lib/trends/scoring.js` (comment only),
+`app/api/trends/[id]/route.js`, `tests/trends-scoring.test.js` (new).
+
 ### 2026-08-27 — Trend Finder: 6-hourly niche trend scan + scored topic queue
 Built as a new, mostly self-contained `lib/trends/` module rather than editing `lib/db/index.js`
 or `lib/providers/router.js` in place, since neither file was available in the session that wrote

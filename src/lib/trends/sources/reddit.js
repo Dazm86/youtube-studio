@@ -2,6 +2,8 @@
 // without authentication for public subreddits — no API key needed, just
 // a descriptive User-Agent (Reddit rate-limits/blocks the default one).
 
+import { mapWithConcurrency } from '../utils.js';
+
 const DEFAULT_SUBREDDITS = [
   'selfimprovement',
   'DecidingToBeBetter',
@@ -23,8 +25,7 @@ export async function fetchNicheHotPosts({
   limit = 15,
   timeframe = 'week',
 } = {}) {
-  const results = [];
-  for (const sub of subreddits) {
+  const perSubreddit = await mapWithConcurrency(subreddits, 4, async (sub) => {
     try {
       const url = `https://www.reddit.com/r/${sub}/top.json?t=${timeframe}&limit=${limit}`;
       const res = await fetch(url, {
@@ -32,21 +33,21 @@ export async function fetchNicheHotPosts({
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
-      for (const child of json?.data?.children || []) {
-        const p = child.data;
-        if (!p?.title) continue;
-        results.push({
+      return (json?.data?.children || [])
+        .map((child) => child.data)
+        .filter((p) => p?.title)
+        .map((p) => ({
           subreddit: sub,
           title: p.title,
           score: p.score ?? 0,
           numComments: p.num_comments ?? 0,
           createdAt: p.created_utc ? new Date(p.created_utc * 1000).toISOString() : null,
           url: p.permalink ? `https://reddit.com${p.permalink}` : null,
-        });
-      }
+        }));
     } catch (err) {
       console.warn(`[trends:reddit] r/${sub} failed:`, err.message);
+      return [];
     }
-  }
-  return results;
+  });
+  return perSubreddit.flat();
 }

@@ -5,8 +5,13 @@ import { fetchTikTokSignal } from './sources/tiktok.js';
 import { searchRecentVideos } from './sources/youtube.js';
 import { getSeedKeywords } from './seeds.js';
 import { scoreSearchGrowth, scoreViewGrowth, scoreFreshness, scoreCompetition } from './scoring.js';
+import { mapWithConcurrency } from './utils.js';
 
 const MAX_CANDIDATES = Number(process.env.TREND_MAX_CANDIDATES || 25);
+// Every external source already degrades to an empty/neutral result on its
+// own failure (see sources/*.js), so running several in flight at once is
+// safe — a slow/broken one just delays its own slot, not the whole batch.
+const CONCURRENCY = Number(process.env.TREND_FETCH_CONCURRENCY || 4);
 
 function normalize(str) {
   return (str || '')
@@ -29,19 +34,25 @@ function cheapRankValue(entry) {
 }
 
 /**
- * Stage 1 (Google Trends + Reddit/TikTok + News in the user-facing
+ * Stage 1 (Google Trends + TikTok/Reddit + News in the user-facing
  * progress feed): builds a niche-scoped candidate pool from related/rising
  * Trends queries per seed, niche subreddit hot posts, and per-seed news
  * headlines, dedupes them, cheaply ranks, and caps to MAX_CANDIDATES
- * before anything expensive runs.
+ * before anything expensive runs. Seed-level calls run CONCURRENCY at a
+ * time rather than one after another.
  */
 export async function collectInitialCandidates({ emit = () => {} } = {}) {
   const seeds = getSeedKeywords();
   const candidateMap = new Map();
 
-  emit({ stage: 'google_trends', status: 'running' });
-  for (const seed of seeds) {
-    const { rising, top } = await fetchRelatedQueries(seed);
+  emit({ stage: 'google_trends', status: 'running', progress: `0/${seeds.length} seeds` });
+  const trendsResults = await mapWithConcurrency(seeds, CONCURRENCY, async (seed, i) => {
+    const result = await fetchRelatedQueries(seed);
+    emit({ stage: 'google_trends', status: 'running', progress: `${i + 1}/${seeds.length} seeds` });
+    return result;
+  });
+  seeds.forEach((seed, i) => {
+    const { rising, top } = trendsResults[i];
     for (const r of [...rising, ...top.slice(0, 5)]) {
       const key = normalize(r.query);
       if (!key) continue;
@@ -50,7 +61,7 @@ export async function collectInitialCandidates({ emit = () => {} } = {}) {
       entry.signals.trendsRelated.push({ value: r.value, fromSeed: seed });
       candidateMap.set(key, entry);
     }
-  }
+  });
   emit({ stage: 'google_trends', status: 'done', count: candidateMap.size });
 
   emit({ stage: 'tiktok_reddit', status: 'running' });
@@ -68,10 +79,14 @@ export async function collectInitialCandidates({ emit = () => {} } = {}) {
   await fetchTikTokSignal(null);
   emit({ stage: 'tiktok_reddit', status: 'done', count: redditPosts.length });
 
-  emit({ stage: 'news', status: 'running' });
-  for (const seed of seeds) {
+  emit({ stage: 'news', status: 'running', progress: `0/${seeds.length} seeds` });
+  const newsResults = await mapWithConcurrency(seeds, CONCURRENCY, async (seed, i) => {
     const items = await fetchNewsForKeyword(seed);
-    for (const n of items.slice(0, 5)) {
+    emit({ stage: 'news', status: 'running', progress: `${i + 1}/${seeds.length} seeds` });
+    return items;
+  });
+  seeds.forEach((seed, i) => {
+    for (const n of newsResults[i].slice(0, 5)) {
       const key = normalize(n.title);
       if (!key) continue;
       const entry = candidateMap.get(key) || { topic: n.title, seed, signals: {} };
@@ -79,7 +94,7 @@ export async function collectInitialCandidates({ emit = () => {} } = {}) {
       entry.signals.news.push(n);
       candidateMap.set(key, entry);
     }
-  }
+  });
   emit({ stage: 'news', status: 'done', count: candidateMap.size });
 
   const ranked = Array.from(candidateMap.values()).sort((a, b) => cheapRankValue(b) - cheapRankValue(a));
@@ -90,28 +105,30 @@ export async function collectInitialCandidates({ emit = () => {} } = {}) {
  * Stage 2: for each surviving candidate, fetches the expensive per-topic
  * signals (Trends interest-over-time, YouTube competition/view-velocity)
  * and computes the 4 deterministic rubric scores from scoring.js.
+ * Candidates are processed CONCURRENCY at a time.
  */
 export async function enrichCandidatesWithDeepSignals(candidates, { emit = () => {} } = {}) {
-  const enriched = [];
-  for (let i = 0; i < candidates.length; i++) {
-    const c = candidates[i];
-    emit({ stage: 'google_trends', status: 'running', progress: `interest ${i + 1}/${candidates.length}` });
-    const interestSeries = await fetchInterestOverTime(c.topic);
+  let completed = 0;
+  const enriched = await mapWithConcurrency(candidates, CONCURRENCY, async (c) => {
+    const [interestSeries, youtubeResult] = await Promise.all([
+      fetchInterestOverTime(c.topic),
+      searchRecentVideos(c.topic),
+    ]);
+    completed++;
+    emit({ stage: 'google_trends', status: 'running', progress: `signals ${completed}/${candidates.length}` });
+    emit({ stage: 'youtube', status: 'running', progress: `${completed}/${candidates.length}` });
 
-    emit({ stage: 'youtube', status: 'running', progress: `${i + 1}/${candidates.length}` });
-    const { items: youtubeItems, totalResults } = await searchRecentVideos(c.topic);
-
-    enriched.push({
+    return {
       ...c,
       interestSeries,
-      youtubeItems,
-      youtubeTotalResults: totalResults,
+      youtubeItems: youtubeResult.items,
+      youtubeTotalResults: youtubeResult.totalResults,
       scoreSearchGrowth: scoreSearchGrowth(interestSeries),
-      scoreViewGrowth: scoreViewGrowth(youtubeItems),
+      scoreViewGrowth: scoreViewGrowth(youtubeResult.items),
       scoreFreshness: scoreFreshness(interestSeries),
-      scoreCompetition: scoreCompetition(totalResults),
-    });
-  }
+      scoreCompetition: scoreCompetition(youtubeResult.totalResults),
+    };
+  });
   emit({ stage: 'youtube', status: 'done', count: enriched.length });
   return enriched;
 }

@@ -13,7 +13,10 @@ export async function PATCH(request, { params }) {
   }
 
   await ensureTrendsSchema();
-  const { id } = params;
+  // Next.js 15+ (this project is on 16) made route-handler `params` async —
+  // `const { id } = params` would silently destructure a Promise instead
+  // of the actual value. Caught in self-review, not from a live report.
+  const { id } = await params;
   const body = await request.json().catch(() => ({}));
   const { status } = body;
 

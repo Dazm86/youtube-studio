@@ -9,6 +9,7 @@
 // of this app's provider system.
 
 import { generateText } from '../providers/router.js';
+import { mapWithConcurrency } from './utils.js';
 // ^ NOTE — the one guessed integration point in this whole feature.
 // router.js wasn't shared in this session, so this import path and the
 // call shape in callTextAI() below are a best-effort match to the
@@ -19,6 +20,10 @@ import { generateText } from '../providers/router.js';
 // whatever string it gets back.
 
 const BATCH_SIZE = Number(process.env.TREND_AI_BATCH_SIZE || 5);
+// Kept low and separate from the general fetch concurrency — concurrent
+// bursts against an AI provider are more likely to trip rate limits than
+// concurrent bursts against Trends/YouTube/Reddit/News.
+const AI_CONCURRENCY = Number(process.env.TREND_AI_CONCURRENCY || 2);
 
 async function callTextAI(prompt) {
   const result = await generateText({
@@ -145,12 +150,16 @@ async function analyzeBatch(batch) {
  *   scoreViewGrowth, scoreFreshness, scoreCompetition from scoring.js
  */
 export async function analyzeTopics(candidates, { emit = () => {} } = {}) {
-  const results = [];
+  const batches = [];
   for (let i = 0; i < candidates.length; i += BATCH_SIZE) {
-    const batch = candidates.slice(i, i + BATCH_SIZE);
-    emit({ stage: 'ai_analyzer', status: 'running', progress: `${i}/${candidates.length}` });
-    const analyzed = await analyzeBatch(batch);
-    results.push(...analyzed);
+    batches.push(candidates.slice(i, i + BATCH_SIZE));
   }
-  return results;
+  let completed = 0;
+  const batchResults = await mapWithConcurrency(batches, AI_CONCURRENCY, async (batch) => {
+    const analyzed = await analyzeBatch(batch);
+    completed += batch.length;
+    emit({ stage: 'ai_analyzer', status: 'running', progress: `${completed}/${candidates.length}` });
+    return analyzed;
+  });
+  return batchResults.flat();
 }

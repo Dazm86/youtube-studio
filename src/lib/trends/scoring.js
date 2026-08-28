@@ -36,7 +36,9 @@ export function scoreSearchGrowth(interestSeries) {
   const prior = average(values.slice(-2 * third, -third));
   if (prior <= 0) return recent > 0 ? 25 : 10;
   const pctChange = (recent - prior) / prior;
-  // -50% or worse -> 0, flat (0%) -> ~10, +100% or more -> 25
+  // -50% or worse -> 0, flat (0%) -> ~8 (deliberately below the 12.5
+  // midpoint — this criterion is specifically about growth, so "not
+  // growing" should score below neutral, not at it), +100% or more -> 25
   const normalized = clamp((pctChange + 0.5) / 1.5, 0, 1);
   return Math.round(normalized * 25);
 }
