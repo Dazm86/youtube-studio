@@ -371,6 +371,35 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-28 (later same day) — Real upload failure, from an actual worker run: empty-title bug in generateMetadata()
+User pasted the GitHub Actions log from a real `render_video` job (#32). Script generation, media,
+and a full 2m37s render all succeeded, then the upload step failed: `The request metadata specifies
+an invalid or empty video title.` — after 3 minutes of render time already spent.
+Traced to `lib/metadata/index.js: generateMetadata()`. Its own comment claims "هیچ‌وقت throw
+نمی‌کنه — هر مسیر شکست به heuristicMetadata برمی‌گرده" (never throws — every failure path falls
+back to the heuristic), but that was only true for a `JSON.parse` failure or `generateText()`
+itself throwing. A THIRD case wasn't covered: the AI's JSON response parses fine but simply omits
+(or empties) `titleA`/`title` — this returned `{ title: "", source: "ai" }` straight through,
+which is a "successful" result by the function's own logic, so nothing triggered the fallback.
+That empty string then flowed untouched through metadata generation → the upload job payload →
+YouTube's API, which correctly rejected it. This is a pre-existing gap, not something introduced
+by yesterday's Trend Finder / auto-produce work — but the new `lib/autoProduce.js` path is fully
+unattended (no human sees the title before it's sent to render+upload the way the manual
+"پیشنهاد متادیتا" flow's editable field would), which is almost certainly why it's the one that
+hit it in practice.
+Two fixes, both verified with real test runs (mocked `generateText`, not just read-through):
+1. `lib/metadata/index.js`: an empty/missing `titleA` after a structurally-valid JSON parse now
+   falls back to `heuristicMetadata()`, matching what the function's own comment already claimed
+   it did. Verified a genuinely valid AI response is still trusted as-is (not over-corrected into
+   always using the heuristic).
+2. `lib/autoProduce.js`: added a belt-and-suspenders check right after `generateMetadata()` —
+   if the resolved title is still empty for any other reason, throws a clear Persian error
+   *before* calling `runPipeline()`, so a bad metadata response fails in ~15 seconds instead of
+   after a full render. Verified with a mocked metadata module that returns an all-empty result:
+   confirmed `runPipeline` (and therefore the worker dispatch / in-process render) is never
+   reached.
+Files: `lib/metadata/index.js`, `lib/autoProduce.js`.
+
 ### 2026-08-28 — Real root cause of the short-script empty-response bug found + fixed; one-click auto-produce; Trend Finder integration verified against real source
 User uploaded `src.zip` (the actual live repo, including yesterday's already-merged Trend Finder). First time this feature's two integration guesses (`generateText()`'s call shape, `authOptions.js`'s session pattern) could be checked against the real files instead of PROJECT_STATE.md's description of them.
 

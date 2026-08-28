@@ -52,6 +52,15 @@ export async function prepareAutoProduceScript({ mode, topicId, topic, accessTok
 
   emit({ status: "در حال نوشتن عنوان و تگ‌ها...", progress: 14 });
   const meta = await generateMetadata(script);
+  // این مسیر برخلافِ فرمِ دستی، هیچ انسانی قبل از رندر+آپلود عنوان رو
+  // نمی‌بینه — پس این‌جا زودتر (قبل از صرفِ چند دقیقه رندر) fail
+  // می‌کنیم به‌جای این‌که یوتیوب موقعِ آپلود با یک خطای گنگ ردش کنه.
+  // generateMetadata() خودش هم دیگه (۲۰۲۶-۰۸-۲۸) این حالت رو به
+  // heuristicMetadata برمی‌گردونه، این فقط یک لایه‌ی محافظِ اضافه‌ست.
+  const resolvedTitle = meta.titleA || meta.title || "";
+  if (!resolvedTitle.trim()) {
+    throw new Error("هوش‌مصنوعی نتونست عنوانی برای این ویدیو تولید کنه — دوباره امتحان کن.");
+  }
   emit({ status: "متادیتا آماده شد ✅", progress: 18 });
 
   return { script, meta, trendTopicRow };

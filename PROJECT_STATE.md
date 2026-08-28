@@ -223,7 +223,13 @@ source. One pipeline implementation, three ways to trigger it.
   `regroupForSubtitles`, `wrapCaption`
 - `script/translate.js` — `translateCaptions()`; batches caption lines
   into one AI call (`BATCH_SIZE=12`) instead of one call per line
-- `metadata/index.js` — `generateChapters()`, `generateMetadata()`
+- `metadata/index.js` — `generateChapters()`, `generateMetadata()`.
+  The latter's own comment promises it never throws — every failure
+  path falls back to `heuristicMetadata()` — and as of 2026-08-28 that's
+  actually true: an empty/missing `titleA`+`title` after an otherwise-
+  valid JSON parse now falls back too (previously slipped through as a
+  "successful" empty-title result, which reached YouTube's upload API
+  and got rejected — seen in a real worker run, not just theoretically).
 - `media/index.js` — thin wrapper re-exporting `fetchImages`/
   `fetchClips` from `providers/router.js`
 - `community/index.js` — `generateCommunityPost()`

@@ -128,6 +128,19 @@ Rules:
 
     const titleA = parsed.titleA || parsed.title || "";
     const thumbnailTextA = parsed.thumbnailTextA || parsed.thumbnailText || "";
+
+    // JSON.parse می‌تونست موفق باشه ولی titleA/title هیچ‌کدوم تو جوابِ
+    // هوش‌مصنوعی نباشن (یا خالی باشن) — قبلاً این حالت رو «موفق» حساب
+    // می‌کردیم و یه نتیجه با title="" برمی‌گردوندیم که مستقیم به آپلودِ
+    // یوتیوب می‌رسید و اونجا با «The request metadata specifies an
+    // invalid or empty video title» رد می‌شد (دیده‌شده تو یک job واقعیِ
+    // ۲۰۲۶-۰۸-۲۸، بعد از ۳ دقیقه رندرِ کامل). این دقیقاً همون «مسیرِ
+    // شکست» ایه که کامنتِ بالای این تابع ادعا می‌کنه همیشه به
+    // heuristicMetadata برمی‌گرده — پس باید مثلِ JSON نامعتبر حساب بشه.
+    if (!titleA.trim()) {
+      return heuristicMetadata(script);
+    }
+
     return {
       title: titleA,
       thumbnailText: thumbnailTextA,
