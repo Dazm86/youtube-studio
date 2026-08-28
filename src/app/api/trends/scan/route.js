@@ -5,7 +5,7 @@
 // does, so the connection stays alive with periodic bytes rather than
 // sitting idle through however long the scan takes.
 
-import { runTrendScan } from '@/lib/trends/index.js';
+import { runTrendScan } from '@/lib/trends';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;

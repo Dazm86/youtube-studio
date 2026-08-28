@@ -10,14 +10,13 @@
 
 import { generateText } from '../providers/router.js';
 import { mapWithConcurrency } from './utils.js';
-// ^ NOTE — the one guessed integration point in this whole feature.
-// router.js wasn't shared in this session, so this import path and the
-// call shape in callTextAI() below are a best-effort match to the
-// documented `generateText` export. If your actual signature differs
-// (e.g. it takes a plain string instead of an options object, or returns
-// a wrapped object instead of a bare string), callTextAI() is the only
-// place that needs adjusting — everything else in this file works with
-// whatever string it gets back.
+// Verified against the real lib/providers/router.js (2026-08-28): the
+// actual signature is generateText({ prompt, maxTokens, temperature,
+// jsonMode }) returning a plain string (or throwing) — no `system` field
+// exists, so the earlier version of this file was silently sending one
+// that the router just ignored. Fixed below to use `jsonMode: true`
+// instead, and the JSON-only instruction is already part of the prompt
+// text in buildAnalyzerPrompt() either way.
 
 const BATCH_SIZE = Number(process.env.TREND_AI_BATCH_SIZE || 5);
 // Kept low and separate from the general fetch concurrency — concurrent
@@ -26,14 +25,13 @@ const BATCH_SIZE = Number(process.env.TREND_AI_BATCH_SIZE || 5);
 const AI_CONCURRENCY = Number(process.env.TREND_AI_CONCURRENCY || 2);
 
 async function callTextAI(prompt) {
-  const result = await generateText({
-    prompt,
-    system:
-      'You are a precise YouTube content strategist. Always reply with ONLY a valid JSON array, no prose before or after it.',
-    maxTokens: 1400,
-    temperature: 0.4,
-  });
-  return typeof result === 'string' ? result : result?.text || result?.content || result?.message || '';
+  // NOT using jsonMode here on purpose: this project's jsonMode maps to
+  // OpenAI/Groq's response_format: json_object, which requires a JSON
+  // *object* at the top level and errors on a bare array — but the
+  // analyzer prompt asks for an array (one entry per topic, order-
+  // matched). The prompt's own "reply with ONLY a JSON array" instruction
+  // plus the regex-extract-then-parse below is the safer combination.
+  return await generateText({ prompt, maxTokens: 1400, temperature: 0.4 });
 }
 
 function clampScore(n, max) {

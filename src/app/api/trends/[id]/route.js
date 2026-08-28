@@ -1,13 +1,13 @@
-import { getServerSession } from 'next-auth/next';
-import { authOptions } from '@/lib/auth/authOptions.js'; // ADJUST if your path differs
-import { ensureTrendsSchema, updateTrendTopicStatus } from '@/lib/trends/db.js';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth/authOptions';
+import { ensureTrendsSchema, updateTrendTopicStatus } from '@/lib/trends/db';
 
 export const dynamic = 'force-dynamic';
 
 const ALLOWED_STATUSES = ['approved', 'rejected', 'pending', 'produced'];
 
 export async function PATCH(request, { params }) {
-  const session = await getServerSession(authOptions); // ADJUST if your session-check differs
+  const session = await getServerSession(authOptions);
   if (!session) {
     return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 });
   }

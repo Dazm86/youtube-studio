@@ -62,6 +62,16 @@ async function groqText({ apiKey, prompt, maxTokens, temperature, jsonMode }) {
       messages: [{ role: "user", content: prompt }],
       temperature: temperature ?? 1,
       max_tokens: maxTokens || 2000,
+      // gpt-oss-120b is a reasoning model — its hidden chain-of-thought
+      // draws from this SAME max_tokens budget as the visible answer, so
+      // without capping reasoning effort it can burn the whole budget
+      // "thinking" and return empty content (شرح کامل: ROADMAP.md، ورودی
+      // ۲۰۲۶-۰۸-۱۸ "Fallout from the gpt-oss-120b switch"). That changelog
+      // entry documented this exact fix, but it was never actually present
+      // in this file — only the maxTokens increase in lib/script/index.js
+      // had landed. This is creative writing, not a task that benefits
+      // from real reasoning, so "low" is correct here, not a compromise.
+      reasoning_effort: "low",
       ...(jsonMode ? { response_format: { type: "json_object" } } : {}),
     }),
   });

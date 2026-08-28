@@ -206,6 +206,10 @@ source. One pipeline implementation, three ways to trigger it.
   (filterable by `status`/`minScore`) + the latest `trend_scans` row
 - **`trends/[id]/route.js`** *(new, 2026-08-27)* — PATCH: session-gated
   approve/reject/reset on one trend topic
+- **`auto-produce/route.js`** *(new, 2026-08-28)* — session-gated,
+  NDJSON-streaming, mirrors `generate-and-upload/route.js`'s heartbeat/
+  self-ping/worker-dispatch pattern exactly. The "🚀 ساخت کاملاً خودکار"
+  button's endpoint — see "Auto-produce" under Key flows below
 
 ### `lib/`
 - `pipeline.js` — the full TTS→media→render→upload→thumbnail→captions→
@@ -240,26 +244,44 @@ source. One pipeline implementation, three ways to trigger it.
 - `providers/registry.js` — `REGISTRY` of known services (groq/openai/
   anthropic/elevenlabs/stability/pexels/msedge-tts) with capabilities +
   `detect()` probe + adapters; `detectService(apiKey)` auto-fingerprints
-  a pasted key
+  a pasted key. `groqText()`'s request body includes `reasoning_effort:
+  "low"` (fixed 2026-08-28 — this was believed already fixed since
+  2026-08-18 but had never actually landed here; see that date's
+  changelog entry). `GROQ_TEXT_MODEL` (`openai/gpt-oss-120b`) is a
+  reasoning model whose hidden chain-of-thought shares the same
+  `max_tokens` budget as its visible answer, so this matters — don't
+  remove it without raising short-script's token budget well past 700 to
+  compensate.
 - `providers/router.js` — `generateText`/`fetchImages`/`fetchClips`/
   `synthesizeSpeech`: loads the DB priority order per task type, tries
   providers top-down with fallback, retries rate-limits, falls back to
-  `public/fallback-media/` as a last resort for images/clips
+  `public/fallback-media/` as a last resort for images/clips.
+  `generateText()`'s empty-response check runs *inside* the per-provider
+  retry loop (fixed 2026-08-28, was after it) — an empty string from the
+  top-priority provider now correctly falls through to the next
+  configured one instead of immediately surfacing as a final error.
 - `providers/crypto.js` — `encrypt`/`decrypt` (AES-256-GCM, key derived
   from `NEXTAUTH_SECRET`) for provider API keys at rest
 - `providers/textUtils.js` — `extractKeywords()`
-- **`trends/`** *(new, 2026-08-27 — see "Trend Finder" section below)* —
-  `index.js: runTrendScan()` (orchestrator), `candidates.js` (Trends/
-  Reddit/News → deduped candidate pool → per-candidate deep signals),
-  `scoring.js` (4 of 6 deterministic rubric scores), `analyzer.js` (AI
-  judgment for the other 2 + topic naming, via `providers/router.js:
-  generateText()` — **unverified call-shape guess, see
-  `TREND_FINDER_INTEGRATION.md`**), `seeds.js` (niche keyword list,
+- **`trends/`** *(new, 2026-08-27, verified against real source
+  2026-08-28)* — `index.js: runTrendScan()` (orchestrator), `candidates.js`
+  (Trends/Reddit/News → deduped candidate pool → per-candidate deep
+  signals), `scoring.js` (4 of 6 deterministic rubric scores),
+  `analyzer.js` (AI judgment for the other 2 + topic naming, via
+  `providers/router.js: generateText()`), `seeds.js` (niche keyword list,
   `TREND_SEED_KEYWORDS`-overridable), `db.js` (own small `pg` pool +
-  `trend_scans`/`trend_topics` schema — deliberately separate from this
-  `db/index.js`, see integration doc), `sources/{googleTrends,youtube,
-  reddit,news,tiktok}.js` (one adapter per stage; `tiktok.js` is a
-  deliberate no-op stub, no free public API exists)
+  `trend_scans`/`trend_topics` schema, `getTrendTopicById()`,
+  `markTrendTopicProduced()` — deliberately separate pool from
+  `db/index.js`, which doesn't export its own pool/`ensureSchema()`),
+  `sources/{googleTrends,youtube,reddit,news,tiktok}.js` (one adapter per
+  stage; `tiktok.js` is a deliberate no-op stub, no free public API
+  exists)
+- **`autoProduce.js`** *(new, 2026-08-28)* —
+  `prepareAutoProduceScript()` (topic selection: explicit trend
+  `topicId` → typed `topic` string → best `approved` trend topic → left
+  empty for `generateScript()` to pick freely; then script + metadata)
+  and `autoProduceVideo()` (adds `runPipeline()` + marks the trend topic
+  `produced` on success) — the "🚀 ساخت کاملاً خودکار" button's backend
 - `auth/authOptions.js` — NextAuth config, `refreshAccessToken()`,
   persists `refresh_token` to DB on sign-in
 - `utils/channelHistory.js` — `getRecentVideoTitles()` (so scripts don't
@@ -388,9 +410,19 @@ Trends interest-over-time + YouTube search/stats → 4 deterministic rubric
 scores (`scoring.js`) → AI analyzer fills the other 2 scores + topic
 naming/angle (`analyzer.js`, heuristic fallback on failure) → topics
 scoring ≥ `TREND_MIN_SCORE` saved as `pending`, capped to `TREND_TOP_N`.
-A human then approves/rejects from `/trends`; approving only links into
-`/long` or `/short` pre-filled with the topic — it does not auto-trigger
-production. Runs in-process, same as the scheduler and repurpose flows.
+A human then approves/rejects from `/trends`.
+
+**7. Auto-produce** *(new, 2026-08-28)*. The "🚀 ساخت کاملاً خودکار"
+button on `/trends` (per approved topic) or on `/long`/`/short` (topic
+optional). `lib/autoProduce.js: prepareAutoProduceScript()` picks a topic
+(explicit trend `topicId` → typed `topic` string → best `approved` trend
+topic → left empty for `generateScript()` to choose freely) → generates
+the script → `generateMetadata()`. Then either `runPipeline()` in-process
+(`autoProduceVideo()`, marks the trend topic `produced` on success) or,
+under `USE_RENDER_WORKER=true`, `dispatchAndTrackJob()` for just the
+render+upload half — same branch `generate-and-upload/route.js` already
+uses, and the same known worker-mode gap: the trend topic doesn't
+auto-flip to `produced` on that path (see Known issues).
 
 ## Database schema (Postgres, auto-created via `ensureSchema()`)
 
@@ -474,16 +506,14 @@ previously caused `invalid_client`/`deleted_client` confusion.
   actually fires.
 - ⚪ Several component-folder `index.js` barrels and the top-level
   `lib/index.js` barrel are unused dead code (harmless).
-- 🟡 **Trend Finder's two integration guesses are unverified against the
-  real source** (new, 2026-08-27): `lib/providers/router.js` and
-  `lib/auth/authOptions.js` weren't available in the session that built
-  this feature, so `lib/trends/analyzer.js`'s `generateText()` call shape
-  and the two session-gated routes' `getServerSession`/`authOptions`
-  import are best-effort matches to what `PROJECT_STATE.md` documents,
-  not read from the actual files. Both are deliberately isolated to a
-  single, clearly-commented spot each — see `TREND_FINDER_INTEGRATION.md`
-  — so a mismatch is a one-line fix, not a rewrite. Worth a quick diff
-  against the real files before trusting this row is gone.
+- 🟡 **Auto-produce doesn't mark a Trend Finder topic "produced" when
+  `USE_RENDER_WORKER=true`** (new, 2026-08-28): the worker-dispatch path
+  uploads asynchronously via `api/jobs/callback`, so `videoId` isn't known
+  synchronously inside `api/auto-produce/route.js` the way it is on the
+  in-process path — the trend topic just stays `approved`. Fixable
+  manually from `/trends`; a real fix would mean threading the
+  `trendTopicId` through the job payload and having the callback handler
+  call `markTrendTopicProduced()`, not done yet.
 
 ---
 

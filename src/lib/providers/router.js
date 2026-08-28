@@ -177,10 +177,18 @@ async function tryProviders(taskType, invoke) {
 }
 
 export async function generateText({ prompt, maxTokens, temperature, jsonMode }) {
-  const text = await tryProviders("text", (entry, apiKey) =>
-    entry.adapters.text({ apiKey, prompt, maxTokens, temperature, jsonMode })
-  );
-  if (!text || !text.trim()) throw new Error("پاسخ خالی از هوش مصنوعی دریافت شد");
+  // قبلاً این چک بعد از برگشتنِ tryProviders انجام می‌شد — یعنی اگه
+  // provider اولویت‌دار یک متنِ خالی برمی‌گردوند (نه خطا)، tryProviders
+  // اون رو «موفق» حساب می‌کرد و اصلاً سراغ provider بعدی نمی‌رفت، حتی اگه
+  // یکی دیگه هم تنظیم شده بود. الان چک داخلِ خودِ invoke هست، پس یک
+  // نتیجه‌ی خالی دقیقاً مثل هر خطای دیگه باعث افتادن به provider بعدی
+  // می‌شه؛ فقط وقتی *همه* شکست خوردن (خالی یا هر خطای دیگه) پیام نهایی
+  // دیده می‌شه.
+  const text = await tryProviders("text", async (entry, apiKey) => {
+    const result = await entry.adapters.text({ apiKey, prompt, maxTokens, temperature, jsonMode });
+    if (!result || !result.trim()) throw new Error("پاسخ خالی از هوش مصنوعی دریافت شد");
+    return result;
+  });
   return text.trim();
 }
 

@@ -44,6 +44,19 @@ export default function VideoStudio({ mode }) {
   const [audioUrl, setAudioUrl] = useState(null);
   const [audioBlob, setAudioBlob] = useState(null);
 
+  // اگه از /trends (یا هر جای دیگه‌ای) با ?topic=... اومده باشیم، همون
+  // موضوع رو از قبل تو فیلد پر می‌کنیم — هم برای شروعِ دستی، هم به‌عنوانِ
+  // موضوعِ پیش‌فرضِ دکمه‌ی «ساخت کاملاً خودکار» پایین. از window.location
+  // مستقیم می‌خونیم (نه هوکِ useSearchParams) که نیازی به Suspense
+  // boundary تو long/page.js و short/page.js نباشه.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const fromQuery = new URLSearchParams(window.location.search).get("topic");
+    if (fromQuery) setTopic(fromQuery);
+  }, []);
+
+  const [autoProducing, setAutoProducing] = useState(false);
+
   const [generatingVideo, setGeneratingVideo] = useState(false);
   const [videoGenStatus, setVideoGenStatus] = useState("");
   const [videoGenProgress, setVideoGenProgress] = useState(0);
@@ -298,6 +311,137 @@ export default function VideoStudio({ mode }) {
     setGeneratingVideo(false);
   }
 
+  // ۲۰۲۶-۰۸-۲۸ — «ساخت کاملاً خودکار»: به‌جای این‌که کاربر اول سناریو
+  // بنویسه، بعد متادیتا، بعد دستی بزنه «ساخت+آپلود»، این یک درخواستِ
+  // واحده که خودِ سرور از اول (انتخابِ موضوع از Trend Finder، یا همون
+  // topic ای که تو فیلده) تا آخر (آپلود) رو پشتِ‌سرهم انجام می‌ده.
+  // از همون stateهای handleGenerateAndUpload استفاده می‌کنه (نوارِ
+  // پیشرفت و پیامِ موفقیت یکیه) و در پایان فیلدهای سناریو/عنوان/توضیحات
+  // رو هم پر می‌کنه تا معلوم باشه دقیقاً چی ساخته شده.
+  async function handleAutoProduce() {
+    setAutoProducing(true);
+    setGeneratingVideo(true);
+    setVideoGenProgress(0);
+    setUploadedVideoId(null);
+    setVideoGenStatus("در حال شروع تولید کاملاً خودکار...");
+    genStartRef.current = Date.now();
+    setElapsedSeconds(0);
+
+    let wakeLock = null;
+    try {
+      if ("wakeLock" in navigator) {
+        wakeLock = await navigator.wakeLock.request("screen");
+      }
+    } catch {
+      // مهم نیست اگه پشتیبانی نشه یا رد بشه
+    }
+
+    try {
+      const res = await fetch("/api/auto-produce", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode,
+          topic: topic.trim() || undefined,
+          privacyStatus,
+          publishAt,
+          useVideoClips,
+        }),
+      });
+
+      if (!res.ok || !res.body) {
+        let errMsg = "خطا در شروع تولید خودکار";
+        try {
+          const errData = await res.json();
+          errMsg = errData.error || errMsg;
+        } catch {
+          // پاسخ JSON نبود
+        }
+        throw new Error(errMsg);
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let finalError = null;
+      let streamEndedCleanly = false;
+      let dispatchedJobId = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop();
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          let obj;
+          try {
+            obj = JSON.parse(line);
+          } catch {
+            continue;
+          }
+          if (obj.status) setVideoGenStatus(obj.status);
+          if (typeof obj.progress === "number") {
+            setVideoGenProgress(Math.round(obj.progress));
+          }
+          if (obj.error) {
+            finalError = obj.error;
+            streamEndedCleanly = true;
+          }
+          if (obj.done && obj.jobId && obj.status === "queued") {
+            streamEndedCleanly = true;
+            dispatchedJobId = obj.jobId;
+            setVideoGenStatus(obj.message || `در صف Worker (Job: ${obj.jobId})...`);
+          } else if (obj.done) {
+            streamEndedCleanly = true;
+            setUploadedVideoId(obj.videoId);
+            setVideoGenProgress(100);
+            const thumbNote =
+              obj.thumbnailStatus === "ok"
+                ? " (تامبنیل مایا هم ست شد)"
+                : " (تامبنیل ست نشد ⚠️)";
+            const captionNote = obj.captionStatus === "ok" ? " (زیرنویس هم آپلود شد)" : "";
+            setVideoGenStatus("تولید و آپلود کامل شد ✅" + thumbNote + captionNote);
+          }
+          // چه در حالتِ صف‌شده و چه کامل‌شده، اگه سرور سناریو/متادیتا رو
+          // برگردونده باشه، فیلدهای فرم رو باهاش پر می‌کنیم تا معلوم باشه
+          // دقیقاً چی ساخته شده (و قابلِ ویرایش/بازبینی بمونه).
+          if (obj.script) setScript(obj.script);
+          if (obj.topic) setTopic(obj.topic);
+          if (obj.title) setTitle(obj.title);
+          if (obj.thumbnailText) setThumbnailText(obj.thumbnailText);
+          if (obj.description) setDescription(obj.description);
+          if (obj.tags) setTagsStr(obj.tags);
+        }
+      }
+
+      if (finalError) {
+        throw new Error(finalError);
+      } else if (dispatchedJobId) {
+        await pollJobStatus(dispatchedJobId);
+      } else if (!streamEndedCleanly) {
+        throw new Error(
+          "اتصال به سرور وسط پردازش قطع شد — مشخص نیست ویدیو کامل شده یا نه. کانالت رو چک کن، یا دوباره امتحان کن."
+        );
+      }
+    } catch (err) {
+      console.error("auto-produce error:", err);
+      setVideoGenStatus("خطا: " + (err.message || "خطای نامشخص"));
+    }
+
+    if (wakeLock) {
+      try {
+        await wakeLock.release();
+      } catch {
+        // مهم نیست
+      }
+    }
+    setGeneratingVideo(false);
+    setAutoProducing(false);
+  }
+
   // ۲۰۲۶-۰۸-۱۸ — بعد از dispatch به Worker، هر ۱۰ ثانیه وضعیتِ jobId رو
   // چک می‌کنه تا کامل/شکست‌خورده بشه، حداکثر تا ۴۰ دقیقه (سقفِ
   // timeout=45 دقیقه‌ی خودِ render-worker.yml). اگه شبکه لحظه‌ای قطع بشه
@@ -514,6 +658,37 @@ export default function VideoStudio({ mode }) {
           {isShort ? "⚡ ساخت خودکار ویدیوی شورت" : "🎬 ساخت خودکار ویدیوی لانگ"}
         </h1>
       </div>
+
+      {/* ساخت کاملاً خودکار — از انتخاب موضوع (Trend Finder یا هوش‌مصنوعی)
+          تا سناریو، عنوان/تگ، صدا، رسانه، رندر، زیرنویس و آپلود، همه با
+          یک درخواست. مسیرِ دستیِ پایین (۰۱ تا ۰۳) دست‌نخورده می‌مونه برای
+          وقتی که کنترلِ قدم‌به‌قدم بخوای. */}
+      <section className="card mb-4">
+        <div className="flex items-center gap-2 mb-2">
+          <h2 className="font-semibold">🚀 ساخت کاملاً خودکار</h2>
+        </div>
+        <p className="text-sm text-text-muted mb-3 leading-relaxed">
+          موضوع (اگه بالا خالی بذاری: اول از موضوع‌های تأییدشده‌ی{" "}
+          <a href="/trends" className="text-amber underline">
+            Trend Finder
+          </a>
+          ، وگرنه خودِ هوش‌مصنوعی) → سناریو → عنوان/توضیحات/تگ → صدا → عکس/ویدیو → رندر →
+          زیرنویس → آپلود — همه خودکار، پشتِ‌سرهم.
+        </p>
+        <button
+          type="button"
+          onClick={handleAutoProduce}
+          disabled={generatingVideo}
+          className="btn-primary w-full"
+        >
+          {autoProducing ? "در حال ساخت..." : "🚀 بساز و آپلود کن"}
+        </button>
+        {autoProducing && videoGenStatus && (
+          <p className="text-sm text-text-muted mt-2 readout">
+            {videoGenStatus} {generatingVideo ? `(${videoGenProgress}%)` : ""}
+          </p>
+        )}
+      </section>
 
       {/* ۰۱ — سناریو */}
       <section className="card mb-4">

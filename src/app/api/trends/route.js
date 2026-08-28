@@ -1,4 +1,4 @@
-import { ensureTrendsSchema, listTrendTopics, getLatestScan } from '@/lib/trends/db.js';
+import { ensureTrendsSchema, listTrendTopics, getLatestScan } from '@/lib/trends/db';
 
 export const dynamic = 'force-dynamic';
 

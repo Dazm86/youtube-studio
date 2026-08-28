@@ -1,254 +1,337 @@
-'use client';
+"use client";
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from "react";
+import { useSession, signIn } from "next-auth/react";
 
 const CRITERIA = [
-  { key: 'score_search_growth', label: 'Search growth', max: 25 },
-  { key: 'score_view_growth', label: 'YouTube view growth', max: 25 },
-  { key: 'score_freshness', label: 'Freshness', max: 15 },
-  { key: 'score_competition', label: 'Low competition', max: 15 },
-  { key: 'score_shorts_fit', label: 'Shorts fit', max: 10 },
-  { key: 'score_long_fit', label: 'Long fit', max: 10 },
+  { key: "score_search_growth", label: "رشد جست‌وجو", max: 25 },
+  { key: "score_view_growth", label: "رشد بازدید یوتیوب", max: 25 },
+  { key: "score_freshness", label: "تازگی", max: 15 },
+  { key: "score_competition", label: "رقابت کم", max: 15 },
+  { key: "score_shorts_fit", label: "قابلیت شورت", max: 10 },
+  { key: "score_long_fit", label: "قابلیت لانگ", max: 10 },
+];
+
+const STAGE_LABELS = {
+  google_trends: "Google Trends",
+  youtube: "یوتیوب",
+  tiktok_reddit: "تیک‌تاک / ردیت",
+  news: "اخبار",
+  ai_analyzer: "تحلیل‌گر هوش‌مصنوعی",
+};
+
+const STATUS_TABS = [
+  { key: "pending", label: "در انتظار" },
+  { key: "approved", label: "تأیید شده" },
+  { key: "rejected", label: "رد شده" },
+  { key: "produced", label: "ساخته شده" },
+  { key: "all", label: "همه" },
 ];
 
 function scoreEmoji(total) {
-  if (total >= 90) return '🔥';
-  if (total >= 83) return '⭐';
-  if (total >= 75) return '👍';
-  return '';
+  if (total >= 90) return "🔥";
+  if (total >= 83) return "⭐";
+  if (total >= 75) return "👍";
+  return "";
 }
 
-function scoreColor(total) {
-  if (total >= 90) return 'text-orange-400 border-orange-400/40 bg-orange-400/10';
-  if (total >= 83) return 'text-violet-300 border-violet-400/40 bg-violet-400/10';
-  return 'text-slate-300 border-slate-500/40 bg-slate-500/10';
+function scoreBadgeClass(total) {
+  if (total >= 83) return "badge-ok";
+  if (total >= 75) return "badge-neutral";
+  return "badge-fail";
 }
 
-function StageRow({ event }) {
-  const stageLabels = {
-    google_trends: 'Google Trends',
-    youtube: 'YouTube',
-    tiktok_reddit: 'TikTok / Reddit',
-    news: 'News',
-    ai_analyzer: 'AI Analyzer',
-  };
-  const label = stageLabels[event.stage] || event.stage;
-  return (
-    <div className="flex items-center justify-between text-sm text-slate-400 py-1">
-      <span>{label}</span>
-      <span className="text-slate-500">
-        {event.status === 'running' ? (event.progress ? event.progress : 'running…') : event.status}
-      </span>
-    </div>
-  );
+async function streamNdjson(url, body, onEvent) {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body || {}),
+  });
+  if (!res.ok || !res.body) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `خطای HTTP ${res.status}`);
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let finalEvent = null;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop();
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const event = JSON.parse(line);
+      if (event.ping) continue;
+      onEvent(event);
+      if (event.done || event.error) finalEvent = event;
+    }
+  }
+  if (finalEvent?.error) throw new Error(finalEvent.error);
+  return finalEvent;
 }
 
 export default function TrendFinder() {
+  const { data: session, status: sessionStatus } = useSession();
+
   const [topics, setTopics] = useState([]);
   const [latestScan, setLatestScan] = useState(null);
-  const [statusFilter, setStatusFilter] = useState('pending');
+  const [statusFilter, setStatusFilter] = useState("pending");
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
-  const [progressEvents, setProgressEvents] = useState([]);
+  const [scanEvents, setScanEvents] = useState([]);
   const [error, setError] = useState(null);
+
+  // آیدیِ موضوعی که الان در حالِ ساخت خودکار (تولید ویدیو) هست — فقط یکی
+  // در آنِ واحد، برای ساده موندنِ UI.
+  const [producingId, setProducingId] = useState(null);
+  const [producingMode, setProducingMode] = useState(null);
+  const [produceStatus, setProduceStatus] = useState("");
+  const [produceResult, setProduceResult] = useState(null);
 
   const loadTopics = useCallback(async (status) => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (status && status !== 'all') params.set('status', status);
+      if (status && status !== "all") params.set("status", status);
       const res = await fetch(`/api/trends?${params.toString()}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) throw new Error(`خطای HTTP ${res.status}`);
       const data = await res.json();
       setTopics(data.topics || []);
       setLatestScan(data.latestScan || null);
       setError(null);
     } catch (err) {
       setError(err.message);
-    } finally {
-      setLoading(false);
     }
+    setLoading(false);
   }, []);
 
   useEffect(() => {
-    loadTopics(statusFilter);
-  }, [statusFilter, loadTopics]);
+    if (session) loadTopics(statusFilter);
+  }, [session, statusFilter, loadTopics]);
 
   async function runScanNow() {
     setScanning(true);
-    setProgressEvents([]);
+    setScanEvents([]);
     setError(null);
     try {
-      const res = await fetch('/api/trends/scan-now', { method: 'POST' });
-      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop();
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          const event = JSON.parse(line);
-          setProgressEvents((prev) => [...prev.slice(-8), event]);
-          if (event.stage === 'error') setError(event.message);
-        }
-      }
+      await streamNdjson("/api/trends/scan-now", {}, (event) => {
+        setScanEvents((prev) => [...prev.slice(-7), event]);
+      });
       await loadTopics(statusFilter);
     } catch (err) {
       setError(err.message);
-    } finally {
-      setScanning(false);
     }
+    setScanning(false);
   }
 
   async function setTopicStatus(id, status) {
-    setTopics((prev) => prev.filter((t) => t.id !== id || status === 'pending'));
+    const prevTopics = topics;
+    setTopics((prev) => prev.filter((t) => t.id !== id));
     try {
       const res = await fetch(`/api/trends/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status }),
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) throw new Error(`خطای HTTP ${res.status}`);
     } catch (err) {
       setError(err.message);
-      loadTopics(statusFilter);
+      setTopics(prevTopics);
     }
   }
 
+  async function handleAutoProduce(topic, mode) {
+    setProducingId(topic.id);
+    setProducingMode(mode);
+    setProduceStatus("در حال شروع...");
+    setProduceResult(null);
+    setError(null);
+    try {
+      const final = await streamNdjson(
+        "/api/auto-produce",
+        { mode, topicId: topic.id },
+        (event) => {
+          if (event.status) setProduceStatus(event.status);
+        }
+      );
+      setProduceResult({ ok: true, ...final });
+      loadTopics(statusFilter);
+    } catch (err) {
+      setProduceResult({ ok: false, error: err.message });
+    }
+    setProducingId(null);
+    setProducingMode(null);
+  }
+
+  if (sessionStatus === "loading") return null;
+  if (!session) {
+    return (
+      <main className="min-h-screen bg-bg text-text flex flex-col items-center justify-center px-6 gap-4 text-center">
+        <p className="text-text-muted">برای استفاده از Trend Finder باید وارد بشی.</p>
+        <button onClick={() => signIn("google")} className="btn-primary px-6">
+          ورود با گوگل
+        </button>
+      </main>
+    );
+  }
+
   return (
-    <div className="max-w-4xl mx-auto p-4 md:p-6 text-slate-100">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-6">
+    <main className="min-h-screen bg-bg text-text px-4 py-6 max-w-2xl mx-auto">
+      <div className="flex items-start justify-between gap-3 mb-5">
         <div>
-          <h1 className="text-2xl font-semibold text-white">Trend Finder</h1>
-          <p className="text-sm text-slate-400 mt-1">
+          <h1 className="text-xl font-bold">📈 یافتن ترند</h1>
+          <p className="text-sm text-text-muted mt-1">
             {latestScan
-              ? `Last scan: ${new Date(latestScan.started_at).toLocaleString()} — ${latestScan.status}${
-                  latestScan.topics_found ? ` — ${latestScan.topics_found} topics qualified` : ''
-                }`
-              : 'No scan has run yet.'}
+              ? `آخرین اسکن: ${new Date(latestScan.started_at).toLocaleString("fa-IR")} — ${
+                  latestScan.status === "completed"
+                    ? "کامل ✅"
+                    : latestScan.status === "failed"
+                    ? "شکست ❌"
+                    : "در حال اجرا ⏳"
+                }${latestScan.topics_found ? ` — ${latestScan.topics_found} موضوع واجد شرایط` : ""}`
+              : "هنوز هیچ اسکنی اجرا نشده."}
           </p>
         </div>
-        <button
-          onClick={runScanNow}
-          disabled={scanning}
-          className="shrink-0 px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium transition"
-        >
-          {scanning ? 'Scanning…' : 'Run scan now'}
+        <button onClick={runScanNow} disabled={scanning} className="btn-primary shrink-0">
+          {scanning ? "در حال اسکن..." : "اسکن الان"}
         </button>
       </div>
 
       {scanning && (
-        <div className="mb-6 rounded-lg border border-slate-700 bg-slate-900/50 p-3">
-          {progressEvents.map((e, i) => (
-            <StageRow key={i} event={e} />
+        <div className="card mb-5">
+          {scanEvents.length === 0 && <p className="text-sm text-text-muted">در حال شروع...</p>}
+          {scanEvents.map((e, i) => (
+            <div key={i} className="flex items-center justify-between text-sm py-1">
+              <span className="text-text-muted">{STAGE_LABELS[e.stage] || e.stage || e.status}</span>
+              <span className="text-text-faint readout text-xs">
+                {e.progress || e.status || e.count || ""}
+              </span>
+            </div>
           ))}
         </div>
       )}
 
       {error && (
-        <div className="mb-6 rounded-lg border border-red-500/40 bg-red-500/10 text-red-300 text-sm p-3">
+        <div className="rounded-lg border border-danger-dim bg-danger/10 text-sm p-3 mb-5 text-danger">
           {error}
         </div>
       )}
 
-      <div className="flex gap-2 mb-4">
-        {['pending', 'approved', 'rejected', 'all'].map((s) => (
+      <div className="flex items-center gap-1.5 overflow-x-auto mb-4 -mx-1 px-1">
+        {STATUS_TABS.map((tab) => (
           <button
-            key={s}
-            onClick={() => setStatusFilter(s)}
-            className={`px-3 py-1.5 rounded-full text-xs font-medium border transition ${
-              statusFilter === s
-                ? 'bg-violet-600 border-violet-600 text-white'
-                : 'border-slate-700 text-slate-400 hover:border-slate-500'
-            }`}
+            key={tab.key}
+            onClick={() => setStatusFilter(tab.key)}
+            className={
+              "whitespace-nowrap rounded-md px-3 py-2 text-xs font-medium min-h-[38px] transition-colors " +
+              (statusFilter === tab.key
+                ? "bg-amber text-white"
+                : "bg-surface-raised text-text-muted hover:text-text border border-border")
+            }
           >
-            {s.charAt(0).toUpperCase() + s.slice(1)}
+            {tab.label}
           </button>
         ))}
       </div>
 
       {loading ? (
-        <p className="text-slate-500 text-sm">Loading…</p>
+        <p className="text-sm text-text-muted">در حال بارگذاری...</p>
       ) : topics.length === 0 ? (
-        <p className="text-slate-500 text-sm">
-          No {statusFilter !== 'all' ? statusFilter : ''} topics yet. Run a scan to find some.
+        <p className="text-sm text-text-muted">
+          موضوعی با این وضعیت پیدا نشد. یک اسکن اجرا کن تا موضوع‌های تازه پیدا بشن.
         </p>
       ) : (
         <div className="space-y-3">
-          {topics.map((t) => (
-            <div key={t.id} className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <h3 className="text-lg font-medium text-white">
-                    {t.topic} <span>{scoreEmoji(Number(t.score_total))}</span>
-                  </h3>
-                  {t.angle && <p className="text-sm text-slate-400 mt-0.5">{t.angle}</p>}
-                </div>
-                <span
-                  className={`shrink-0 rounded-full border px-3 py-1 text-sm font-semibold ${scoreColor(
-                    Number(t.score_total)
-                  )}`}
-                >
-                  {Math.round(Number(t.score_total))}/100
-                </span>
-              </div>
-
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-3">
-                {CRITERIA.map((c) => (
-                  <div key={c.key} className="text-xs text-slate-400">
-                    {c.label}: <span className="text-slate-200">{Math.round(Number(t[c.key] ?? 0))}</span>/{c.max}
+          {topics.map((t) => {
+            const total = Math.round(Number(t.score_total));
+            const isProducingThis = producingId === t.id;
+            return (
+              <div key={t.id} className="card">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="font-semibold text-text">
+                      {t.topic} {scoreEmoji(total)}
+                    </h3>
+                    {t.angle && <p className="text-sm text-text-muted mt-0.5">{t.angle}</p>}
                   </div>
-                ))}
-              </div>
+                  <span className={"shrink-0 " + scoreBadgeClass(total)}>{total}/۱۰۰</span>
+                </div>
 
-              {t.reasoning && <p className="text-xs text-slate-500 mt-3 italic">{t.reasoning}</p>}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-3 gap-y-1 mt-3">
+                  {CRITERIA.map((c) => (
+                    <div key={c.key} className="text-xs text-text-muted">
+                      {c.label}: <span className="text-text">{Math.round(Number(t[c.key] ?? 0))}</span>/{c.max}
+                    </div>
+                  ))}
+                </div>
 
-              <div className="flex flex-wrap gap-2 mt-4">
-                {t.status === 'pending' && (
-                  <>
-                    <button
-                      onClick={() => setTopicStatus(t.id, 'approved')}
-                      className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium"
-                    >
-                      Approve
+                {t.reasoning && <p className="text-xs text-text-faint mt-3 leading-relaxed">{t.reasoning}</p>}
+
+                {t.status === "pending" && (
+                  <div className="flex flex-wrap gap-2 mt-4">
+                    <button onClick={() => setTopicStatus(t.id, "approved")} className="btn-secondary">
+                      تأیید
                     </button>
-                    <button
-                      onClick={() => setTopicStatus(t.id, 'rejected')}
-                      className="px-3 py-1.5 rounded-lg border border-slate-700 hover:border-slate-500 text-slate-300 text-xs font-medium"
-                    >
-                      Reject
+                    <button onClick={() => setTopicStatus(t.id, "rejected")} className="btn-ghost">
+                      رد کردن
                     </button>
-                  </>
+                  </div>
                 )}
-                {t.status === 'approved' && (
-                  <>
-                    <a
-                      href={`/long?topic=${encodeURIComponent(t.topic)}`}
-                      className="px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-xs font-medium"
-                    >
-                      Create long video
-                    </a>
-                    <a
-                      href={`/short?topic=${encodeURIComponent(t.topic)}`}
-                      className="px-3 py-1.5 rounded-lg bg-violet-600/80 hover:bg-violet-500 text-white text-xs font-medium"
-                    >
-                      Create short
-                    </a>
-                  </>
+
+                {t.status === "approved" && (
+                  <div className="mt-4">
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={() => handleAutoProduce(t, "long")}
+                        disabled={producingId !== null}
+                        className="btn-primary"
+                      >
+                        {isProducingThis && producingMode === "long" ? "در حال ساخت..." : "🚀 بساز و آپلود کن (لانگ)"}
+                      </button>
+                      <button
+                        onClick={() => handleAutoProduce(t, "short")}
+                        disabled={producingId !== null}
+                        className="btn-primary"
+                      >
+                        {isProducingThis && producingMode === "short" ? "در حال ساخت..." : "🚀 بساز و آپلود کن (شورت)"}
+                      </button>
+                      <a href={`/long?topic=${encodeURIComponent(t.topic)}`} className="btn-ghost">
+                        باز کردن دستی (لانگ)
+                      </a>
+                      <a href={`/short?topic=${encodeURIComponent(t.topic)}`} className="btn-ghost">
+                        باز کردن دستی (شورت)
+                      </a>
+                    </div>
+                    {isProducingThis && (
+                      <p className="text-xs text-text-muted mt-2 readout">{produceStatus}</p>
+                    )}
+                    {!isProducingThis && produceResult && producingId === null && (
+                      <p className={"text-xs mt-2 " + (produceResult.ok ? "text-teal" : "text-danger")}>
+                        {produceResult.ok
+                          ? produceResult.jobId
+                            ? produceResult.message
+                            : `آپلود شد ✅ (videoId: ${produceResult.videoId})`
+                          : `خطا: ${produceResult.error}`}
+                      </p>
+                    )}
+                  </div>
                 )}
-                {t.status === 'rejected' && (
-                  <span className="text-xs text-slate-600">Rejected</span>
+
+                {t.status === "produced" && (
+                  <p className="text-xs text-teal mt-4">
+                    ساخته شد ✅ {t.video_id && <span className="readout">(videoId: {t.video_id})</span>}
+                  </p>
                 )}
+
+                {t.status === "rejected" && <p className="text-xs text-text-faint mt-4">رد شده</p>}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
-    </div>
+    </main>
   );
 }

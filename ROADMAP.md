@@ -371,6 +371,79 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-28 — Real root cause of the short-script empty-response bug found + fixed; one-click auto-produce; Trend Finder integration verified against real source
+User uploaded `src.zip` (the actual live repo, including yesterday's already-merged Trend Finder). First time this feature's two integration guesses (`generateText()`'s call shape, `authOptions.js`'s session pattern) could be checked against the real files instead of PROJECT_STATE.md's description of them.
+
+**The empty-response bug ("پاسخ خالی از هوش مصنوعی دریافت شد" on short scripts), for real this time.**
+The 2026-08-18 changelog entry claimed `reasoning_effort: "low"` was added to every Groq text call.
+It wasn't — `grep`-confirmed absent from the live `lib/providers/registry.js`; only that entry's
+other half (raising the short-script token budget 400→700 in `lib/script/index.js`) had actually
+landed. `gpt-oss-120b`'s hidden reasoning draws from the same `max_tokens` budget as its visible
+answer, so at the API's default reasoning effort it could still burn the whole 700-token budget
+thinking and return nothing. Added the actual parameter to `groqText()` this time, and verified
+with a real (mocked-network) execution of the literal function, not just a read-through, that the
+resulting request body now includes `reasoning_effort: "low"` alongside `max_tokens: 700`.
+Also found and fixed a second, related gap while in this file: `generateText()`'s empty-string
+check ran *after* `tryProviders()` returned, so an empty (not thrown) response from the
+top-priority provider was counted as "success" and never fell through to a second configured
+provider. Moved the check inside the retry loop's `invoke` callback instead. Verified with a real
+execution (two fake providers, one returning `""`, one returning real text): confirmed it now
+falls through correctly, and confirmed the final aggregated error — for the case where every
+provider is genuinely empty — now names each provider's specific failure instead of one generic
+line. Files: `lib/providers/registry.js`, `lib/providers/router.js`.
+
+**Trend Finder's two guessed integration points, checked against the real files.**
+`lib/auth/authOptions.js` matched the guess exactly (NextAuth v4, `getServerSession(authOptions)`).
+`lib/providers/router.js: generateText()` did not: the real signature is `{ prompt, maxTokens,
+temperature, jsonMode }` — no `system` field, so `lib/trends/analyzer.js` had been silently
+sending one that was simply dropped on the floor every call (harmless, since the JSON-array
+instruction was already duplicated in the prompt text itself, but dead weight). Removed it.
+Deliberately did NOT switch to `jsonMode: true` for the analyzer's batched calls — that maps to
+`response_format: json_object`, which requires a JSON *object* at the top level and errors on the
+bare array this prompt asks for (confirmed by reading `lib/metadata/index.js`'s use of the same
+flag, which does request an object). Also fixed `next-auth/next` → `next-auth` and dropped `.js`
+extensions on `@/lib/...` imports to match this project's actual (if not 100% uniform) convention,
+confirmed by grepping every existing `@/lib/...` import in the repo.
+`lib/trends/db.js`'s separate `pg` pool (a forced guess yesterday, since `lib/db/index.js` wasn't
+available) is now a deliberate, verified choice: that file doesn't export its pool or
+`ensureSchema()`, only ~30 specific query functions, so sharing it would mean adding new exports
+to a file that providers/videos/schedules/worker-jobs all already depend on — a second small pool
+against the same `DATABASE_URL` is lower-risk. Its `ssl` config now matches `lib/db/index.js`'s
+exactly instead of the earlier localhost-guessing heuristic.
+`TrendFinder.js` also turned out to be in English with generic Tailwind slate/violet colors —
+mismatched this app's actual Persian/RTL UI and its `card`/`btn-primary`/`badge-ok` design-token
+system (`globals.css`, confirmed by reading it directly). Rewritten from scratch in Persian,
+matching `ScheduleSettings.js`'s session-gating pattern and the real color tokens.
+
+**One-click auto-produce, as requested.** New `lib/autoProduce.js`: `prepareAutoProduceScript()`
+(topic selection — explicit `topicId` from Trend Finder, else a plain typed `topic` string, else
+the best-scoring `approved` trend topic, else left empty for `generateScript()` to pick freely,
+exactly like today's manual empty-topic behavior — → `generateScript()` → `generateMetadata()`)
+and `autoProduceVideo()` (adds `runPipeline()` — voice+media+render+captions+upload — on top, then
+`markTrendTopicProduced()` if the topic came from Trend Finder and a video actually uploaded).
+New `api/auto-produce/route.js`, NDJSON-streaming, mirrors `generate-and-upload/route.js`'s
+heartbeat/self-ping/worker-dispatch branching exactly (script+metadata always generate
+in-process first; only render+upload gets handed to the worker when `USE_RENDER_WORKER=true` —
+known limitation: in that branch the upload happens async via job callback, so
+`markTrendTopicProduced()` doesn't fire; the trend topic just stays `approved` rather than
+auto-flipping to `produced`, fixable manually from `/trends` for now). Verified with real
+(mocked-dependency) executions covering all three topic-selection paths, the auto-mark-as-produced
+side effect, and error propagation on a missing access token — not just a read-through.
+UI: `/trends` now shows "🚀 بساز و آپلود کن" (لانگ/شورت) on every approved topic with inline live
+progress. `VideoStudio.js` (both `/long` and `/short`) gained a "🚀 ساخت کاملاً خودکار" section
+above the existing manual step-by-step flow, sharing its progress-bar/success-message state so
+nothing needed duplicating; reads `?topic=` from `window.location` on mount (not the
+`useSearchParams()` hook, to avoid the Suspense-boundary requirement that would've meant also
+editing `long/page.js`/`short/page.js`). Added `/trends` to `NavBar.js` and the home page card
+grid.
+Files: `lib/autoProduce.js` (new), `app/api/auto-produce/route.js` (new), `lib/trends/db.js`
+(+`getTrendTopicById`, `+markTrendTopicProduced`), `components/trends/TrendFinder.js`
+(rewritten), `components/studio/VideoStudio.js`, `components/layout/NavBar.js`, `app/page.js`,
+`app/trends/page.js`, `lib/trends/analyzer.js`, `lib/providers/registry.js`,
+`lib/providers/router.js`, plus import-style fixes across `app/api/trends/*`.
+**Still unverified**: real (non-mocked) Google Trends/YouTube/Reddit/News responses and a real
+Postgres connection — same gap as yesterday, only closeable from the actual Render deployment.
+
 ### 2026-08-27 — Trend Finder self-audit: 2 real bugs found + fixed, verified with actual test runs
 User asked whether the Trend Finder shipped yesterday actually works. Couldn't reach the live
 Render app or its DB/API keys from this session, so instead: re-read every file line by line,

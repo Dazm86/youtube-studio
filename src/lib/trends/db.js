@@ -1,13 +1,14 @@
-// Deliberately a SEPARATE, self-contained `pg` pool from lib/db/index.js
-// rather than importing its pool/ensureSchema — that file wasn't shared in
-// this session, so guessing at its export shape here risked breaking both
-// modules. This is safe to run alongside it (Postgres handles multiple
-// pools against the same DATABASE_URL fine) and costs nothing but one
-// extra small connection pool.
-//
-// If you'd rather have a single shared pool, once you share lib/db/
-// index.js this file can be trimmed to just re-export its pool — nothing
-// else in the Trend Finder feature needs to change.
+// A SEPARATE, self-contained `pg` pool from lib/db/index.js rather than
+// sharing its pool. Originally this was a guess (lib/db/index.js wasn't
+// available); now that it's been reviewed directly (2026-08-28): its pool
+// and ensureSchema() aren't exported, only its ~30 specific query
+// functions are, so "sharing" it would mean adding new exports to that
+// file rather than just importing an existing one. Given how central
+// db/index.js is (providers, videos, schedules, worker jobs all go
+// through it), a second small pool against the same DATABASE_URL is the
+// lower-risk choice — Postgres handles multiple pools against one
+// connection string fine, and it keeps every trends-schema change
+// contained to this one file.
 
 import pg from 'pg';
 
@@ -16,10 +17,12 @@ const { Pool } = pg;
 let pool;
 function getPool() {
   if (!pool) {
-    const connectionString = process.env.DATABASE_URL;
+    // Matches lib/db/index.js's own Pool config exactly (verified
+    // 2026-08-28), rather than the "skip ssl if the string contains
+    // localhost" heuristic this file used before that file was available.
     pool = new Pool({
-      connectionString,
-      ssl: connectionString && !connectionString.includes('localhost') ? { rejectUnauthorized: false } : undefined,
+      connectionString: process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false },
     });
   }
   return pool;
@@ -149,6 +152,23 @@ export async function updateTrendTopicStatus(id, status) {
   const { rows } = await getPool().query(
     `UPDATE trend_topics SET status = $2, updated_at = now() WHERE id = $1 RETURNING *`,
     [id, status]
+  );
+  return rows[0] || null;
+}
+
+export async function getTrendTopicById(id) {
+  const { rows } = await getPool().query(`SELECT * FROM trend_topics WHERE id = $1`, [id]);
+  return rows[0] || null;
+}
+
+// Called by lib/autoProduce.js once a video actually uploads successfully
+// for a topic that came from the Trend Finder queue — closes the loop so
+// the /trends list shows it's already been made into a video, not still
+// sitting there as "approved" forever.
+export async function markTrendTopicProduced(id, videoId) {
+  const { rows } = await getPool().query(
+    `UPDATE trend_topics SET status = 'produced', video_id = $2, updated_at = now() WHERE id = $1 RETURNING *`,
+    [id, videoId]
   );
   return rows[0] || null;
 }
