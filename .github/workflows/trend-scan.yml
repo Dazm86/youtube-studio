@@ -1,0 +1,41 @@
+name: Trend Scan (every 6 hours)
+
+# Mirrors render-worker.yml's existing conventions in this repo: secrets
+# passed via job-level `env:` rather than interpolated into `run:`, to
+# avoid shell/YAML injection.
+#
+# Setup needed (once):
+#   1. Repo Settings -> Secrets and variables -> Actions -> New repository
+#      secret: CRON_SECRET  (same value as the CRON_SECRET set in Render)
+#   2. Repo Settings -> Secrets and variables -> Actions -> Variables tab
+#      -> New repository variable: APP_URL = https://<your-app>.onrender.com
+#      (no trailing slash)
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  trigger-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      APP_URL: ${{ vars.APP_URL }}
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+    steps:
+      - name: Call /api/trends/scan
+        run: |
+          curl -sS -X POST "${APP_URL}/api/trends/scan?secret=${CRON_SECRET}" \
+            -m 280 \
+            -o response.ndjson \
+            -w "\nHTTP %{http_code}\n"
+          echo "---- last progress lines ----"
+          tail -n 5 response.ndjson || true
+
+      - name: Upload scan log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trend-scan-log
+          path: response.ndjson
