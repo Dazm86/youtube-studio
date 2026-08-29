@@ -11,6 +11,7 @@ import { translateCaptions } from "./script/translate.js";
 import { generateChapters } from "./metadata/index.js";
 import { generateCommunityPost } from "./community/index.js";
 import { recordVideo, recordCommunityPost } from "./db/index.js";
+import { logEvent } from "./activityLog.js";
 
 // Download media from URL to local buffer
 async function downloadMedia(url) {
@@ -234,7 +235,7 @@ export async function runPipeline(
 
   const pipelineStartedAt = Date.now();
   try {
-    return await Promise.race([
+    const result = await Promise.race([
       runPipelineCore(
         {
           script, title, description, thumbnailText, tagsRaw, privacyStatus, publishAt,
@@ -250,12 +251,35 @@ export async function runPipeline(
         )
       ),
     ]);
+    // بخشِ گزارش/فعالیت — تنها نقطه‌ای که همه‌ی مسیرها (آپلودِ دستی،
+    // زمان‌بندِ خودکار، auto-produce) از توش رد می‌شن، پس یک لاگِ واحدِ
+    // اینجا کافیه به‌جای تکرار تو هر route. logEvent هیچ‌وقت throw
+    // نمی‌کنه، پس این await هیچ ریسکی به نتیجه‌ی واقعی اضافه نمی‌کنه.
+    logEvent({
+      type: "video_uploaded",
+      message: `ویدیوی «${title || "(بدون عنوان)"}» با موفقیت آپلود شد (${
+        videoMode === "short" ? "شورت" : "لانگ"
+      })${result.needsReview ? " — نیازمندِ بازبینی" : ""}`,
+      metadata: {
+        videoId: result.videoId,
+        videoMode,
+        title,
+        needsReview: result.needsReview,
+        needsReviewReasons: result.needsReviewReasons,
+      },
+    });
+    return result;
   } catch (err) {
     runLog.stages.totalMs = Date.now() - pipelineStartedAt;
     await notifyWebhook("pipeline_failed", {
       title: title || "(بدون عنوان)",
       error: err.message,
       runLog,
+    });
+    logEvent({
+      type: "video_failed",
+      message: `ساختِ ویدیوی «${title || "(بدون عنوان)"}» شکست خورد: ${err.message}`,
+      metadata: { videoMode, title, error: err.message },
     });
     throw err;
   }

@@ -5,6 +5,7 @@ import { google } from "googleapis";
 import { Readable } from "stream";
 import { getRetentionCurve, findBestRetentionWindow } from "@/lib/repurpose";
 import { recordRepurposedShort } from "@/lib/db";
+import { logEvent } from "@/lib/activityLog.js";
 import fsp from "fs/promises";
 import os from "os";
 import path from "path";
@@ -121,6 +122,11 @@ export async function POST(req) {
         endSec,
         retentionSource,
       });
+      logEvent({
+        type: "repurpose_completed",
+        message: `یک شورت از ویدیویِ منبع ساخته شد (برای دانلود/آپلودِ دستی)`,
+        metadata: { sourceVideoId, startSec: Math.round(startSec), endSec: Math.round(endSec), autoUpload: false },
+      });
       return new Response(shortBuffer, {
         headers: {
           "Content-Type": "video/mp4",
@@ -156,6 +162,11 @@ export async function POST(req) {
       startSec,
       endSec,
       retentionSource,
+    });
+    logEvent({
+      type: "video_uploaded",
+      message: `یک شورتِ بازتولیدشده از ویدیوی منبع آپلود شد`,
+      metadata: { videoId: shortVideoId, sourceVideoId, viaRepurpose: true },
     });
 
     return NextResponse.json({

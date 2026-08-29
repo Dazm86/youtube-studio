@@ -12,6 +12,7 @@
 import { collectInitialCandidates, enrichCandidatesWithDeepSignals } from './candidates.js';
 import { analyzeTopics } from './analyzer.js';
 import { ensureTrendsSchema, createScanRow, finishScanRow, saveTrendTopics } from './db.js';
+import { logEvent } from '../activityLog.js';
 
 const MIN_SCORE = Number(process.env.TREND_MIN_SCORE || 75);
 const TOP_N = Number(process.env.TREND_TOP_N || 20);
@@ -60,6 +61,12 @@ export async function runTrendScan({ emit = () => {} } = {}) {
       candidatesConsidered: scored.length,
     });
 
+    logEvent({
+      type: 'trend_scan_completed',
+      message: `اسکنِ ترند انجام شد — از ${scored.length} کاندید، ${qualifying.length} موضوع واجدِ شرایط پیدا شد`,
+      metadata: { scanId, candidatesConsidered: scored.length, topicsFound: qualifying.length },
+    });
+
     emit({
       stage: 'done',
       scanId,
@@ -72,6 +79,7 @@ export async function runTrendScan({ emit = () => {} } = {}) {
   } catch (err) {
     const message = String(err?.message || err);
     await finishScanRow(scanId, { status: 'failed', error: message }).catch(() => {});
+    logEvent({ type: 'trend_scan_failed', message: `اسکنِ ترند شکست خورد: ${message}`, metadata: { scanId, error: message } });
     emit({ stage: 'error', message });
     throw err;
   }

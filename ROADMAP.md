@@ -371,6 +371,47 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-29 (later same day) — New: site-wide activity log (`/activity`)
+User asked for a report/log section that says when any video uploads, and reports "everything that
+happens on the site." Built as a new `lib/activityLog.js` (own small `pg` pool, same pattern as
+`lib/trends/db.js`, one table: `activity_log`). The one non-obvious design point: `logEvent()` must
+NEVER throw or reject, since it's called from inside critical paths (right after a real YouTube
+upload succeeds) — a logging hiccup must never make an otherwise-successful upload look like it
+failed. Verified this directly, not just by inspection: built a fake `pg` module that always
+throws (simulating a fully unreachable DB) and confirmed `logEvent()` neither throws when awaited
+nor produces an unhandled rejection when used fire-and-forget (its actual usage pattern
+everywhere it's called). Also verified the real insert/select SQL logic (ordering, type
+filtering, metadata JSON round-tripping) against a working fake DB.
+
+Instrumented every real "thing that happens" currently in the app:
+- `lib/pipeline.js`'s `runPipeline()` wrapper — the single choke-point every in-process video
+  goes through (manual generate-and-upload, scheduled runs, auto-produce all call this same
+  function), so one pair of log calls here (success/failure) covers all three without touching
+  each route separately.
+- `api/jobs/callback/route.js` — the worker-dispatch completion path is a genuinely separate
+  execution (render happens on the GitHub Actions runner, not in this process), so it needed its
+  own log calls; `pipeline.js`'s never fire for that path.
+- `lib/trends/index.js: runTrendScan()` — scan completed/failed.
+- `api/scheduler/run/route.js` — logs when a schedule actually *triggers* (distinct from the
+  eventual upload success/failure `pipeline.js` already logs — this one tells you the automation
+  fired at all, even before knowing the outcome).
+- `api/repurpose/route.js` — both the auto-upload case (`video_uploaded`) and the download-only
+  case (`repurpose_completed`).
+- `api/community/route.js` — community post *draft* creation (worded carefully as a draft, since
+  the YouTube API has no real publish endpoint for the Community tab — this project's own existing
+  comment already makes that clear, the log message just doesn't contradict it).
+
+New page `/activity` (`components/activity/ActivityFeed.js`) — icon-per-type feed, type filter
+tabs, 30s auto-refresh, matches the existing design system. New session-gated
+`api/activity/route.js` (GET, optional `type`/`limit` query params). Nav link and home-page card
+added.
+
+Files (new): `lib/activityLog.js`, `app/api/activity/route.js`, `app/activity/page.js`,
+`components/activity/ActivityFeed.js`. Files (modified): `lib/pipeline.js`,
+`app/api/jobs/callback/route.js`, `lib/trends/index.js`, `app/api/scheduler/run/route.js`,
+`app/api/repurpose/route.js`, `app/api/community/route.js`, `components/layout/NavBar.js`,
+`app/page.js`.
+
 ### 2026-08-29 (later same day) — Gemini's channel-growth-strategy review: checked all 6 points against real source, found one major disconnected feature
 User pasted a second Gemini review, this time about growth strategy (thumbnails/titles/CTR, hooks,
 brand cleanup, audio/visual polish, SEO/captions, posting cadence). Went through all 6 points

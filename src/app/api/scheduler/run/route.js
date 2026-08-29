@@ -10,6 +10,7 @@ import {
   finishScheduleRun,
   getRefreshToken,
 } from "@/lib/db";
+import { logEvent } from "@/lib/activityLog.js";
 
 export const dynamic = "force-dynamic";
 
@@ -67,6 +68,11 @@ function isDue(schedule, nowInfo) {
 
 async function runScheduledPipeline(schedule) {
   const runId = await startScheduleRun(schedule.id);
+  logEvent({
+    type: "schedule_triggered",
+    message: `زمان‌بندیِ خودکار اجرا شد (${schedule.video_mode === "short" ? "شورت" : "لانگ"})`,
+    metadata: { scheduleId: schedule.id, runId, videoMode: schedule.video_mode },
+  });
   const selfPingUrl = process.env.NEXTAUTH_URL;
   const selfPing = selfPingUrl
     ? setInterval(() => {

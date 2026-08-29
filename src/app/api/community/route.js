@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth/authOptions";
 import { getVideoByVideoId, recordCommunityPost, getCommunityPostsForVideo } from "@/lib/db";
+import { logEvent } from "@/lib/activityLog.js";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -41,6 +42,11 @@ export async function POST(req) {
     const generateCommunityPost = await getGenerateCommunityPost();
     const draft = await generateCommunityPost({ title, script });
     const saved = await recordCommunityPost({ videoId, ...draft });
+    logEvent({
+      type: "community_post_created",
+      message: `پیش‌نویسِ پستِ کامیونیتی برای «${title}» ساخته شد`,
+      metadata: { videoId, postId: saved.id },
+    });
 
     return NextResponse.json({
       ...draft,

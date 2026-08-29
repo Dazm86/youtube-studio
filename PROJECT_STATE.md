@@ -152,6 +152,9 @@ source. One pipeline implementation, three ways to trigger it.
 - `ai-studio/page.js` — renders `AIStudio`
 - `trends/page.js` *(new, 2026-08-27)* — renders `TrendFinder`; the 6-hourly
   scored-topic queue described under "Trend Finder" below
+- `activity/page.js` *(new, 2026-08-29)* — renders `ActivityFeed`; a
+  site-wide event log (uploads, trend scans, scheduled runs, repurpose,
+  community-post drafts) described under "Activity log" below
 
 ### API routes (`src/app/api/`)
 - `generate-script/route.js` — wraps `lib/script/index.js: generateScript()`
@@ -213,6 +216,8 @@ source. One pipeline implementation, three ways to trigger it.
   (filterable by `status`/`minScore`) + the latest `trend_scans` row
 - **`trends/[id]/route.js`** *(new, 2026-08-27)* — PATCH: session-gated
   approve/reject/reset on one trend topic
+- **`activity/route.js`** *(new, 2026-08-29)* — GET, session-gated:
+  recent rows from `activity_log` (optional `type`/`limit` query params)
 - **`auto-produce/route.js`** *(new, 2026-08-28)* — session-gated,
   NDJSON-streaming, mirrors `generate-and-upload/route.js`'s heartbeat/
   self-ping/worker-dispatch pattern exactly. The "🚀 ساخت کاملاً خودکار"
@@ -310,7 +315,16 @@ source. One pipeline implementation, three ways to trigger it.
   empty for `generateScript()` to pick freely; then script + metadata)
   and `autoProduceVideo()` (adds `runPipeline()` + marks the trend topic
   `produced` on success) — the "🚀 ساخت کاملاً خودکار" button's backend
-- `auth/authOptions.js` — NextAuth config, `refreshAccessToken()`,
+- `auth/authOptions.js`
+- **`activityLog.js`** *(new, 2026-08-29)* — `logEvent()` (never
+  throws — safe to call fire-and-forget from any critical path, verified
+  against a simulated fully-unreachable DB) + `listRecentEvents()`. Own
+  small `pg` pool, same reasoning as `trends/db.js`. Called from
+  `pipeline.js` (video upload success/failure — the one choke-point every
+  in-process caller shares), `api/jobs/callback` (worker-dispatch
+  completion, a separate path), `trends/index.js` (scan done/failed),
+  `api/scheduler/run` (schedule triggered), `api/repurpose`,
+  `api/community`. — NextAuth config, `refreshAccessToken()`,
   persists `refresh_token` to DB on sign-in
 - `utils/channelHistory.js` — `getRecentVideoTitles()` (so scripts don't
   repeat topics)
@@ -467,6 +481,7 @@ auto-flip to `produced` on that path (see Known issues).
 | `worker_jobs` | `job_id` (PK, text), `job_type`, `status`, `input`/`result` (jsonb), `error`, `created_at`/`updated_at` |
 | `trend_scans` *(new, 2026-08-27)* | `started_at`/`finished_at`, `status`, `topics_found`, `candidates_considered`, `error` — one row per 6-hourly (or manual) scan run |
 | `trend_topics` *(new, 2026-08-27)* | `scan_id` FK, `topic`, `angle`, `suggested_format`, six `score_*` columns + `score_total`, `reasoning`, `source_signals` (jsonb — raw Trends/Reddit/News/YouTube data kept for audit), `status` (`pending`/`approved`/`rejected`/`produced`), `video_id` |
+| `activity_log` *(new, 2026-08-29)* | `type`, `message` (Persian, display-ready), `metadata` (jsonb), `created_at` — one row per site event (video upload/failure, trend scan, schedule trigger, repurpose, community-post draft); own small `pg` pool in `lib/activityLog.js` |
 
 ## Environment variables
 

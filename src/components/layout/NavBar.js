@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { href: "/short", label: "ویدیوی شورت" },
   { href: "/ai-studio", label: "🎨 AI Studio" },
   { href: "/trends", label: "📈 یافتن ترند" },
+  { href: "/activity", label: "📋 گزارش فعالیت" },
   { href: "/providers", label: "🔌 ارائه‌دهنده‌های API" },
   { href: "/api-check", label: "بررسی API ها" },
   { href: "/analytics", label: "آنالیز کانال" },
