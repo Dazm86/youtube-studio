@@ -257,7 +257,13 @@ source. One pipeline implementation, three ways to trigger it.
   `trimSilenceFromAudio`/`detectLongSilences` (**placeholder no-ops** —
   wired up and called, but never actually detect/trim anything),
   `pickMayaPose` (async-initialized singleton — known race-condition
-  risk on cold start, deliberately left as-is, see Known issues)
+  risk on cold start, deliberately left as-is, see Known issues),
+  `pickBgmPath` (mood-based background-music track picker, reuses
+  `pickMayaPose`'s mood detection; wired into `pipeline.js`'s render
+  call 2026-08-29 — was fully built and exported but never called
+  anywhere, so BGM was silently off; graceful no-op today since
+  `public/audio/bgm/` has no mp3 files yet — activates automatically
+  once files matching its naming scheme are added there)
 - `rendering/mayaThumbnail.js` — `buildMayaThumbnail()`/
   `buildMayaThumbnailVariants()` (Maya + blurred background photo +
   title text via `sharp`), mood-based pose picker,

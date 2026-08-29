@@ -20,7 +20,19 @@ const POSE_KEYWORDS = {
   thinking: ["wonder", "think", "why", "question", "curious", "ponder", "consider"],
   meditating: ["peace", "calm", "meditation", "meditate", "breathe", "breath", "relax", "stillness", "quiet"],
   caring: ["love", "grateful", "gratitude", "thank", "heart", "care", "kindness", "compassion"],
-  surprised: ["surprising", "shocking", "unbelievable", "wow", "amazed", "astonishing", "incredible"],
+  // ۲۰۲۶-۰۸-۲۹ — طبق بازخوردِ Gemini («چهره‌ی مایا باید ری‌اکشن/احساس
+  // داشته باشه: تعجب، استرس یا آرامش»): استرس/اضطراب یکی از پرتکرارترین
+  // موضوعاتِ این کاناله، ولی قبلاً هیچ کلیدواژه‌ای براش نبود — یعنی این
+  // ویدیوها همیشه به پوزِ پیش‌فرضِ عمومی (greeting/confident) می‌فتادن،
+  // نه یک حالتِ متناسب با موضوع. تا وقتی یک عکسِ ژستِ مخصوصِ «استرس/
+  // نگرانی» واقعاً اضافه بشه، نزدیک‌ترین ژستِ بصریِ موجود بهش surprised
+  // (شوکه/بهت‌زده) هست — امن‌تر از ساختنِ یک pose تازه که فایلِ عکسش
+  // وجود نداره.
+  surprised: [
+    "surprising", "shocking", "unbelievable", "wow", "amazed", "astonishing", "incredible",
+    "stress", "stressed", "anxiety", "anxious", "overwhelm", "overwhelmed", "overwhelming",
+    "panic", "worried", "worry", "burnout", "burnt out",
+  ],
   teaching: ["learn", "how to", "guide", "explain", "steps", "lesson", "teach", "tips", "tutorial"],
   confident: ["achieve", "strong", "confident", "success", "believe", "power", "you can", "overcome", "unstoppable"],
 };

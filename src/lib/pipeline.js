@@ -21,9 +21,15 @@ async function downloadMedia(url) {
 
 // Dynamic imports for rendering functions to avoid build-time issues on unsupported platforms
 async function getRendering() {
-  const { renderVideo, probeDurationSec, estimateAudioDurationSec, trimSilenceFromAudio, detectLongSilences } =
-    await import("./rendering/index.js");
-  return { renderVideo, probeDurationSec, estimateAudioDurationSec, trimSilenceFromAudio, detectLongSilences };
+  const {
+    renderVideo,
+    probeDurationSec,
+    estimateAudioDurationSec,
+    trimSilenceFromAudio,
+    detectLongSilences,
+    pickBgmPath,
+  } = await import("./rendering/index.js");
+  return { renderVideo, probeDurationSec, estimateAudioDurationSec, trimSilenceFromAudio, detectLongSilences, pickBgmPath };
 }
 
 async function getMayaThumbnail() {
@@ -488,7 +494,16 @@ async function runPipelineCore(
       loop: item.loop,
     }));
 
-    const { probeDurationSec } = await getRendering();
+    const { probeDurationSec, pickBgmPath } = await getRendering();
+
+    // فیکسِ ۲۰۲۶-۰۸-۲۹ — pickBgmPath (انتخابِ موزیکِ زمینه بر اساسِ موودِ
+    // اسکریپت) از «فاز ۳» کاملاً ساخته و export شده بود، ولی هیچ‌جا صدا
+    // زده نمی‌شد؛ اینجا همیشه null هاردکد بود، یعنی کلِ سیستمِ BGM از اول
+    // خاموش بود. اگه فایل‌های صوتیِ واقعی تو public/audio/bgm/ نباشن،
+    // pickBgmPath خودش به‌صورتِ امن null برمی‌گردونه (renderVideo هم قبلاً
+    // دقیقاً همین حالت رو مدیریت می‌کرد) — یعنی این فیکس هیچ رندری رو
+    // نمی‌شکنه، فقط وقتی فایل باشه واقعاً استفاده‌اش می‌کنه.
+    const bgmPath = await pickBgmPath(script);
 
     // Convert durations (array of segment durations) to cumulative startSec/endSec
     let cursor = 0;
@@ -510,7 +525,7 @@ async function runPipelineCore(
         fps: 30,
         fontPath: path.join(process.cwd(), "public", "fonts", "DejaVuSans-Bold.ttf"),
         fontSize: videoMode === "short" ? 44 : 48,
-        bgmPath: null,
+        bgmPath,
         bgmVolume: 0.12,
       },
     });

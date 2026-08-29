@@ -371,6 +371,64 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-29 (later same day) — Gemini's channel-growth-strategy review: checked all 6 points against real source, found one major disconnected feature
+User pasted a second Gemini review, this time about growth strategy (thumbnails/titles/CTR, hooks,
+brand cleanup, audio/visual polish, SEO/captions, posting cadence). Went through all 6 points
+against the actual code rather than assuming any needed work.
+
+**Biggest finding: BGM (background music) was fully built and exported, but never called.**
+`lib/rendering/index.js: pickBgmPath()` — a complete, mood-based BGM track picker ("فاز ۳" per its
+own header comment) with graceful degradation (returns `null`, never throws, if the mp3 files
+aren't present in `public/audio/bgm/` yet) — existed and was exported, but `lib/pipeline.js` had
+`bgmPath: null` hardcoded at its one call site and never imported or called `pickBgmPath` at all.
+The entire feature was dead code from the caller's side. Wired it in: `getRendering()` now also
+returns `pickBgmPath`, and the render call uses `await pickBgmPath(script)` instead of the
+hardcoded `null`. Verified with real tests (extracted the actual function, not a rewrite): with no
+files in `public/audio/bgm/` (today's real state) it returns `null` exactly like before — this
+fix is a no-op until BGM mp3 files actually exist there, then it activates automatically. Also
+verified correct mood-matched file selection once matching files are added. **User still needs
+to add actual royalty-free mp3s to `public/audio/bgm/`** (see the file's own naming scheme:
+`calm.mp3`/`calm-2.mp3`/`calm-3.mp3`, `reflective.mp3`, `hopeful.mp3`, `uplifting.mp3`, one or
+more per mood) — this fix only reconnects the plumbing, it can't invent the actual audio files.
+
+**Points already covered by existing prompts/code — no action needed, verified not just assumed:**
+- Pain-point titles + curiosity-gap thumbnail text distinct from the title: already strictly
+  required in `lib/metadata/index.js`'s prompt (which explicitly forbids vague/poetic titles like
+  "Memory Echoes" — the exact style of title Gemini's example criticized, suggesting the reviewed
+  video predates this rule or the model didn't fully comply that one time).
+- Auto-contrast thumbnail text color, mood-based Maya pose/expression, two distinct A/B color
+  grades: already in `mayaThumbnail.js`.
+- Multi-language captions, Spanish and Persian specifically included: already 5 languages
+  (`pipeline.js: CAPTION_LANGUAGES` — es/pt/ar/hi/fa).
+- Keyword-led description opening + 10-15 SEO tags: already required in the metadata prompt.
+- Short-form hook strength: already addressed by yesterday's script-prompt pass.
+
+**Gaps found and fixed in `lib/script/index.js`/`mayaThumbnail.js`:**
+- Long-form videos had no instruction to preview what the viewer will get early — the structure
+  went straight from hook into a root-cause deep-dive, with actionable steps not arriving until
+  section 4 of 4. Added: within the first 30-45 seconds, briefly state what the viewer will walk
+  away with, before going deep — without flattening the existing depth-first structure.
+- Stress/anxiety/burnout — a core topic for this channel — had zero keyword coverage in
+  `POSE_KEYWORDS`, so those videos always fell through to a generic default pose/BGM mood instead
+  of one matching the topic. Mapped to the existing `surprised` pose (closest available visual
+  proxy to shock/distress) rather than inventing a new pose needing an asset that doesn't exist.
+  This also improves BGM mood-matching for the same videos, now that BGM is wired up.
+- Added a punctuation-based pacing note (commas/em dashes/ellipses for natural spoken rhythm) as
+  the TTS-emotion improvement Gemini asked for — SSML pause tags were deliberately NOT used since
+  msedge-tts doesn't reliably support SSML (documented constraint), so this is the provider-
+  agnostic version of the same idea.
+
+**Not code changes — flagged back to the user rather than built:**
+- Unlisting/privating old inconsistent shorts featuring real people: a content-library judgment
+  call on existing uploads, not something to automate unilaterally.
+- Actually adding the BGM mp3 files themselves (plumbing is fixed, files are not code).
+- Posting cadence (2 long/week + 1 short/day): the existing `/schedule` feature already supports
+  this — it's a configuration the user sets, not a new feature to build.
+- ElevenLabs-specific emotion/pitch settings: only applicable if ElevenLabs is actually the
+  configured "audio" provider on `/providers` — not assumed either way.
+
+Files: `lib/pipeline.js`, `lib/rendering/mayaThumbnail.js`, `lib/script/index.js`.
+
 ### 2026-08-29 — Real root cause of the mid-sentence cutoff bug (from Gemini's review of an actual video), + two script-prompt calibrations
 User pasted Gemini's review of a video the new auto-produce pipeline made. Investigated all 4
 points against the real source rather than accepting the framing at face value.
