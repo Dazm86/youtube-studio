@@ -30,9 +30,16 @@ An automated YouTube content pipeline for **The Mindful Path** — a
 mindfulness/personal-growth channel hosted by an animated character
 named Maya. One person runs the whole channel through this app: pick a
 topic (or let AI pick one), AI writes the script, AI generates voice +
-matching stock footage + animated Maya overlays, the server renders the
-final video, uploads straight to YouTube with an AI-suggested title/
-description/tags, a custom thumbnail, and subtitles in 5 languages.
+matching stock footage, the server renders the final video, uploads
+straight to YouTube with an AI-suggested title/description/tags, a
+custom Maya thumbnail, and subtitles in 5 languages. Maya herself only
+appears on the thumbnail (`rendering/mayaThumbnail.js`) — the video body
+is 100% stock Pexels footage matched to script keywords; there is no
+Maya compositing inside the actual video frames (corrected 2026-08-29 —
+this summary previously and inaccurately said "animated Maya overlays"
+as if she appeared in-video; `pickMayaPose()` is reused during media
+search purely to bias which stock-footage mood to look for, which is
+where that confusion came from).
 Also includes a standalone AI Studio (text/image/video/audio generation
 tools, independent of the video pipeline), automatic scheduling, A/B
 title testing, Community-tab post drafts, and long→short repurposing.
@@ -236,8 +243,17 @@ source. One pipeline implementation, three ways to trigger it.
 - `analytics/index.js` — `fetchStatsForVideos()`
 - `repurpose/index.js` — `getRetentionCurve()`, `findBestRetentionWindow()`
 - `rendering/index.js` — `renderVideo()` (main FFmpeg pipeline, one
-  segment at a time), `renderVerticalShortFromSource()` (used only by
-  `/api/repurpose`), `probeDurationSec`, `estimateAudioDurationSec`,
+  segment at a time; uses `-shortest`, so the shorter of its video/audio
+  streams determines final output length), `renderVerticalShortFromSource()`
+  (used only by `/api/repurpose`), `probeDurationSec` (ffmpeg-based,
+  video files), `estimateAudioDurationSec` (fixed 2026-08-29 — the
+  Buffer branch used to guess duration from file size assuming a fixed
+  128kbps bitrate, which was wrong whenever the real TTS bitrate
+  differed and, combined with `-shortest` above, could truncate the
+  actual rendered audio; now measures the real buffer via `ffmpeg -i`
+  + stderr parsing, since `@ffmpeg-installer/ffmpeg` doesn't guarantee a
+  separate `ffprobe` binary; falls back to the old file-size guess only
+  if that parse fails),
   `trimSilenceFromAudio`/`detectLongSilences` (**placeholder no-ops** —
   wired up and called, but never actually detect/trim anything),
   `pickMayaPose` (async-initialized singleton — known race-condition

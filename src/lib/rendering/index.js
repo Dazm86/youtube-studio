@@ -567,16 +567,55 @@ async function probeDurationSec(filePath) {
   return parseFloat(stdout.toString().trim()) || 0;
 }
 
-// ---------- estimateAudioDurationSec (heuristic) ----------
-
-function estimateAudioDurationSec(input, wpm = 150) {
-  // Accept either text string or Buffer
+// ---------- estimateAudioDurationSec ----------
+//
+// فیکسِ ۲۰۲۶-۰۸-۲۹ — طبق نقدِ Gemini رو یه ویدیوی واقعی که ثانیه‌ی ۲۲ وسطِ
+// جمله قطع شده بود: مسیرِ Buffer قبلاً فرض می‌کرد صدا همیشه دقیقاً
+// 128kbps هست (`input.length / 16000`) و طولش رو صرفاً از رویِ حجمِ
+// فایل حدس می‌زد — بدونِ اینکه واقعاً به خودِ صدا نگاه کنه. اگه bitrate
+// واقعیِ msedge-tts با این فرض یکی نبود (که هست — TTSهای غیررسمی معمولاً
+// bitrate صدا رو مستند نمی‌کنن)، این تخمین اشتباه می‌شد. این
+// audioDurationSec غلط مستقیماً کلِ تایمینگِ رندر رو می‌سازه
+// (distributeDurations, mediaCount, caption/chapter sync)، و چون رندرِ
+// نهایی از `-shortest` استفاده می‌کنه (videoRender.js)، یک تخمینِ کمتر
+// از واقعیت باعث می‌شه کلِ خروجی — صدا هم همراهش — دقیقاً همون‌جا قطع
+// بشه، وسطِ جمله، بدونِ هیچ خطا یا هشداری.
+// الان به‌جای حدس زدن، واقعاً با ffprobe از خودِ بافرِ صدا اندازه گرفته
+// می‌شه — دقیقاً همون ابزاری که probeDurationSec پایین‌تر رویِ ویدیوی
+// نهایی استفاده می‌کنه، فقط این‌جا رویِ فایلِ صوتیِ موقت.
+// ورودیِ متنی (رشته) دست‌نخورده موند — برای تخمینِ سبک و پیش از TTS
+// (وقتی هنوز صدایی برای probe کردن وجود نداره) هنوز معتبره.
+async function estimateAudioDurationSec(input, wpm = 150) {
   if (Buffer.isBuffer(input)) {
-    // If Buffer, we need to estimate duration from file size (rough approximation)
-    // 128kbps MP3 = ~16KB/sec, so duration = bufferSize / 16000
-    return input.length / 16000;
+    const tmpPath = path.join(os.tmpdir(), `audio-probe-${Date.now()}-${Math.random().toString(36).slice(2)}.mp3`);
+    try {
+      await fsp.writeFile(tmpPath, input);
+      // به‌جای فرض کردنِ یک باینریِ ffprobeِ جداگانه (که @ffmpeg-installer/
+      // ffmpeg تضمینش نمی‌کنه، فقط خودِ ffmpeg رو نصب می‌کنه)، از خودِ
+      // ffmpeg استفاده می‌کنیم: `ffmpeg -i <file>` بدونِ هیچ خروجی‌ای،
+      // exit code غیرصفر می‌ده (طبیعیه، منتظرِ خروجی بوده) ولی طولِ فایل
+      // رو تو stderr به‌صورتِ «Duration: HH:MM:SS.ss» چاپ می‌کنه — یک
+      // روشِ استاندارد و همیشه در دسترس، چون فقط به همون باینریِ ffmpeg
+      // نیاز داره که کلِ این پروژه از قبل بهش متکیه.
+      const { stderr } = await import("child_process").then((cp) =>
+        cp.spawnSync(ffmpegPath, ["-i", tmpPath], { encoding: "utf8" })
+      );
+      const match = (stderr || "").match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);
+      if (match) {
+        const [, hh, mm, ss] = match;
+        const probed = Number(hh) * 3600 + Number(mm) * 60 + Number(ss);
+        if (probed > 0) return probed;
+      }
+      console.warn("estimateAudioDurationSec: ffmpeg -i طولِ فایل رو تو stderr نداد، برگشت به تخمینِ حجمِ فایل (غیرقابل‌اعتماد)");
+      return input.length / 16000;
+    } catch (err) {
+      console.warn("estimateAudioDurationSec: probe کردنِ صدا شکست خورد، برگشت به تخمینِ حجمِ فایل:", err.message);
+      return input.length / 16000;
+    } finally {
+      await fsp.rm(tmpPath, { force: true }).catch(() => {});
+    }
   }
-  // String text
+  // String text — لازم نیست probe بشه، برای تخمینِ سبکِ پیش‌از-TTS خوبه
   const words = input.trim().split(/\s+/).filter(Boolean).length;
   return (words / wpm) * 60;
 }

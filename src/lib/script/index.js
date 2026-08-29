@@ -78,6 +78,8 @@ Requirements:
 - Plain spoken English text only. No titles, no headers, no stage directions, no markdown, no emojis, no beat labels like "Hook:" or "Insight:" — just the flowing narration itself.
 - Written in first person as Maya.
 - The very first sentence must be a strong hook: a surprising statement, a relatable "you've probably felt this" moment, or a direct question — something that makes someone stop scrolling in the first 3 seconds. Do not start with a slow or generic opener like "I want to share something with you."
+- Whatever the hook promises, the Insight section must concretely deliver it. If the hook implies an answer, a method, or a fix, state that specific thing plainly somewhere in the middle — not just related musing around it. A viewer should be able to say, in one plain sentence, exactly what they learned or walked away with; if they can't, the script hasn't actually delivered on its own opening.
+- Match the emotional weight of the delivery to the actual size of the idea. A small, simple, practical insight should sound warm and clear, not epic or heavy — save the bigger emotional swings (the "this changes everything" register) for ideas that genuinely earn it. Overplaying a small point reads as forced, not inspiring.
 - Introduce something new roughly every 20-30 seconds of spoken time — a new question, a real example, an impactful line, or a clear beat change — so the script never idles on one point too long.
 - Never use standalone generic motivational clichés ("just believe in yourself", "never give up", "you can do anything") without a story, reason, or concrete example behind them.
 - Do not repeat the same idea twice.

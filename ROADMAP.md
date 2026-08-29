@@ -371,6 +371,57 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-29 — Real root cause of the mid-sentence cutoff bug (from Gemini's review of an actual video), + two script-prompt calibrations
+User pasted Gemini's review of a video the new auto-produce pipeline made. Investigated all 4
+points against the real source rather than accepting the framing at face value.
+
+**Point 3 (cut off mid-sentence at 22s) — genuinely the most important one, and NOT a prompt/
+word-limit issue.** Traced it to `lib/rendering/index.js: estimateAudioDurationSec()`. For a real
+audio Buffer, it estimated duration as `buffer.length / 16000` — i.e. it assumed the TTS audio is
+always encoded at exactly 128kbps and guessed duration from file size alone, never actually
+looking at the audio. Proved this is wrong, concretely: generated a real 7.3-second audio file at
+32kbps (a bitrate speech-only TTS output plausibly uses) and the old formula estimated **1.85
+seconds** — a 4x error. This `audioDurationSec` value drives the ENTIRE render timeline
+(`distributeDurations`, media count, caption/chapter sync), and the final render uses `-shortest`
+(`videoRender.js`) — so an underestimate doesn't just mistime captions, it truncates the actual
+output (audio included) at that wrong, early point. This is a precise mechanical match for "cuts
+off mid-sentence at 22s": if the true bitrate isn't 128kbps, the estimate runs short, and
+`-shortest` chops the real audio there.
+Fixed by replacing the file-size guess with an actual measurement: writes the buffer to a temp
+file and runs `ffmpeg -i <file>` (not a separate `ffprobe` binary, which `@ffmpeg-installer/
+ffmpeg` doesn't guarantee is installed alongside `ffmpeg` — this only depends on the `ffmpeg`
+binary the whole project already relies on), parsing the `Duration: HH:MM:SS.ss` line ffmpeg
+prints to stderr even with no output file specified. Falls back to the old file-size guess (with a
+warning) only if that parse fails, so a single bad probe can't crash the pipeline. Verified against
+the real function (not a re-typed copy) with a real 7.3s/32kbps file: correctly measured 7.34s.
+Also verified the untouched string-input branch and the failure-fallback path both still behave
+correctly. Also added the missing symmetric case to `needsReviewReasons` in `pipeline.js` — there
+was already a check for a short being abnormally *long* (>90s) but none for abnormally *short*
+(now: <15s flagged), which is exactly the class of problem that let this go unnoticed. This is a
+safety net on top of the real fix, not a replacement for it — `needsReview` is informational only
+(doesn't block upload; the auto-produce path's own `privacyStatus: "private"` default is what
+actually protects an unattended run).
+
+**Points 2 (catchy hook, no delivered payoff) and 4 (tone too epic for a small idea) — real
+prompt gaps, addressed in `lib/script/index.js`'s Requirements list.** Added: whatever the hook
+promises, the Insight section must concretely deliver it (a viewer should be able to state in one
+sentence what they walked away with); and emotional weight should match the actual size of the
+idea — small insights should sound warm and clear, not epic, saving bigger swings for ideas that
+earn them.
+
+**Point 1 (no consistent visual anchor / random stock footage of bees, ships, cars) — Gemini's
+suggested fix ("add a prompt for a permanent cartoon host") isn't actually a prompt change.**
+Maya already exists as a character (`rendering/mayaThumbnail.js: pickMayaPose()` +
+`buildMayaThumbnail()`), but only for the static YouTube thumbnail — she never appears inside the
+video body itself, which is 100% stock Pexels B-roll matched to script keywords. Two genuinely
+different-sized fixes are possible here (a small persistent overlay using Maya's existing pose
+images vs. a full animated/talking on-screen host, which needs new video assets or a talking-
+avatar generation service this project doesn't have yet) — raised with the user as a scoping
+question rather than picked unilaterally, since the two options differ by roughly an order of
+magnitude in effort and the second needs a real product decision, not just a code change.
+
+Files: `lib/rendering/index.js`, `lib/pipeline.js`, `lib/script/index.js`.
+
 ### 2026-08-28 (later same day) — Real upload failure, from an actual worker run: empty-title bug in generateMetadata()
 User pasted the GitHub Actions log from a real `render_video` job (#32). Script generation, media,
 and a full 2m37s render all succeeded, then the upload step failed: `The request metadata specifies

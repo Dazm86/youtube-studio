@@ -580,6 +580,13 @@ async function runPipelineCore(
   if (runLog.flags.riskyContent) needsReviewReasons.push("کلیدواژه‌ی حساس/ادعای درمانی");
   if (!isShort && audioDurationSec < 300) needsReviewReasons.push("ویدیوی لانگ غیرعادی کوتاه");
   if (isShort && audioDurationSec > 90) needsReviewReasons.push("Short غیرعادی بلند");
+  // ۲۰۲۶-۰۸-۲۹ — چکِ متقارنِ بالایی، که قبلاً نبود: یک short که به‌طرز
+  // غیرعادی کوتاهه (زیرِ نصفِ حداقلِ هدفِ ۳۰ ثانیه‌ی پرامپت) تقریباً
+  // همیشه یعنی صدا ناقص ساخته شده یا رندر زودتر از موعد بریده — دقیقاً
+  // همون چیزی که estimateAudioDurationSec رو همین امروز فیکس کرد، ولی
+  // این‌جا هم به‌عنوانِ یک شبکه‌ی ایمنیِ اضافه می‌مونه، چون مسیرِ
+  // auto-produce هیچ انسانی رو قبل از آپلود نداره.
+  if (isShort && audioDurationSec < 15) needsReviewReasons.push("Short غیرعادی کوتاه (احتمالِ صدای ناقص)");
 
   emit({ status: "مرحله ۵ از ۵: در حال تنظیم تامبنیل و زیرنویس...", progress: 92 });
 
