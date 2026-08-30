@@ -371,6 +371,54 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-29 (later same day) — Three-checkpoint quality gate (script / voice+media / final video)
+User's own addition to the "10 ideas" batch: check after script is written, check voice+media
+together after both are ready, check the finished video. Reused existing mechanisms wherever one
+already existed, rather than building a parallel system.
+
+**Checkpoint 1 (script) — `lib/script/index.js`.** A rule-based self-check + one-shot
+self-correcting retry already existed here, but only for long-form (word count, sentence-starter
+variety, presence of a concrete example). Extended it to shorts too (previously zero self-checking
+— notably, the exact video with the mid-sentence cutoff was a short). Added a genuinely new
+capability: an AI-judged review call (`jsonMode: true`) checking the two qualitative things
+today's earlier Gemini-review prompt fixes asked the model to do — does the hook actually get
+delivered on, is the tone calibrated to the idea's size — a generator+verifier pattern instead of
+just hoping the model follows its own prompt. Both structural and AI-judged issues feed the SAME
+existing retry mechanism. Verified the JSON-parsing against realistic response shapes (clean,
+markdown-fenced, prose-prefixed, garbage) — malformed responses are caught and skipped, never
+crash script generation. Persistent issues (after the one retry) are logged via `logEvent()`
+(today's activity-log feature) rather than blocking — matches this codebase's established
+warn-don't-block philosophy.
+
+**Checkpoint 2 (voice + media together) — `lib/pipeline.js`, right after both are ready, before
+render.** Two new checks, both feeding the existing `needsReviewReasons` array (moved its
+declaration earlier so checkpoints 2 and 3 can both write to it): (a) audio duration compared
+against a *script-length-implied* expected duration (~2.5 words/sec), not an absolute threshold —
+more precise than an absolute-seconds check since it scales with the actual script. Verified with
+real numbers including the exact reported bug's ratio (~22s actual vs ~44s expected): initially
+used a 50% threshold, which landed exactly on that scenario's boundary and could miss it on strict
+inequality — loosened to 60% after catching this in testing, confirmed it now flags the real bug
+scenario without over-flagging a normal-paced short. (b) media download failure ratio — flags when
+>40% of images/clips failed to download (meaning a lot of repeated fallback images in the final
+video).
+
+**Checkpoint 3 (finished video) — `lib/pipeline.js`, right after the real render completes.**
+Compares the actual rendered output's real duration (already ffprobe-measured via
+`probeDurationSec`, used for reporting) against the audio duration — flags a >15% mismatch. This
+is independent of today's earlier `estimateAudioDurationSec` fix — that fixed the *measurement*;
+this catches a *render-level* truncation even if measurement is accurate (e.g. a future
+`distributeDurations` bug), so it's a genuinely separate safety net, not a duplicate of the
+earlier fix.
+
+All three checkpoints are flagging-only (append to `needsReviewReasons`, surfaced via the
+`video_uploaded` activity-log message's metadata), not blocking — consistent with how
+`needsReviewReasons` already worked before today. Caught one real bug in my own first draft while
+writing this: the script-review edit accidentally dropped the function's closing brace and
+`return { script }` statement — caught immediately by the routine full-syntax-check pass, not
+shipped.
+
+Files: `lib/script/index.js`, `lib/pipeline.js`.
+
 ### 2026-08-29 (later same day) — New: site-wide activity log (`/activity`)
 User asked for a report/log section that says when any video uploads, and reports "everything that
 happens on the site." Built as a new `lib/activityLog.js` (own small `pg` pool, same pattern as

@@ -377,6 +377,15 @@ async function runPipelineCore(
   // --- ۲. تقسیم اسکریپت به بخش‌های زمان‌بندی‌شده + گرفتن عکس/کلیپ مخصوص هر بخش ---
   const isShort = videoMode === "short";
   const audioDurationSec = await estimateAudioDuration(audioBuffer);
+
+  // ۲۰۲۶-۰۸-۲۹ — قبلاً این آرایه پایین‌تر (نزدیکِ انتها) تعریف می‌شد؛
+  // زودتر آورده شد تا «چک‌پوینتِ ۲» (بعد از آماده‌شدنِ صدا+رسانه، قبل از
+  // رندر) و «چک‌پوینتِ ۳» (بعد از رندرِ واقعی) هم بتونن همین یک آرایه‌ی
+  // مشترک رو پر کنن — بدونِ نیاز به یک مکانیزمِ جدا. چک‌های قبلی
+  // (audioDurationSec، کلیدواژه‌ی حساس، تامبنیل، زیرنویس) دست‌نخورده
+  // پایین‌تر موندن، فقط جای تعریفِ آرایه عوض شد.
+  const needsReviewReasons = [];
+
   if (!isShort && audioDurationSec < 480) {
     // هدفِ پرامپتِ اسکریپت (scriptGen.js) رد شدن از ۸ دقیقه‌ست، چون زیرِ
     // این آستانه یوتیوب اجازه‌ی چند تبلیغِ میان‌ویدیو نمی‌ده — این فقط یک
@@ -509,6 +518,42 @@ async function runPipelineCore(
     return successfulItems[i % successfulItems.length];
   });
 
+  // ۲۰۲۶-۰۸-۲۹ — چک‌پوینتِ ۲ («بعد از دانلودِ عکس‌ها و ساختِ صدا، هر
+  // دوتا چک بشه»): صدا و رسانه هر دو الان آماده‌ان، قبل از رندر.
+  //
+  // برایِ صدا: به‌جای آستانه‌ی مطلقِ ثابت (که قبلاً همین امروز اضافه شد،
+  // isShort && audioDurationSec < 15)، این‌جا نسبت به طولِ خودِ همین
+  // اسکریپت می‌سنجیم — دقیق‌تره. با ~۲.۵ کلمه‌بر‌ثانیه (سرعتِ معمولِ
+  // روایت) طولِ موردِ انتظار رو تخمین می‌زنیم؛ اگه صدایِ واقعی به‌طرزِ
+  // چشمگیری کمتر از این باشه، تقریباً همیشه یعنی TTS ناقص برگشته
+  // (دقیقاً همون کلاس مشکلی که فیکسِ estimateAudioDurationSec امروز رفعش
+  // کرد، این یک شبکه‌ی ایمنیِ دیگه‌ست، مستقل از اون).
+  const wordsInScript = script.trim().split(/\s+/).filter(Boolean).length;
+  const expectedAudioSec = wordsInScript / 2.5;
+  // آستانه‌ی ۶۰٪ (نه ۵۰٪): تست با اعدادِ نمونه نشون داد یک آستانه‌ی
+  // سفت‌گیرانه‌تر (۵۰٪) دقیقاً رویِ مرزِ سناریویِ واقعیِ گزارش‌شده (۲۲
+  // ثانیه از ۴۴ ثانیه‌ی موردِانتظار) می‌افته و ممکنه به‌خاطرِ نامساوی
+  // اکید رد بشه — چون این چک فقط پرچم می‌زنه (رندر/آپلود رو متوقف
+  // نمی‌کنه)، حساسیتِ بیشتر ارزششو داره.
+  if (expectedAudioSec > 5 && audioDurationSec < expectedAudioSec * 0.6) {
+    needsReviewReasons.push(
+      `صدا به‌طرزِ نامتناسبی کوتاهه (${Math.round(audioDurationSec)} ثانیه برایِ اسکریپتی که باید ~${Math.round(
+        expectedAudioSec
+      )} ثانیه بشه) — احتمالِ TTSِ ناقص`
+    );
+  }
+
+  // برایِ رسانه: اگه بخشِ زیادی از دانلودها شکست خورده باشن، همون چندتا
+  // عکسِ موفق برایِ کلِ ویدیو تکرار می‌شن (رفتارِ fallback بالا) — قابلِ
+  // قبوله برایِ یکی-دوتا شکست، ولی اگه بیشترِ رسانه شکست خورده باشه
+  // ارزشِ بازبینی داره.
+  const failedRatio = mediaItemsWithBuffers.length > 0 ? 1 - successfulItems.length / mediaItemsWithBuffers.length : 0;
+  if (mediaItemsWithBuffers.length > 0 && failedRatio > 0.4) {
+    needsReviewReasons.push(
+      `${Math.round(failedRatio * 100)}٪ از رسانه‌ها دانلود نشدن — عکس‌های تکراری زیاد تو ویدیو دیده می‌شه`
+    );
+  }
+
   try {
     const assets = finalMediaItems.map((item, i) => ({
       type: useVideoClips ? "video" : "image",
@@ -556,6 +601,21 @@ async function runPipelineCore(
 
     videoBuffer = await fsp.readFile(outputPath);
     durationSec = await probeDurationSec(outputPath);
+
+    // ۲۰۲۶-۰۸-۲۹ — چک‌پوینتِ ۳ («بعد از ساختِ کاملِ ویدیو»): طولِ واقعیِ
+    // فایلِ رندرشده (probeDurationSec، دقیق) رو با audioDurationSec
+    // (که خودش امروز دقیق‌تر شد) مقایسه می‌کنیم. این دو تا تئوری باید
+    // خیلی نزدیک باشن؛ یک فاصله‌ی بزرگ یعنی یک مشکلِ سطحِ رندر (نه سطحِ
+    // اندازه‌گیریِ صدا، که فیکسِ زودتر همین امروز حلش کرد) — مثلاً
+    // ناهماهنگیِ distributeDurations با طولِ واقعیِ صدا. شبکه‌ی ایمنیِ
+    // مستقل، نه جایگزینِ اون فیکس.
+    if (audioDurationSec > 5 && Math.abs(durationSec - audioDurationSec) > audioDurationSec * 0.15) {
+      needsReviewReasons.push(
+        `طولِ ویدیویِ رندرشده (${Math.round(durationSec)} ثانیه) با طولِ صدا (${Math.round(
+          audioDurationSec
+        )} ثانیه) هم‌خونی نداره — احتمالِ قطع‌شدنِ ویدیو یا صدا`
+      );
+    }
 
     emit({ status: "ویدیو رندر شد ✅", progress: 80 });
   } finally {
@@ -614,8 +674,9 @@ async function runPipelineCore(
 
   // انحرافاتِ غیرعادی که ارزشِ یک نگاهِ دستی رو دارن، قبل از این‌که
   // خودِ فیلد نهایی بشه جمع می‌کنیم (thumbnailStatus/captionStatus
-  // پایین‌تر هم اضافه می‌شن).
-  const needsReviewReasons = [];
+  // پایین‌تر هم اضافه می‌شن). آرایه خودش بالاتر تعریف شده (کنارِ
+  // audioDurationSec) تا چک‌پوینت‌های ۲ و ۳ هم بتونن قبل از این‌جا توش
+  // بنویسن.
   if (runLog.flags.riskyContent) needsReviewReasons.push("کلیدواژه‌ی حساس/ادعای درمانی");
   if (!isShort && audioDurationSec < 300) needsReviewReasons.push("ویدیوی لانگ غیرعادی کوتاه");
   if (isShort && audioDurationSec > 90) needsReviewReasons.push("Short غیرعادی بلند");

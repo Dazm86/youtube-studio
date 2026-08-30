@@ -1,6 +1,7 @@
 import { getRecentVideoTitles } from "../utils/channelHistory.js";
 import { getTopPerformingVideos } from "../db/index.js";
 import { generateText } from "../providers/router.js";
+import { logEvent } from "../activityLog.js";
 
 // این تابع دقیقاً همون منطقِ api/generate-script/route.js هست، فقط از
 // یک route جدا شده تا هم مسیر تعاملی (کاربر تو UI دکمه می‌زنه) و هم
@@ -124,29 +125,90 @@ Respond with ONLY the narration text itself, nothing else.`;
     );
   }
 
+  const issues = [];
   if (!isShort) {
     const starterShare = startsWithIOrYouShare(script);
     const hasExample = hasConcreteExample(script);
     const tooShort = wordCount() < 1150;
-    const issues = [];
     if (tooShort) issues.push(`طول کافی نیست (فقط ~${wordCount()} کلمه، حداقل ۱۲۰۰+ لازمه)`);
     if (starterShare > 0.6)
       issues.push(`بیش‌ازحد جمله‌ها با "I"/"You" شروع می‌شن (${Math.round(starterShare * 100)}٪) — تنوعِ ساختارِ جمله کمه`);
     if (!hasExample) issues.push("هیچ عدد/مثال/رویدادِ مشخصی نداره — بیش‌ازحد کلی و انتزاعیه");
+  } else {
+    // ۲۰۲۶-۰۸-۲۹ — این چک قبلاً فقط برایِ لانگ بود؛ شورت هیچ self-check
+    // ای نداشت. دقیقاً یک ویدیویِ شورت بود که وسطِ جمله قطع شد (بازخوردِ
+    // Gemini، همون روز فیکس شد در سطحِ اندازه‌گیریِ صدا) — طولِ نامناسبِ
+    // اسکریپت هم می‌تونه به همون کلاس مشکل دامن بزنه، پس این‌جا هم آستانه‌ی
+    // مناسبِ خودش رو گرفت.
+    const wc = wordCount();
+    if (wc < 70) issues.push(`اسکریپتِ شورت خیلی کوتاهه (فقط ~${wc} کلمه، هدف ۹۰-۱۳۰ کلمه‌ست)`);
+    if (wc > 190) issues.push(`اسکریپتِ شورت احتمالاً خیلی بلنده (~${wc} کلمه) — ریسکِ رد شدن از سقفِ Shorts`);
+  }
 
-    if (issues.length > 0) {
-      console.warn(`generateScript: اولین پیش‌نویس مشکل داشت (${issues.join("؛ ")}) — یک تلاشِ دومِ صریح‌تر`);
-      script = await generateText({
-        prompt: `${prompt}\n\nIMPORTANT — your previous draft had these specific problems, fix ALL of them in this rewrite:\n${issues
-          .map((s) => `- ${s}`)
-          .join("\n")}\nThe absolute length requirement is 1200+ words. Vary how sentences start — not every sentence should begin with "I" or "You". Include at least one specific number, concrete example, or real story detail, not just general motivational statements.`,
-        temperature: 1,
-        maxTokens: 3000,
-      });
-      if (wordCount() < 1150) {
-        console.warn(`generateScript: تلاشِ دوم هم کوتاه موند (~${wordCount()} کلمه) — با همین ادامه می‌دیم`);
-      }
+  // ۲۰۲۶-۰۸-۲۹ — چکِ کیفیِ جدید، AI-محور، هم برای شورت هم لانگ: چک‌های
+  // بالا فقط ساختاری‌ان (طول، تنوعِ جمله)؛ این یکی مستقیماً همون قانون‌های
+  // پرامپتِ بالا رو verify می‌کنه — آیا هوکِ ابتدایی واقعاً تو متن ادا
+  // می‌شه؟ آیا وزنِ لحن با اندازه‌ی خودِ ایده هم‌خونیه؟ (دقیقاً همون دو
+  // نکته‌ای که همین امروز، زودتر، طبقِ بازخوردِ Gemini به پرامپت اضافه
+  // شد — این‌جا صرفاً «امیدوار بودن که مدل پرامپتِ خودش رو ۱۰۰٪ دنبال
+  // کنه» رو با یک بازبینیِ واقعی جایگزین می‌کنه، الگویِ classic
+  // «تولیدکننده + بازبین».) هزینه: یک فراخوانیِ AI اضافه به ازایِ هر
+  // اسکریپت — قابلِ توجهه ولی سبک (maxTokens کم، jsonMode).
+  try {
+    const reviewRaw = await generateText({
+      prompt: `Review this ${isShort ? "60-second Shorts" : "long-form"} spoken-narration script against two specific criteria:
+
+1. hookDelivered: the script opens with a hook (a promise, a question, or a surprising claim). Does the rest of the script actually deliver on whatever that opening implies — a concrete answer, method, or payoff the listener can name in one sentence? Or does it just circle around related musing without ever landing on the thing it opened with?
+2. toneAppropriate: does the emotional weight/drama of the writing match how big the actual idea is? A small, simple, practical insight written with epic/heavy language should be marked false.
+
+Script:
+"""
+${script}
+"""
+
+Reply with ONLY a JSON object, no other text:
+{"hookDelivered": true or false, "toneAppropriate": true or false, "issues": ["short specific note in Persian for each problem found, empty array if none"]}`,
+      jsonMode: true,
+      maxTokens: 350,
+      temperature: 0.3,
+    });
+    const parsed = JSON.parse(reviewRaw.replace(/```json|```/g, "").trim());
+    if (parsed.hookDelivered === false) issues.push("هوکِ ابتدایی وعده‌ای می‌ده که وسطِ متن واقعاً ادا نمی‌شه");
+    if (parsed.toneAppropriate === false) issues.push("وزنِ لحن با اندازه‌ی واقعیِ ایده هم‌خونی نداره (خیلی دراماتیک/سنگین)");
+    for (const extra of parsed.issues || []) {
+      if (extra && typeof extra === "string") issues.push(extra);
     }
+  } catch (err) {
+    // بازبینیِ AI صرفاً یک لایه‌ی اضافه‌ست — شکستش (پاسخِ غیرِ JSON،
+    // provider در دسترس نبود، و غیره) نباید کلِ ساختِ اسکریپت رو متوقف
+    // کنه، فقط این یک چک نادیده گرفته می‌شه.
+    console.warn("generateScript: بازبینیِ AIِ اسکریپت شکست خورد (نادیده گرفته می‌شه):", err.message);
+  }
+
+  if (issues.length > 0) {
+    console.warn(`generateScript: اولین پیش‌نویس مشکل داشت (${issues.join("؛ ")}) — یک تلاشِ دومِ صریح‌تر`);
+    const lengthReminder = isShort
+      ? "Target length is 90-130 words when read aloud (30-60 seconds) — not shorter, not longer."
+      : "The absolute length requirement is 1200+ words.";
+    script = await generateText({
+      prompt: `${prompt}\n\nIMPORTANT — your previous draft had these specific problems, fix ALL of them in this rewrite:\n${issues
+        .map((s) => `- ${s}`)
+        .join("\n")}\n${lengthReminder} Vary how sentences start — not every sentence should begin with "I" or "You". Whatever the hook promises, make sure the middle of the script concretely delivers it, and match the emotional tone to the actual size of the idea.`,
+      temperature: 1,
+      maxTokens: isShort ? 700 : 3000,
+    });
+    if (!isShort && wordCount() < 1150) {
+      console.warn(`generateScript: تلاشِ دوم هم کوتاه موند (~${wordCount()} کلمه) — با همین ادامه می‌دیم`);
+    }
+    // بعد از تلاشِ دوم دوباره بازبینیِ AI رو صدا نمی‌زنیم (هزینه/تاخیرِ
+    // اضافه) — فقط تو گزارشِ فعالیت مشخص می‌کنیم که تلاشِ اول این
+    // مشکلات رو داشت و یک اصلاح انجام شد، نه اینکه مشکلات لزوماً کاملاً
+    // برطرف شدن.
+    logEvent({
+      type: "script_review_flagged",
+      message: `اسکریپتِ ${isShort ? "شورت" : "لانگ"} تو تلاشِ اول این مشکلات رو داشت (یک تلاشِ دومِ اصلاح‌شده انجام شد): ${issues.join("؛ ")}`,
+      metadata: { mode, issues },
+    });
   }
 
   return { script };
