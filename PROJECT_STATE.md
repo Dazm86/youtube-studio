@@ -248,17 +248,25 @@ source. One pipeline implementation, three ways to trigger it.
 - `rendering/index.js` — `renderVideo()` (main FFmpeg pipeline, one
   segment at a time; uses `-shortest`, so the shorter of its video/audio
   streams determines final output length), `renderVerticalShortFromSource()`
-  (used only by `/api/repurpose`), `probeDurationSec` (ffmpeg-based,
-  video files), `estimateAudioDurationSec` (fixed 2026-08-29 — the
-  Buffer branch used to guess duration from file size assuming a fixed
-  128kbps bitrate, which was wrong whenever the real TTS bitrate
+  (used only by `/api/repurpose`), `probeDurationSec` (fixed 2026-08-30 —
+  passed `ffprobe`-only flags to the `ffmpeg` binary, which doesn't
+  understand them, so it had always silently returned `0`; same `ffmpeg
+  -i` + stderr-parsing fix as `estimateAudioDurationSec` below; this had
+  been silently defeating the "final render duration vs. expected"
+  checkpoint added 2026-08-29 — see that entry's note below and the
+  2026-08-30 changelog), `estimateAudioDurationSec` (fixed 2026-08-29 —
+  the Buffer branch used to guess duration from file size assuming a
+  fixed 128kbps bitrate, which was wrong whenever the real TTS bitrate
   differed and, combined with `-shortest` above, could truncate the
   actual rendered audio; now measures the real buffer via `ffmpeg -i`
   + stderr parsing, since `@ffmpeg-installer/ffmpeg` doesn't guarantee a
   separate `ffprobe` binary; falls back to the old file-size guess only
   if that parse fails),
-  `trimSilenceFromAudio`/`detectLongSilences` (**placeholder no-ops** —
-  wired up and called, but never actually detect/trim anything),
+  `trimSilenceFromAudio`/`detectLongSilences` (real implementations as
+  of 2026-08-30, were placeholder no-ops before — both use `ffmpeg`'s
+  `silencedetect` filter; trimming deliberately avoids `silenceremove`'s
+  `stop_periods=-1`, which testing showed also strips *internal* gaps,
+  not just trailing ones — uses detect-then-cut with `-c copy` instead),
   `pickMayaPose` (async-initialized singleton — known race-condition
   risk on cold start, deliberately left as-is, see Known issues),
   `pickBgmPath` (mood-based background-music track picker, reuses
@@ -551,9 +559,13 @@ previously caused `invalid_client`/`deleted_client` confusion.
   currently dead/unused so not live-breaking.
 - 🟡 `pickMayaPose`'s async-initialized singleton has a theoretical cold-
   start race condition — left as-is deliberately (low practical risk).
-- 🟡 `trimSilenceFromAudio`/`detectLongSilences` are placeholder no-ops —
-  the "long internal silence" warning they're supposed to feed never
-  actually fires.
+- ✅ ~~`trimSilenceFromAudio`/`detectLongSilences` are placeholder no-ops~~
+  — **fixed 2026-08-30**, real `ffmpeg silencedetect`-based
+  implementations, verified against a synthetic file with a known
+  silence pattern. See that date's changelog entry — fixing this also
+  surfaced and fixed an unrelated pre-existing bug in `probeDurationSec`
+  (had always returned 0; retroactively meant yesterday's checkpoint 3
+  had been flagging every video, not just broken ones).
 - ⚪ Several component-folder `index.js` barrels and the top-level
   `lib/index.js` barrel are unused dead code (harmless).
 - 🟡 **Auto-produce doesn't mark a Trend Finder topic "produced" when

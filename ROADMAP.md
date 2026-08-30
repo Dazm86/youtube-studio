@@ -371,6 +371,47 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-30 (later same day) — Real silence trimming implemented; found + fixed a pre-existing bug that had silently disabled yesterday's checkpoint 3
+Continuing the "10 ideas" list: site improvement #2, enabling `trimSilenceFromAudio`/
+`detectLongSilences` (previously placeholder no-ops per the known-issues list).
+
+**What got built.** Both now do real work via FFmpeg's `silencedetect` filter, verified against a
+synthetic audio file with a precisely known silence pattern (1.0s leading + 2.0s tone + 0.5s gap +
+2.0s tone + 3.0s gap + 1.0s tone + 1.5s trailing), not just plausible-sounding code:
+- `detectLongSilences()` — parses `silencedetect`'s stderr output. Verified it correctly flags
+  only the genuine 3-second internal gap at a 2.5s threshold, ignoring the leading, trailing, and
+  short (0.5s) internal ones.
+- `trimSilenceFromAudio()` — deliberately does NOT use the `silenceremove` filter's
+  `stop_periods=-1` (the usual way to strip trailing silence): testing against the same known file
+  showed it also strips *internal* gaps, not just trailing ones, which would desync all the
+  downstream caption/image timing this function is supposed to run before. Uses a detect-then-cut
+  approach instead (find real content start/end via `silencedetect`, then `-ss`/`-to` with
+  `-c copy`, no re-encode) — verified it removes leading+trailing (11.06s → 8.50s, matching the
+  known 1.0s+1.5s expected removal) while preserving the internal gap exactly. Also verified the
+  no-silence-at-all and trailing-only-no-leading edge cases behave correctly, and that failures
+  (bad ffmpeg output, corrupt input) fall back to the untrimmed audio rather than breaking the
+  pipeline.
+
+**Found a second, unrelated, pre-existing bug while testing.** `probeDurationSec()` — used for
+the final rendered video's duration (`pipeline.js`, feeds `recordVideo()` and yesterday's
+checkpoint 3) — passed `ffprobe`-only flags (`-select_streams`, `-show_entries`, `-of`) to the
+`ffmpeg` binary (not `ffprobe` — this project only guarantees `ffmpeg` is installed, via
+`@ffmpeg-installer/ffmpeg`). `ffmpeg` doesn't recognize those flags and errors out, so
+`probeDurationSec()` had *always* silently returned `0`, not just in some edge case — confirmed by
+direct testing, not just reading. This wasn't found by inspection; my new silence-trim functions
+also needed accurate duration, and testing them exposed it. Consequence for yesterday's
+checkpoint 3 (real render duration vs. expected audio duration, >15% mismatch flags for review):
+since `durationSec` was always `0`, the "mismatch" was always ~100% — meaning checkpoint 3 had
+been flagging *every single video* since it was added yesterday, not just genuinely broken ones.
+Fixed using the exact same approach already proven for `estimateAudioDurationSec`
+(2026-08-28 changelog entry): `ffmpeg -i <file>` + parsing the `Duration: HH:MM:SS.ss` line from
+stderr, rather than assuming a separate `ffprobe` binary exists. Verified against both an audio
+file (11.06s) and a real generated video file (4.2s) — both now measure correctly; confirmed the
+old code really did return exactly `0` for the same file first, for a direct before/after
+comparison.
+
+Files: `lib/rendering/index.js`.
+
 ### 2026-08-30 — Three more from the "10 ideas" list: Telegram/Discord alerts, seasonal trend keywords, real fix for the known 🔴 worker-credential bug
 Continuing from yesterday's prioritized list (easiest/lowest-risk first).
 

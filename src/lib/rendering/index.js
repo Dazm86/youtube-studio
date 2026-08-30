@@ -550,21 +550,27 @@ async function renderVideo({
 
 // ---------- probeDurationSec ----------
 
+// فیکسِ ۲۰۲۶-۰۸-۳۰ — این تابع همیشه ۰ برمی‌گردوند، نه فقط تو سناریویِ خاصی:
+// آرگومان‌هایی که پایین می‌ده (`-select_streams`, `-show_entries`,
+// `-of`) مخصوصِ ffprobe ان، نه ffmpeg — و ffmpeg (که ffmpegPath واقعاً
+// بهش اشاره می‌کنه، نه ffprobe) با خطایِ "Unrecognized option" ردشون
+// می‌کنه، پس stdout همیشه خالی بوده و `parseFloat("") || 0` بی‌سروصدا ۰
+// برمی‌گردونده. با تستِ مستقیم (نه فقط خوندنِ کد) تأیید شد. این یک باگِ
+// از‌قبل‌موجود بود (نه چیزی از امروز)، ولی مستقیماً چک‌پوینتِ ۳ (که
+// همین امروز، زودتر، اضافه شد) رو هم بی‌اثر می‌کرد — چون durationSec
+// همیشه ۰ می‌شد، فاصله‌ش با audioDurationSec همیشه >۱۵٪ بود، یعنی
+// چک‌پوینتِ ۳ داشت *هر* ویدیویی رو (نه فقط ویدیوهای واقعاً مشکل‌دار)
+// پرچم می‌زد. فیکس: دقیقاً همون روشِ ثابت‌شده‌ی دیروز برایِ
+// estimateAudioDurationSec — با خودِ ffmpeg (نه یک ffprobeِ فرضی)، از
+// رویِ خطِ Duration تویِ stderr.
 async function probeDurationSec(filePath) {
-  const { stdout } = await import("child_process").then((cp) =>
-    cp.spawnSync(ffmpegPath, [
-      "-v",
-      "error",
-      "-select_streams",
-      "v:0",
-      "-show_entries",
-      "stream=duration",
-      "-of",
-      "default=noprint_wrappers=1:nokey=1",
-      filePath,
-    ])
+  const { stderr } = await import("child_process").then((cp) =>
+    cp.spawnSync(ffmpegPath, ["-i", filePath], { encoding: "utf8" })
   );
-  return parseFloat(stdout.toString().trim()) || 0;
+  const match = (stderr || "").match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);
+  if (!match) return 0;
+  const [, hh, mm, ss] = match;
+  return Number(hh) * 3600 + Number(mm) * 60 + Number(ss);
 }
 
 // ---------- estimateAudioDurationSec ----------
@@ -622,50 +628,126 @@ async function estimateAudioDurationSec(input, wpm = 150) {
 
 // ---------- trimSilenceFromAudio (skip - not implemented fully) ----------
 
-async function trimSilenceFromAudio(input, outputPath) {
-  // Accept either file path (string) or Buffer
-  // If called with just a Buffer (no outputPath), return processed Buffer
-  const returnBuffer = Buffer.isBuffer(input) && !outputPath;
-  const tmpPath = path.join(os.tmpdir(), `audio-in-${Date.now()}.mp3`);
+// ---------- trimSilenceFromAudio ----------
+//
+// فیکسِ ۲۰۲۶-۰۸-۳۰ — قبلاً placeholder بود (فقط فایل رو بدونِ تغییر کپی
+// می‌کرد). الان واقعاً سکوتِ ابتدا/انتها رو می‌بره — دقیقاً همون چیزی که
+// کامنتِ صدازننده‌ش تو pipeline.js همیشه ادعا می‌کرد («چند دهم ثانیه
+// سکوتِ اضافه که gTTS/msedge-tts می‌ذاره»).
+//
+// عمداً از فیلترِ silenceremove استفاده نشده: تست با یک فایلِ صوتیِ
+// واقعی (الگویِ سکوتِ دقیقاً مشخص) نشون داد stop_periods=-1 (برایِ بریدنِ
+// سکوتِ انتهایی) سکوت‌هایِ *داخلی* رو هم می‌بره، نه فقط انتهایی — که
+// دقیقاً همون چیزیه که این تابع نباید بکنه (تایمینگِ محاسبه‌شده‌ی
+// downstream رو به‌هم می‌زنه). به‌جاش: با silencedetect نقطه‌ی شروع/پایانِ
+// واقعیِ محتوا پیدا می‌شه، بعد با -ss/-to + کپیِ استریم (بدونِ ری‌اِنکود)
+// فقط همون بازه بریده می‌شه — پیش‌بینی‌پذیرتر و تست‌شده.
+async function detectContentBounds(inputPath, thresholdDb = -40) {
+  const totalDuration = await probeDurationSec(inputPath);
+  const { stderr } = await import("child_process").then((cp) =>
+    cp.spawnSync(ffmpegPath, ["-i", inputPath, "-af", `silencedetect=noise=${thresholdDb}dB:d=0.05`, "-f", "null", "-"], {
+      encoding: "utf8",
+    })
+  );
+  const text = stderr || "";
+  const starts = [...text.matchAll(/silence_start:\s*([\d.]+)/g)].map((m) => parseFloat(m[1]));
+  const ends = [...text.matchAll(/silence_end:\s*([\d.]+)/g)].map((m) => parseFloat(m[1]));
 
-  if (Buffer.isBuffer(input)) {
-    await fsp.writeFile(tmpPath, input);
-  } else {
-    // String path - copy to temp for processing
-    await fsp.copyFile(input, tmpPath);
-  }
-
-  // For now just copy (placeholder - no actual silence trimming)
-  if (returnBuffer) {
-    const result = await fsp.readFile(tmpPath);
-    await fsp.unlink(tmpPath).catch(() => {});
-    return result;
-  }
-
-  await fsp.copyFile(tmpPath, outputPath);
-  await fsp.unlink(tmpPath).catch(() => {});
-  return outputPath;
+  let trimStart = 0;
+  let trimEnd = totalDuration;
+  if (starts.length > 0 && starts[0] < 0.05) trimStart = ends[0];
+  if (ends.length > 0 && ends[ends.length - 1] > totalDuration - 0.1) trimEnd = starts[starts.length - 1];
+  // شبکه‌ی ایمنی: اگه به هر دلیلی (فایلِ کاملاً بی‌صدا، خطایِ پارس) نقطه‌ها
+  // نامعتبر از آب دراومدن، اصلاً برش نمی‌زنیم.
+  if (!(trimStart >= 0) || !(trimEnd > trimStart)) return { trimStart: 0, trimEnd: totalDuration };
+  return { trimStart, trimEnd };
 }
 
-// ---------- detectLongSilences (placeholder) ----------
+async function trimSilenceFromAudio(input, outputPath) {
+  const returnBuffer = Buffer.isBuffer(input) && !outputPath;
+  const tmpPath = path.join(os.tmpdir(), `audio-in-${Date.now()}-${Math.random().toString(36).slice(2)}.mp3`);
+  const tmpOut = path.join(os.tmpdir(), `audio-trimmed-${Date.now()}-${Math.random().toString(36).slice(2)}.mp3`);
 
-async function detectLongSilences(input, thresholdDb = -40, minDurationSec = 1) {
-  // Accept either file path (string) or Buffer
-  // If called with just a Buffer (no outputPath), treat as file path
-  const tmpPath = path.join(os.tmpdir(), `audio-silence-${Date.now()}.mp3`);
+  try {
+    if (Buffer.isBuffer(input)) {
+      await fsp.writeFile(tmpPath, input);
+    } else {
+      await fsp.copyFile(input, tmpPath);
+    }
 
-  if (Buffer.isBuffer(input)) {
-    await fsp.writeFile(tmpPath, input);
-  } else if (typeof input === 'string') {
-    // String path - use directly
-    await fsp.copyFile(input, tmpPath);
-  } else {
-    return [];
+    const { trimStart, trimEnd } = await detectContentBounds(tmpPath);
+    const totalDuration = await probeDurationSec(tmpPath);
+    // چیزیِ قابلِ‌توجهی برایِ بریدن نبود (کمتر از ۵۰ میلی‌ثانیه از هرکدوم) —
+    // یک کپیِ ساده کافیه، نیازی به فراخوانیِ اضافه‌ی ffmpeg نیست.
+    if (trimStart < 0.05 && trimEnd > totalDuration - 0.05) {
+      await fsp.copyFile(tmpPath, tmpOut);
+    } else {
+      const args = ["-y", "-i", tmpPath, "-ss", String(trimStart)];
+      if (trimEnd < totalDuration) args.push("-to", String(trimEnd));
+      args.push("-c", "copy", tmpOut);
+      await import("child_process").then((cp) => cp.spawnSync(ffmpegPath, args, { encoding: "utf8" }));
+      // اگه به هر دلیلی خروجی ساخته نشد (خطایِ ffmpeg)، امن‌ترین کار
+      // برگشتن به صدایِ اصلیِ بدونِ تریمه، نه شکستِ کلِ pipeline.
+      if (!fs.existsSync(tmpOut) || fs.statSync(tmpOut).size === 0) {
+        await fsp.copyFile(tmpPath, tmpOut);
+      }
+    }
+
+    if (returnBuffer) {
+      return await fsp.readFile(tmpOut);
+    }
+    await fsp.copyFile(tmpOut, outputPath);
+    return outputPath;
+  } catch (err) {
+    console.warn("trimSilenceFromAudio شکست خورد، صدایِ اصلیِ بدونِ تریم استفاده می‌شه:", err.message);
+    if (returnBuffer) return Buffer.isBuffer(input) ? input : await fsp.readFile(input);
+    if (!Buffer.isBuffer(input)) await fsp.copyFile(input, outputPath);
+    else await fsp.writeFile(outputPath, input);
+    return outputPath;
+  } finally {
+    await fsp.unlink(tmpPath).catch(() => {});
+    await fsp.unlink(tmpOut).catch(() => {});
   }
+}
 
-  // Placeholder returns empty array (no actual silence detection yet)
-  await fsp.unlink(tmpPath).catch(() => {});
-  return [];
+// ---------- detectLongSilences ----------
+//
+// فیکسِ ۲۰۲۶-۰۸-۳۰ — قبلاً placeholder بود (همیشه آرایه‌ی خالی برمی‌گردوند).
+// این تابع عمداً فقط *تشخیص* می‌ده، هیچ‌چیزی رو نمی‌بره — pipeline.js
+// نتیجه‌ش رو فقط لاگ می‌کنه، چون بریدنِ سکوت‌هایِ داخلی تایمینگِ از‌قبل‌
+// محاسبه‌شده‌ی caption/تصویر رو به‌هم می‌زنه (توضیحِ کاملش تو pipeline.js
+// کنارِ محلِ فراخوانی هست).
+async function detectLongSilences(input, thresholdDb = -40, minDurationSec = 1) {
+  const tmpPath = path.join(os.tmpdir(), `audio-silence-${Date.now()}-${Math.random().toString(36).slice(2)}.mp3`);
+  try {
+    if (Buffer.isBuffer(input)) {
+      await fsp.writeFile(tmpPath, input);
+    } else if (typeof input === "string") {
+      await fsp.copyFile(input, tmpPath);
+    } else {
+      return [];
+    }
+
+    const { stderr } = await import("child_process").then((cp) =>
+      cp.spawnSync(ffmpegPath, ["-i", tmpPath, "-af", `silencedetect=noise=${thresholdDb}dB:d=0.2`, "-f", "null", "-"], {
+        encoding: "utf8",
+      })
+    );
+    const text = stderr || "";
+    const starts = [...text.matchAll(/silence_start:\s*([\d.]+)/g)].map((m) => parseFloat(m[1]));
+    const ends = [...text.matchAll(/silence_end:\s*([\d.]+)/g)].map((m) => parseFloat(m[1]));
+
+    const gaps = [];
+    for (let i = 0; i < Math.min(starts.length, ends.length); i++) {
+      if (ends[i] - starts[i] >= minDurationSec) gaps.push({ start: starts[i], end: ends[i] });
+    }
+    return gaps;
+  } catch (err) {
+    console.warn("detectLongSilences شکست خورد (نادیده گرفته می‌شه):", err.message);
+    return [];
+  } finally {
+    await fsp.unlink(tmpPath).catch(() => {});
+  }
 }
 
 // ---------- probeHasAudioStream ----------
