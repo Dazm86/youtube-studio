@@ -105,8 +105,6 @@ that assumes they don't exist:
   classNames; a value used only inside `@apply` (e.g. `gap-1.5`) broke
   the build with "Cannot apply unknown utility class". Every custom
   class in `globals.css` is now plain CSS against `@theme` vars instead.
-- **⚠️ Worker callback credential expires before most real jobs finish**
-  — see "Known issues" below. Only matters when `USE_RENDER_WORKER=true`.
 
 ## Architecture
 
@@ -507,6 +505,13 @@ CRON_SECRET   # /api/scheduler/run is disabled entirely if unset
 # Alerting
 ALERT_WEBHOOK_URL
 
+# Activity log notifications (new, 2026-08-30) — optional, in addition to
+# ALERT_WEBHOOK_URL above (that one's generic-JSON and pipeline_failed-only)
+TELEGRAM_BOT_TOKEN
+TELEGRAM_CHAT_ID
+DISCORD_WEBHOOK_URL
+ACTIVITY_NOTIFY_TYPES   # optional comma-separated filter, default: all types
+
 # Trend Finder (new, 2026-08-27)
 YOUTUBE_API_KEY   # required for the YouTube competition/view-growth signal;
                   # a plain "API key" credential (not OAuth), restricted to
@@ -519,6 +524,10 @@ TREND_TOP_N                # default 20
 TREND_MAX_CANDIDATES       # default 25 — caps how many candidates get the
                             # expensive per-topic Trends+YouTube calls
 TREND_SEED_KEYWORDS        # comma-separated override of lib/trends/seeds.js
+TREND_SEASONAL_KEYWORDS    # set to "false" to disable the calendar-aware
+                            # seasonal additions (new, 2026-08-30) — default
+                            # is on, adds a few current-month keywords on
+                            # top of the base list
 TREND_AI_BATCH_SIZE        # default 5 — candidates per AI analyzer call
 ```
 
@@ -530,15 +539,13 @@ previously caused `invalid_client`/`deleted_client` confusion.
 
 ## Known issues (full detail: `youtube-studio-review-v2.md`)
 
-- 🔴 **Worker callback credential expires before real jobs finish.**
-  `generateWorkerCredential()` defaults to a 5-minute expiry, generated
-  once at dispatch time; actual renders take 15–45 min
-  (`PIPELINE_TIMEOUT_MS` is 25 min, the GitHub Actions timeout is 45
-  min). The worker almost always finishes successfully but its
-  `/api/jobs/callback` POST gets rejected with 401, so the DB job status
-  never reaches `completed` and `VideoStudio.js` times out after 40 min
-  claiming uncertainty about a job that likely already succeeded. Only
-  affects `USE_RENDER_WORKER=true`.
+- ✅ ~~Worker callback credential expires before real jobs finish~~ —
+  **fixed 2026-08-30.** `generateWorkerCredential()`'s default expiry
+  raised from 5 minutes to 60 (only one call site used the default, so
+  this was a complete fix, not a partial one — no mid-job refresh needed
+  since the credential is generated once and used once). Verified with a
+  simulated 20-minute-old credential: rejected under the old default
+  (reproducing the real bug), accepted under the new one.
 - 🟠 `JOB_TYPES.RENDER_SHORT`, if ever actually dispatched, would be
   handled wrong (worker treats it identically to `RENDER_VIDEO`) —
   currently dead/unused so not live-breaking.

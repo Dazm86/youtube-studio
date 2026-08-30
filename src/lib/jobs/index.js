@@ -43,8 +43,19 @@ const WEB_APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 /**
  * Generate a signed credential for worker authentication
  * Uses HMAC-SHA256 with timestamp to prevent replay attacks
+ *
+ * ۲۰۲۶-۰۸-۳۰ — پیش‌فرض از ۵ دقیقه به ۶۰ دقیقه تغییر کرد. این credential
+ * یک‌بار موقعِ dispatch ساخته می‌شه و caller (worker/index.js، رویِ
+ * GitHub Actions) فقط یک‌بار، در پایانِ کار، برای callback ازش استفاده
+ * می‌کنه — نه mid-job refresh ای وجود داره نه نیازی بهش. رندرِ واقعی
+ * طبقِ مستنداتِ خودِ پروژه ۱۵-۴۵ دقیقه طول می‌کشه؛ ۵ دقیقه یعنی تقریباً
+ * *هر* jobِ واقعی، حتی وقتی رندر و آپلود کاملاً موفق بودن، موقعِ
+ * callback با یک credentialِ منقضی‌شده رد می‌شد و وضعیتش تا ابد
+ * "running" می‌موند (باگِ 🔴 مستندشده تو PROJECT_STATE.md). ۶۰ دقیقه
+ * حاشیه‌ی امنِ کافی رو هم بالایِ ۴۵ دقیقه‌ی مستندشده می‌ذاره، هم برایِ
+ * تأخیرِ احتمالیِ صف‌کشیِ GitHub Actions قبل از شروعِ واقعیِ کار.
  */
-export function generateWorkerCredential(jobId, expiresInMs = 5 * 60 * 1000) {
+export function generateWorkerCredential(jobId, expiresInMs = 60 * 60 * 1000) {
   const issuedAt = Date.now();
   const expiresAt = issuedAt + expiresInMs;
   const payload = `${jobId}.${issuedAt}.${expiresAt}`;

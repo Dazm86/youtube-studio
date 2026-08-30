@@ -371,6 +371,44 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-30 — Three more from the "10 ideas" list: Telegram/Discord alerts, seasonal trend keywords, real fix for the known 🔴 worker-credential bug
+Continuing from yesterday's prioritized list (easiest/lowest-risk first).
+
+**Active notifications (site improvement #4).** Extended `lib/activityLog.js`'s `logEvent()` —
+already the single choke-point for every site event since yesterday — to also push each event to
+Telegram (`TELEGRAM_BOT_TOKEN`+`TELEGRAM_CHAT_ID`) and/or Discord (`DISCORD_WEBHOOK_URL`) if
+configured, no per-call-site changes needed anywhere. The one real design requirement: the DB
+write and the notification sends had to be genuinely independent — a DB hiccup must never
+silently swallow a notification, and a Telegram/Discord outage must never lose the DB row. Verified
+both directions with fake `pg`/`fetch` mocks that always throw: confirmed notifications still fire
+when the DB is fully unreachable, and confirmed the DB row still gets written when both
+notification channels are broken. Optional `ACTIVITY_NOTIFY_TYPES` (comma-separated) to restrict
+which event types notify, if the full list feels noisy — defaults to everything.
+
+**Seasonal trend keywords (growth idea #5).** `lib/trends/seeds.js` now adds a small set of
+calendar-aware keywords (by current month — e.g. "back to school anxiety" in Aug/Sep, "new year
+resolutions" in Jan, "holiday stress" in Nov) on top of whichever base seed list is active, rather
+than replacing it — niche relevance stays fully intact, timely angles just get added. Verified: the
+full base list is always preserved, the current real month (August) correctly adds
+back-to-school-related seeds, `TREND_SEASONAL_KEYWORDS=false` fully disables it, and it composes
+correctly with a custom `TREND_SEED_KEYWORDS` override.
+
+**The known 🔴 worker-credential-expiry bug — actually fixed, not just described.**
+`lib/jobs/index.js: generateWorkerCredential()`'s default `expiresInMs` was 5 minutes; the
+credential is generated once at dispatch and used once at callback, up to the documented 15-45
+minutes later — meaning most real jobs, even ones that rendered and uploaded successfully, would
+get rejected at the final callback and sit at "running" forever. Only one call site used the
+default (`dispatchAndTrackJob`), so raising it there was a complete, low-risk fix — no mid-job
+refresh mechanism needed since there's nothing to refresh, just one credential used once, much
+later than 5 minutes. Changed the default to 60 minutes (comfortable margin above 45, plus GitHub
+Actions queue-start delay). Verified concretely: extracted the actual functions (only depend on
+Node's built-in `crypto`, no new dependency needed for the test) and simulated a 20-minute-old
+credential — rejected under the old 5-minute default (reproducing the real bug), accepted under
+the new 60-minute one; also confirmed a genuinely-stale 65-minute credential still correctly
+expires either way.
+
+Files: `lib/activityLog.js`, `lib/trends/seeds.js`, `lib/jobs/index.js`.
+
 ### 2026-08-29 (later same day) — Three-checkpoint quality gate (script / voice+media / final video)
 User's own addition to the "10 ideas" batch: check after script is written, check voice+media
 together after both are ready, check the finished video. Reused existing mechanisms wherever one
