@@ -30,6 +30,8 @@ export default function ChannelAnalytics() {
   // جدا نگه داشته می‌شه تا کلیک روی یک ردیف بقیه رو تحت تاثیر قرار نده.
   const [postDrafts, setPostDrafts] = useState({});
   const [postLoading, setPostLoading] = useState({});
+  const [commentDrafts, setCommentDrafts] = useState({});
+  const [commentLoading, setCommentLoading] = useState({});
   const [abLoading, setAbLoading] = useState({});
   const [abStatus, setAbStatus] = useState({});
   const [abResults, setAbResults] = useState({});
@@ -94,6 +96,32 @@ export default function ChannelAnalytics() {
       setPostDrafts((s) => ({ ...s, [videoId]: { error: err.message } }));
     }
     setPostLoading((s) => ({ ...s, [videoId]: false }));
+  }
+
+  async function handleDraftCommentReplies(videoId) {
+    setCommentLoading((s) => ({ ...s, [videoId]: true }));
+    try {
+      const res = await fetch("/api/comments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ videoId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "خطا در ساختِ پیش‌نویس پاسخ‌ها");
+      // اگه الان چیزِ تازه‌ای ساخته نشد (چون قبلاً برایِ همه‌ی کامنت‌هایِ
+      // برتر پیش‌نویس داشتیم)، بازم لیستِ کامل رو از GET می‌گیریم تا چیزی
+      // که از قبل بوده هم دیده بشه.
+      if (data.drafted && data.drafted.length > 0) {
+        setCommentDrafts((s) => ({ ...s, [videoId]: data.drafted }));
+      } else {
+        const listRes = await fetch(`/api/comments?videoId=${videoId}`);
+        const listData = await listRes.json();
+        setCommentDrafts((s) => ({ ...s, [videoId]: listData.replies || [] }));
+      }
+    } catch (err) {
+      setCommentDrafts((s) => ({ ...s, [videoId]: { error: err.message } }));
+    }
+    setCommentLoading((s) => ({ ...s, [videoId]: false }));
   }
 
   // فاز ۳: سوییچ نسخه‌ی فعالِ عنوان/تامبنیل (A/B ترتیبی — توضیح کامل تو
@@ -223,9 +251,12 @@ export default function ChannelAnalytics() {
                         abStatus={abStatus}
                         abResults={abResults}
                         abResultsLoading={abResultsLoading}
+                        commentDrafts={commentDrafts}
+                        commentLoading={commentLoading}
                         onCommunityPost={handleCommunityPost}
                         onSwitchVariant={handleSwitchVariant}
                         onShowResults={handleShowAbResults}
+                        onDraftCommentReplies={handleDraftCommentReplies}
                       />
                     </td>
                   </tr>
@@ -268,9 +299,12 @@ export default function ChannelAnalytics() {
                   abStatus={abStatus}
                   abResults={abResults}
                   abResultsLoading={abResultsLoading}
+                  commentDrafts={commentDrafts}
+                  commentLoading={commentLoading}
                   onCommunityPost={handleCommunityPost}
                   onSwitchVariant={handleSwitchVariant}
                   onShowResults={handleShowAbResults}
+                  onDraftCommentReplies={handleDraftCommentReplies}
                 />
               </div>
             ))}
@@ -309,11 +343,15 @@ function VideoActions({
   abStatus,
   abResults,
   abResultsLoading,
+  commentDrafts,
+  commentLoading,
   onCommunityPost,
   onSwitchVariant,
   onShowResults,
+  onDraftCommentReplies,
 }) {
   const result = abResults?.[v.video_id];
+  const comments = commentDrafts?.[v.video_id];
   return (
     <div>
       {v.video_mode !== "short" && (
@@ -342,6 +380,33 @@ function VideoActions({
             )}
           </div>
         ))}
+
+      <button
+        type="button"
+        onClick={() => onDraftCommentReplies(v.video_id)}
+        disabled={commentLoading?.[v.video_id]}
+        className="btn-ghost w-full mb-1.5"
+      >
+        {commentLoading?.[v.video_id] ? "..." : "💬 پیش‌نویسِ پاسخِ کامنت‌ها"}
+      </button>
+      {comments &&
+        (comments.error ? (
+          <div className="text-xs text-danger mb-1.5">{comments.error}</div>
+        ) : comments.length === 0 ? (
+          <div className="text-xs text-text-muted mb-1.5">هنوز کامنتی زیرِ این ویدیو نیست.</div>
+        ) : (
+          <div className="space-y-1.5 mb-1.5">
+            {comments.map((c) => (
+              <div key={c.comment_id || c.commentId} className="text-xs bg-surface-raised border border-border rounded-md p-2">
+                <p className="text-text-muted">
+                  <strong>{c.author_name || c.authorName}:</strong> {c.comment_text || c.text}
+                </p>
+                <p className="text-text mt-1">↳ {c.reply_draft || c.replyDraft}</p>
+              </div>
+            ))}
+          </div>
+        ))}
+
       {v.title_b && (
         <div className="flex gap-1.5">
           <button

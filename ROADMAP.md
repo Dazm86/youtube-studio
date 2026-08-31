@@ -371,6 +371,32 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-30 (later same day) — Comment-reply drafts: connected, not built from scratch
+Continuing the "10 ideas" list: growth idea #2. `lib/comments/index.js` already existed — fully
+built (`generateCommentReplyDrafts()`, `getRepliesForVideo()`, its own `comment_replies` table,
+its own small `pg` pool, dedup logic so re-running on a video doesn't re-spend AI calls on
+comments already drafted) — same situation as yesterday's BGM system: complete at the library
+level, zero callers anywhere in `app/` or `components/`. Confirmed by grep before writing anything,
+not assumed.
+
+Built the missing connecting layer only: `api/comments/route.js` (POST generates drafts for a
+video's top comments by relevance, GET lists existing drafts — mirrors `api/community/route.js`'s
+exact pattern for consistency, including the same "this is a draft, YouTube's API doesn't support
+auto-publish" framing already used there), and a "💬 پیش‌نویسِ پاسخِ کامنت‌ها" button in
+`ChannelAnalytics.js`'s `VideoActions`, right next to the existing community-post-draft button —
+same component, same interaction pattern, minimal new surface area. Added `comment_replies_drafted`
+to the activity log's type→emoji maps (both `lib/activityLog.js` for notifications and
+`ActivityFeed.js` for the in-app feed) for consistency with every other event type.
+
+One real subtlety handled: the POST response shape (fresh drafts, `{authorName, text, replyDraft,
+commentId}`) and the GET response shape (existing drafts, raw DB columns:
+`{author_name, comment_text, reply_draft, comment_id}`) are different — the UI reads both with a
+fallback chain rather than assuming one shape, since the same component needs to render either
+depending on whether the person just generated drafts or is viewing previously-generated ones.
+
+Files (new): `app/api/comments/route.js`. Files (modified): `components/analytics/
+ChannelAnalytics.js`, `lib/activityLog.js`, `components/activity/ActivityFeed.js`.
+
 ### 2026-08-30 (later same day) — Retention data feeds back into the script prompt
 Continuing the "10 ideas" list: growth idea #1. `script/index.js` already had one feedback loop
 (`getTopPerformingVideos()` — shows the AI which past videos' *openings* worked well, by

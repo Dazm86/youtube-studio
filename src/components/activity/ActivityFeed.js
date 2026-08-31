@@ -11,6 +11,7 @@ const TYPE_META = {
   schedule_triggered: { icon: "⏰", label: "زمان‌بندی", color: "text-amber" },
   repurpose_completed: { icon: "♻️", label: "بازتولید شورت", color: "text-secondary" },
   community_post_created: { icon: "💬", label: "پستِ کامیونیتی", color: "text-secondary" },
+  comment_replies_drafted: { icon: "💬", label: "پاسخِ کامنت", color: "text-secondary" },
 };
 
 const FILTERS = [

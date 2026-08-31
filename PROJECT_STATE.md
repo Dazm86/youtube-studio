@@ -178,6 +178,13 @@ source. One pipeline implementation, three ways to trigger it.
   `refresh_token` to the DB on sign-in
 - `community/route.js` — generates + stores a Community-tab post draft
   via `lib/community/index.js`
+- **`comments/route.js`** *(new, 2026-08-30 — wires up `lib/comments/
+  index.js`, which already existed fully built but had zero callers)*
+  — POST generates AI reply drafts for a video's top comments (dedup'd,
+  won't re-spend AI on already-drafted comments), GET lists existing
+  drafts. Same "draft only, no auto-publish" framing as `community/
+  route.js` — YouTube's API supports `comments.insert` for real, unlike
+  Community-tab posts, but this module deliberately never calls it.
 - `ab-test/route.js` — switches the live title+thumbnail between
   stored A/B variants (sequential, not simultaneous)
 - **`ab-test/results/route.js`** *(new, 2026-08-30)* — GET, compares
@@ -249,6 +256,10 @@ source. One pipeline implementation, three ways to trigger it.
 - `media/index.js` — thin wrapper re-exporting `fetchImages`/
   `fetchClips` from `providers/router.js`
 - `community/index.js` — `generateCommunityPost()`
+- `comments/index.js` — `generateCommentReplyDrafts()`,
+  `getRepliesForVideo()`; own small `pg` pool + `comment_replies` table
+  (was previously undocumented here since it had no callers until
+  2026-08-30 — see that date's changelog entry)
 - `analytics/index.js` — `fetchStatsForVideos()` (all-time totals,
   multiple videos at once) + `fetchStatsForVideoInRange()` *(new,
   2026-08-30)* — same query, one video, caller-supplied date range;

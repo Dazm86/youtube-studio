@@ -72,6 +72,7 @@ const TYPE_EMOJI = {
   schedule_triggered: "⏰",
   repurpose_completed: "♻️",
   community_post_created: "💬",
+  comment_replies_drafted: "💬",
   script_review_flagged: "📝",
 };
 
