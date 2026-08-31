@@ -1,4 +1,5 @@
 import { generateText } from "../providers/router.js";
+import { getAllVideos } from "../db/index.js";
 
 const STOPWORDS = new Set([
   "the", "a", "an", "and", "or", "but", "is", "are", "was", "were", "be",
@@ -98,7 +99,7 @@ Rules:
 // تا زمان‌بند خودکار هم بتونه بدون یک round-trip HTTP اضافه صداش بزنه.
 // هیچ‌وقت throw نمی‌کنه — هر مسیر شکست به heuristicMetadata برمی‌گرده،
 // دقیقاً مثل رفتار قبلیِ route.
-export async function generateMetadata(script) {
+async function generateMetadataCore(script) {
   const prompt = `You are helping write YouTube upload metadata for a short motivational/mindfulness video on a channel called "The Mindful Path", hosted by an animated character named Maya.
 
 Video script:
@@ -156,4 +157,64 @@ Rules:
     console.error(err);
     return heuristicMetadata(script);
   }
+}
+
+function extractWordSet(text) {
+  return new Set(
+    (text || "")
+      .toLowerCase()
+      .replace(/[^a-z\s]/g, " ")
+      .split(/\s+/)
+      .filter((w) => w.length > 2 && !STOPWORDS.has(w))
+  );
+}
+
+// بهترین ویدیویِ قبلیِ مرتبط رو با هم‌پوشانیِ کلمه‌هایِ معنی‌دارِ اسکریپت
+// و عنوانِ ویدیوهایِ قبلی پیدا می‌کنه. ساده و قابلِ‌پیش‌بینیه؛ هیچ فراخوانیِ
+// AIِ اضافه‌ای لازم نداره. حداقل ۲ کلمه‌ی مشترک لازمه، وگرنه ارتباطش
+// به‌اندازه‌ی کافی قوی نیست که پیشنهاد بشه.
+function findRelatedVideo(script, pastVideos) {
+  if (!pastVideos || pastVideos.length === 0) return null;
+  const scriptWords = extractWordSet(script);
+  if (scriptWords.size === 0) return null;
+
+  let best = null;
+  let bestScore = 0;
+  for (const video of pastVideos) {
+    if (!video.title) continue;
+    const titleWords = extractWordSet(video.title);
+    let overlap = 0;
+    for (const w of titleWords) {
+      if (scriptWords.has(w)) overlap++;
+    }
+    if (overlap > bestScore) {
+      bestScore = overlap;
+      best = video;
+    }
+  }
+  return bestScore >= 2 ? best : null;
+}
+
+/**
+ * ۲۰۲۶-۰۸-۳۱ — «CTAِ ویدیویِ بعدی» تویِ توضیحات، نه کامنتِ پین‌شده: طبقِ
+ * محدودیتِ مستندشده تویِ ROADMAP.md، YouTube Data API v3 هیچ راهی برای
+ * پین‌کردنِ خودکارِ کامنت نداره — پس این‌جا، جایی که واقعاً می‌شه
+ * خودکارش کرد (توضیحات، از طریقِ همون videos.update که آپلود خودش
+ * ازش استفاده می‌کنه) اضافه شده. با هم‌پوشانیِ کلمه‌هایِ عنوان، نه
+ * فراخوانیِ AIِ اضافه — ساده و قابلِ‌پیش‌بینی.
+ */
+export async function generateMetadata(script) {
+  const base = await generateMetadataCore(script);
+  try {
+    const pastVideos = await getAllVideos();
+    const related = findRelatedVideo(script, pastVideos);
+    if (related && base.description) {
+      base.description = `${base.description}\n\n🎥 If you liked this, watch next: ${related.title}\nhttps://youtu.be/${related.video_id}`;
+    }
+  } catch (err) {
+    // این یک بونوسِ جانبیه — شکستش (مثلاً دیتابیس در دسترس نبود) نباید
+    // کلِ متادیتا رو خراب کنه.
+    console.error("generateMetadata: پیداکردنِ ویدیویِ مرتبط شکست خورد (نادیده گرفته می‌شه):", err.message);
+  }
+  return base;
 }

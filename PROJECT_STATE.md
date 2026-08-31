@@ -253,6 +253,14 @@ source. One pipeline implementation, three ways to trigger it.
   valid JSON parse now falls back too (previously slipped through as a
   "successful" empty-title result, which reached YouTube's upload API
   and got rejected — seen in a real worker run, not just theoretically).
+  As of 2026-08-31, `generateMetadata()` is a thin wrapper around an
+  internal `generateMetadataCore()` — appends a "watch next" line
+  (title+link) to the description, pointing at the most topically-
+  related past video by simple title word-overlap (no extra AI call);
+  covers the AI-success and both heuristic-fallback paths through one
+  shared step. Comment-pinning was considered instead but isn't
+  possible — YouTube Data API v3 has no endpoint for it, see Known
+  constraints.
 - `media/index.js` — thin wrapper re-exporting `fetchImages`/
   `fetchClips` from `providers/router.js`
 - `community/index.js` — `generateCommunityPost()`

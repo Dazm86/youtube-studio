@@ -371,6 +371,33 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-31 — "Watch next" CTA in the description, not a pinned comment
+Last item from the original "10 ideas" list actually built as proposed (growth idea #3) needed a
+correction first: my own original framing ("CTA in a pinned comment") isn't possible — YouTube
+Data API v3 has no comment-pinning endpoint at all, already documented in this project's own
+`ROADMAP.md` known-constraints section. The description, via the same `videos.update` call the
+upload flow already makes, is the part that's actually fully automatable — so that's what got
+built instead.
+
+`lib/metadata/index.js`'s `generateMetadata()` was restructured: the existing AI-generation +
+heuristic-fallback logic moved into an internal `generateMetadataCore()`, and the exported
+`generateMetadata()` is now a thin wrapper that appends a "watch next" line (title + link) to
+whichever description comes back, pointing at the most topically-related past video — covers
+every exit path (AI success, both heuristic-fallback branches) through one shared post-processing
+step rather than duplicating the append logic at each return point.
+
+Matching is simple word-overlap, not another AI call: reused the `STOPWORDS` set and keyword-
+extraction approach already in this file (`extractKeywords()`, used elsewhere for the heuristic
+fallback) to score past videos' titles against the new script's meaningful words, requiring at
+least 2 shared words before recommending anything (avoids linking two videos that just happen to
+share a common word like "morning"). Verified against 4 scenarios with real overlapping content:
+correctly picked the actually-relevant video out of 3 candidates, correctly returned no match for
+an unrelated script, correctly handled zero past videos (a channel's first few uploads), and
+correctly refused a 1-word-overlap case that's below the 2-word threshold. Fails silently (bonus
+feature, not core) if the DB lookup errors — never breaks metadata generation itself.
+
+Files: `lib/metadata/index.js`.
+
 ### 2026-08-30 (later same day) — Comment-reply drafts: connected, not built from scratch
 Continuing the "10 ideas" list: growth idea #2. `lib/comments/index.js` already existed — fully
 built (`generateCommentReplyDrafts()`, `getRepliesForVideo()`, its own `comment_replies` table,
