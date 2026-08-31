@@ -507,6 +507,18 @@ export async function getTopPerformingVideos(limit = 5) {
   return res.rows;
 }
 
+// ۲۰۲۶-۰۸-۳۰ — برایِ فیدبک‌لوپِ نگه‌داشت→پرامپت: فقط video_id های اخیرِ
+// یک mode خاص، برایِ گرفتنِ منحنیِ نگه‌داشتِ هرکدوم (getRetentionCurve،
+// در lib/repurpose/index.js) و میانگین‌گیری‌شون.
+export async function getRecentVideoIdsByMode(mode, limit = 8) {
+  await ensureSchema();
+  const res = await getPool().query(
+    `SELECT video_id FROM videos WHERE video_mode = $1 ORDER BY created_at DESC LIMIT $2`,
+    [mode, limit]
+  );
+  return res.rows.map((r) => r.video_id);
+}
+
 // --- فاز ۴: زمان‌بندی خودکار ---
 
 // refresh_token گوگل رو ذخیره می‌کنه (هر بار کاربر لاگین می‌کنه، از

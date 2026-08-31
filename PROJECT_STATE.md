@@ -254,7 +254,12 @@ source. One pipeline implementation, three ways to trigger it.
   2026-08-30)* — same query, one video, caller-supplied date range;
   built for the A/B results comparison above, real
   `videoThumbnailImpressionsClickRate` data from YouTube Analytics
-- `repurpose/index.js` — `getRetentionCurve()`, `findBestRetentionWindow()`
+- `repurpose/index.js` — `getRetentionCurve()`, `findBestRetentionWindow()`,
+  `getAggregateRetentionInsight()` *(new, 2026-08-30)* — averages
+  several same-mode videos' retention curves (parallel fetch) to find
+  the decile of runtime where audience drop-off is consistently worst;
+  feeds `script/index.js`'s prompt (see "Key flows" below), needs 2+
+  videos with data or returns `null`
 - `rendering/index.js` — `renderVideo()` (main FFmpeg pipeline, one
   segment at a time; uses `-shortest`, so the shorter of its video/audio
   streams determines final output length), `renderVerticalShortFromSource()`

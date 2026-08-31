@@ -67,3 +67,67 @@ export function findBestRetentionWindow(curve, totalDurationSec, targetDurationS
   const endSec = Math.min(totalDurationSec, startSec + targetDurationSec);
   return { startSec, endSec, source: "youtube_analytics_retention" };
 }
+
+// ۲۰۲۶-۰۸-۳۰ — فیدبک‌لوپِ نگه‌داشت→پرامپتِ نویسنده: منحنی‌هایِ چند
+// ویدیویِ اخیر (همون mode) رو می‌گیره و میانگین می‌کنه تا مشخص بشه معمولاً
+// *کجایِ* طولِ ویدیو بیشترین افتِ مخاطب اتفاق می‌افته — نه کدوم ویدیو
+// بهتر بوده (که از قبل تویِ script/index.js با getTopPerformingVideos
+// پوشش داده می‌شه)، بلکه کجایِ تایم‌لاینِ *هر* ویدیویی، به‌طورِ میانگین،
+// باید مراقبِ ریتم بود. چون elapsedVideoTimeRatio نسبیه (۰ تا ۱، نه
+// ثانیه‌ی مطلق)، میانگین‌گیری بینِ ویدیوهایی با طولِ متفاوت هم معنی‌دار
+// می‌مونه.
+export async function getAggregateRetentionInsight(accessToken, videoIds) {
+  if (!videoIds || videoIds.length === 0) return null;
+
+  const BUCKET_COUNT = 10; // صدک‌هایِ ۱۰٪ی: ۰-۱۰٪, ۱۰-۲۰٪, ... ۹۰-۱۰۰٪
+  const bucketSums = new Array(BUCKET_COUNT).fill(0);
+  const bucketCounts = new Array(BUCKET_COUNT).fill(0);
+  let videosWithData = 0;
+
+  // موازی، نه یکی‌یکی — این تابع از مسیرِ زنده‌ی نوشتنِ اسکریپت صدا زده
+  // می‌شه (script/index.js)، پس هر ثانیه‌ای که این‌جا صرفه‌جویی بشه
+  // مستقیم رویِ تاخیرِ کاربر تأثیر می‌ذاره.
+  const results = await Promise.allSettled(videoIds.map((videoId) => getRetentionCurve(accessToken, videoId)));
+
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i];
+    if (result.status !== "fulfilled") {
+      console.warn(
+        `getAggregateRetentionInsight: منحنیِ ${videoIds[i]} گرفته نشد (نادیده گرفته می‌شه):`,
+        result.reason?.message
+      );
+      continue;
+    }
+    const curve = result.value;
+    if (!curve || curve.length < 5) continue; // ویدیویِ خیلی تازه، داده‌ی کافی نداره
+    videosWithData++;
+    for (const point of curve) {
+      const bucket = Math.min(BUCKET_COUNT - 1, Math.max(0, Math.floor(point.ratio * BUCKET_COUNT)));
+      bucketSums[bucket] += point.watchRatio;
+      bucketCounts[bucket]++;
+    }
+  }
+
+  // حداقل ۲ ویدیو با داده‌ی کافی لازمه که میانگین معنی‌دار باشه — یک
+  // ویدیوی تنها می‌تونه به‌خاطرِ دلایلِ خاصِ خودش (نه یک الگویِ عمومی)
+  // یک افتِ عجیب داشته باشه.
+  if (videosWithData < 2) return null;
+
+  const bucketAverages = bucketSums.map((sum, i) => (bucketCounts[i] > 0 ? sum / bucketCounts[i] : null));
+  let worstBucket = -1;
+  let worstAvg = Infinity;
+  for (let i = 0; i < BUCKET_COUNT; i++) {
+    if (bucketAverages[i] !== null && bucketAverages[i] < worstAvg) {
+      worstAvg = bucketAverages[i];
+      worstBucket = i;
+    }
+  }
+  if (worstBucket === -1) return null;
+
+  return {
+    videosAnalyzed: videosWithData,
+    worstBucketStartPct: worstBucket * 10,
+    worstBucketEndPct: (worstBucket + 1) * 10,
+    worstBucketAvgWatchRatio: Math.round(worstAvg * 100) / 100,
+  };
+}

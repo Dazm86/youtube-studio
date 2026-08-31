@@ -371,6 +371,36 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-30 (later same day) — Retention data feeds back into the script prompt
+Continuing the "10 ideas" list: growth idea #1. `script/index.js` already had one feedback loop
+(`getTopPerformingVideos()` — shows the AI which past videos' *openings* worked well, by
+`retention_pct`). This is a genuinely different, complementary signal: not which videos did well,
+but *where within a typical video's runtime* this channel's audience tends to drop off, so the
+next script can be paced to push through that exact zone.
+
+`lib/repurpose/index.js`'s `getRetentionCurve()` already existed (built for the repurpose
+feature) and returns `{ratio, watchRatio}` points — `ratio` is *relative* elapsed time (0-1, not
+absolute seconds), which is exactly what makes it possible to average across videos of different
+lengths. New `getAggregateRetentionInsight(accessToken, videoIds)`: fetches the last several
+same-mode videos' curves in parallel (`Promise.allSettled`, not sequential — this runs on the
+live script-generation path, so added latency directly costs the person waiting), buckets each
+point into one of 10 deciles, averages `watchRatio` within each bucket across all videos, and
+returns whichever decile has the lowest average — i.e. where retention consistently drops most.
+Requires at least 2 videos with usable data (a single video's dip could just be that video's own
+issue, not a channel-wide pattern) — verified with synthetic curves carrying a deliberately known
+dip: correctly located it, correctly refused to produce an insight from just one video, and
+correctly tolerated individual video fetch failures (one bad video among several doesn't kill the
+whole insight, verified with a simulated partial-failure scenario).
+
+Wired into `generateScript()`: when there's enough data, injects a specific pacing instruction
+naming the exact percentage range where this channel's audience typically drops off, asking the
+model to deliberately re-hook attention right around that point in the new script. New
+`lib/db/index.js: getRecentVideoIdsByMode()` to fetch the video IDs needed. Silently skipped (no
+instruction added, script generation proceeds normally) when there isn't enough retention history
+yet — same graceful-absence pattern as the existing top-performers feedback loop right next to it.
+
+Files: `lib/repurpose/index.js`, `lib/script/index.js`, `lib/db/index.js`.
+
 ### 2026-08-30 (later same day) — Closing the A/B test loop: real before/after comparison
 Continuing the "10 ideas" list: site improvement #5. First had to correct my own assumption from
 when I proposed this — this project's A/B test isn't a simultaneous split-test (YouTube's public

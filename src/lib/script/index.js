@@ -1,5 +1,6 @@
 import { getRecentVideoTitles } from "../utils/channelHistory.js";
-import { getTopPerformingVideos } from "../db/index.js";
+import { getTopPerformingVideos, getRecentVideoIdsByMode } from "../db/index.js";
+import { getAggregateRetentionInsight } from "../repurpose/index.js";
 import { generateText } from "../providers/router.js";
 import { logEvent } from "../activityLog.js";
 
@@ -60,6 +61,21 @@ Vary sentence rhythm so it doesn't feel repetitive over the longer length. Do no
     console.error("feedback loop lookup failed (continuing without it):", err.message);
   }
 
+  // ۲۰۲۶-۰۸-۳۰ — فیدبک‌لوپِ دوم، مکملِ بالایی: بالایی می‌گه «کدوم ویدیوها
+  // خوب بودن»، این یکی می‌گه «معمولاً *کجایِ* طولِ ویدیو مخاطب رو
+  // از دست می‌دیم» — بر اساسِ میانگینِ واقعیِ منحنیِ نگه‌داشتِ چند
+  // ویدیویِ اخیرِ همین mode، نه حدس.
+  let retentionPacingInstruction = "";
+  try {
+    const recentIds = await getRecentVideoIdsByMode(mode, 5);
+    const insight = await getAggregateRetentionInsight(accessToken, recentIds);
+    if (insight) {
+      retentionPacingInstruction = `\n\nIMPORTANT pacing note based on real retention data from this channel's last ${insight.videosAnalyzed} ${isShort ? "shorts" : "long-form videos"}: audience retention consistently drops most around the ${insight.worstBucketStartPct}%-${insight.worstBucketEndPct}% mark of the video's runtime. When you get to roughly that point in THIS script, make a deliberate effort to re-hook attention there — a new question, a sharp turn, a surprising detail, or a pacing shift — rather than letting that section coast.`;
+    }
+  } catch (err) {
+    console.error("retention pacing lookup failed (continuing without it):", err.message);
+  }
+
   const prompt = `You are the scriptwriter for Maya, the host of a YouTube channel called "The Mindful Path". This is insight and personal-growth content, not pure entertainment — viewers come for a feeling, an idea, or a shift in perspective, so every script should follow the arc: STORY -> EMOTION -> INSIGHT -> ACTION.
 
 Maya's personality: energetic and inspiring. She talks like she genuinely can't wait to tell you this — real excitement, not forced hype. Short, punchy sentences — when a point really needs to land, break it down into quick 3-5 word bursts instead of one long flowing sentence, so the pacing itself feels alive. She reacts to her own points as she says them (a little surprise, a laugh in the phrasing) instead of stating things flatly. She speaks directly to "you", and calls the viewer "friend" sometimes, naturally, never stiffly.
@@ -71,6 +87,7 @@ Give her a few recurring verbal habits so she feels like a consistent host, not 
 - A punchy, energizing sign-off, in the spirit of: "Go be unstoppable, friend." — always reworded, never the same line twice.
 Use at most two of these habits in one script — enough to feel like her, not so many it feels gimmicky.
 ${feedbackContext}
+${retentionPacingInstruction}
 ${topicInstruction}
 
 ${structureInstruction}
