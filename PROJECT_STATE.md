@@ -180,6 +180,12 @@ source. One pipeline implementation, three ways to trigger it.
   via `lib/community/index.js`
 - `ab-test/route.js` — switches the live title+thumbnail between
   stored A/B variants (sequential, not simultaneous)
+- **`ab-test/results/route.js`** *(new, 2026-08-30)* — GET, compares
+  real YouTube Analytics CTR + views/day before vs. after
+  `variant_switched_at` (1-day gap on each side of the switch date to
+  avoid a mixed-data day); refuses to compare if <2 days have passed
+  since the switch (Analytics processing delay) or if there's not
+  enough pre-switch history
 - `repurpose/route.js` — accepts a source video file + `videoId`, reads
   the retention curve, crops the highest-retention window to 9:16 with
   captions, returns or uploads it. **Runs fully in-process — never
@@ -243,7 +249,11 @@ source. One pipeline implementation, three ways to trigger it.
 - `media/index.js` — thin wrapper re-exporting `fetchImages`/
   `fetchClips` from `providers/router.js`
 - `community/index.js` — `generateCommunityPost()`
-- `analytics/index.js` — `fetchStatsForVideos()`
+- `analytics/index.js` — `fetchStatsForVideos()` (all-time totals,
+  multiple videos at once) + `fetchStatsForVideoInRange()` *(new,
+  2026-08-30)* — same query, one video, caller-supplied date range;
+  built for the A/B results comparison above, real
+  `videoThumbnailImpressionsClickRate` data from YouTube Analytics
 - `repurpose/index.js` — `getRetentionCurve()`, `findBestRetentionWindow()`
 - `rendering/index.js` — `renderVideo()` (main FFmpeg pipeline, one
   segment at a time; uses `-shortest`, so the shorter of its video/audio

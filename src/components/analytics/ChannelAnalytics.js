@@ -32,6 +32,8 @@ export default function ChannelAnalytics() {
   const [postLoading, setPostLoading] = useState({});
   const [abLoading, setAbLoading] = useState({});
   const [abStatus, setAbStatus] = useState({});
+  const [abResults, setAbResults] = useState({});
+  const [abResultsLoading, setAbResultsLoading] = useState({});
 
   // توجه: این تابع عمداً setState رو قبل از اولین await صدا نمی‌زنه، چون
   // از useEffect زیر هم فراخوانی می‌شه و React الان به‌خاطر ریندرهای زنجیره‌ای
@@ -112,6 +114,19 @@ export default function ChannelAnalytics() {
       setAbStatus((s) => ({ ...s, [videoId]: "خطا: " + err.message }));
     }
     setAbLoading((s) => ({ ...s, [videoId]: false }));
+  }
+
+  async function handleShowAbResults(videoId) {
+    setAbResultsLoading((s) => ({ ...s, [videoId]: true }));
+    try {
+      const res = await fetch(`/api/ab-test/results?videoId=${videoId}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "خطا در گرفتنِ نتیجه");
+      setAbResults((s) => ({ ...s, [videoId]: data }));
+    } catch (err) {
+      setAbResults((s) => ({ ...s, [videoId]: { available: false, reason: "خطا: " + err.message } }));
+    }
+    setAbResultsLoading((s) => ({ ...s, [videoId]: false }));
   }
 
   if (!session) {
@@ -206,8 +221,11 @@ export default function ChannelAnalytics() {
                         postDrafts={postDrafts}
                         abLoading={abLoading}
                         abStatus={abStatus}
+                        abResults={abResults}
+                        abResultsLoading={abResultsLoading}
                         onCommunityPost={handleCommunityPost}
                         onSwitchVariant={handleSwitchVariant}
+                        onShowResults={handleShowAbResults}
                       />
                     </td>
                   </tr>
@@ -248,8 +266,11 @@ export default function ChannelAnalytics() {
                   postDrafts={postDrafts}
                   abLoading={abLoading}
                   abStatus={abStatus}
+                  abResults={abResults}
+                  abResultsLoading={abResultsLoading}
                   onCommunityPost={handleCommunityPost}
                   onSwitchVariant={handleSwitchVariant}
+                  onShowResults={handleShowAbResults}
                 />
               </div>
             ))}
@@ -280,7 +301,19 @@ function MiniStat({ label, value }) {
 
 // فاز ۳: بلوک اکشن‌های هر ویدیو (پست کامیونیتی + سوییچ A/B) — بین نسخه‌ی
 // جدول دسکتاپ و نسخه‌ی کارت موبایل مشترکه تا رفتار و استایل دقیقاً یکی باشه.
-function VideoActions({ v, postLoading, postDrafts, abLoading, abStatus, onCommunityPost, onSwitchVariant }) {
+function VideoActions({
+  v,
+  postLoading,
+  postDrafts,
+  abLoading,
+  abStatus,
+  abResults,
+  abResultsLoading,
+  onCommunityPost,
+  onSwitchVariant,
+  onShowResults,
+}) {
+  const result = abResults?.[v.video_id];
   return (
     <div>
       {v.video_mode !== "short" && (
@@ -330,6 +363,39 @@ function VideoActions({ v, postLoading, postDrafts, abLoading, abStatus, onCommu
         </div>
       )}
       {abStatus[v.video_id] && <div className="text-xs text-text-muted mt-1">{abStatus[v.video_id]}</div>}
+      {v.title_b && v.variant_switched_at && (
+        <button
+          type="button"
+          onClick={() => onShowResults(v.video_id)}
+          disabled={abResultsLoading?.[v.video_id]}
+          className="btn-ghost w-full mt-1.5"
+        >
+          {abResultsLoading?.[v.video_id] ? "..." : "📊 نتیجه‌ی A/B"}
+        </button>
+      )}
+      {result && (
+        <div className="text-xs bg-surface-raised border border-border rounded-md p-2 mt-1.5">
+          {result.available === false ? (
+            <span className="text-text-muted">{result.reason}</span>
+          ) : (
+            <>
+              <p className="text-text mb-1.5">{result.verdict}</p>
+              <div className="grid grid-cols-2 gap-2 readout">
+                <div>
+                  <div className="text-text-faint">قبل ({result.before.days} روز)</div>
+                  <div>CTR: {result.before.thumbnailCtr.toFixed(1)}%</div>
+                  <div>{result.before.viewsPerDay}/روز</div>
+                </div>
+                <div>
+                  <div className="text-text-faint">بعد ({result.after.days} روز)</div>
+                  <div>CTR: {result.after.thumbnailCtr.toFixed(1)}%</div>
+                  <div>{result.after.viewsPerDay}/روز</div>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

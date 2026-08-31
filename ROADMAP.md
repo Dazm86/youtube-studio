@@ -371,6 +371,41 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-30 (later same day) — Closing the A/B test loop: real before/after comparison
+Continuing the "10 ideas" list: site improvement #5. First had to correct my own assumption from
+when I proposed this — this project's A/B test isn't a simultaneous split-test (YouTube's public
+API has no way to show two titles to two viewer groups at once); it's a *sequential* switch: the
+video starts on variant A, a human can later switch the live video to variant B
+(`api/ab-test/route.js`, already existing, records `variant_switched_at`), and the comment there
+already said the intent was comparing CTR before/after in analytics — just manually, with no
+actual comparison built. Built that comparison.
+
+`lib/analytics/index.js` already had `videoThumbnailImpressionsClickRate` (real CTR) available
+from the YouTube Analytics API, just hardcoded to an all-time date range. Added
+`fetchStatsForVideoInRange()` — same query, caller-supplied date range — so before/after periods
+around the switch can be queried separately. Verified the metric-array destructuring position by
+position against a realistic API row shape (an off-by-one here would silently return the wrong
+metric as CTR).
+
+New `api/ab-test/results/route.js`: splits the video's lifetime at `variant_switched_at` (with a
+1-day gap on each side of the switch date, so no single day gets counted as partially-old,
+partially-new data), queries both periods, and compares CTR (the right signal for a title/
+thumbnail test — raw view count is also affected by unrelated factors like the algorithm or time
+of day) plus views/day normalized by each period's actual length. Two guards, both verified with
+concrete date-math test cases: refuses to compare if fewer than 2 days have passed since the
+switch (YouTube Analytics has a 1-2 day processing delay, so very recent data would be incomplete
+or misleading), and if the switch happened before there's enough "before" history to compare
+against.
+
+`lib/db/index.js: getAllVideos()` now also selects `variant_switched_at` (needed by the UI to know
+whether a comparison is even possible). New "📊 نتیجه‌ی A/B" button in
+`components/analytics/ChannelAnalytics.js`, next to the existing switch buttons, only shown once a
+switch has actually happened — shows the verdict plus a side-by-side CTR/views-per-day
+before/after breakdown.
+
+Files: `lib/analytics/index.js`, `lib/db/index.js`, `app/api/ab-test/results/route.js`,
+`components/analytics/ChannelAnalytics.js`.
+
 ### 2026-08-30 (later same day) — Real silence trimming implemented; found + fixed a pre-existing bug that had silently disabled yesterday's checkpoint 3
 Continuing the "10 ideas" list: site improvement #2, enabling `trimSilenceFromAudio`/
 `detectLongSilences` (previously placeholder no-ops per the known-issues list).
