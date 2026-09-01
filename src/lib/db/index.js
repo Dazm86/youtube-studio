@@ -177,6 +177,19 @@ async function ensureSchema() {
           updated_at TIMESTAMPTZ DEFAULT now()
         );
       `);
+
+      // ۲۰۲۶-۰۸-۳۱ — پلی‌لیست‌بندیِ خوشه‌ای: هر cluster_key (مثلاً
+      // "anxiety") فقط یک‌بار به یک پلی‌لیستِ واقعیِ یوتیوب متصل می‌شه؛
+      // ویدیوهای بعدیِ همون خوشه فقط بهش اضافه می‌شن، نه اینکه هر بار
+      // یک پلی‌لیستِ تازه بسازن.
+      await getPool().query(`
+        CREATE TABLE IF NOT EXISTS playlist_clusters (
+          cluster_key TEXT PRIMARY KEY,
+          youtube_playlist_id TEXT NOT NULL,
+          title TEXT NOT NULL,
+          created_at TIMESTAMPTZ DEFAULT now()
+        );
+      `);
       await ensureBuiltInProviders();
     })().catch((err) => {
       // اگه راه‌اندازیِ schema شکست بخوره، schemaReady رو null کن تا
@@ -517,6 +530,23 @@ export async function getRecentVideoIdsByMode(mode, limit = 8) {
     [mode, limit]
   );
   return res.rows.map((r) => r.video_id);
+}
+
+// ۲۰۲۶-۰۸-۳۱ — پلی‌لیست‌بندیِ خوشه‌ای
+export async function getPlaylistForCluster(clusterKey) {
+  await ensureSchema();
+  const res = await getPool().query(`SELECT * FROM playlist_clusters WHERE cluster_key = $1`, [clusterKey]);
+  return res.rows[0] || null;
+}
+
+export async function savePlaylistForCluster(clusterKey, youtubePlaylistId, title) {
+  await ensureSchema();
+  await getPool().query(
+    `INSERT INTO playlist_clusters (cluster_key, youtube_playlist_id, title)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (cluster_key) DO NOTHING`,
+    [clusterKey, youtubePlaylistId, title]
+  );
 }
 
 // --- فاز ۴: زمان‌بندی خودکار ---

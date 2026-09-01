@@ -135,8 +135,12 @@ source. One pipeline implementation, three ways to trigger it.
 ## File map
 
 ### Pages (`src/app/`)
-- `page.js` — home: sign-in gate, then section cards (long/short/
-  analytics/api-check/schedule/providers/ai-studio)
+- `page.js` — home: sign-in gate, then `DashboardSummary` *(new,
+  2026-08-31 — live Trend Finder pending count, schedule status, recent
+  activity, fetched from the same existing `/api/trends`+`/api/schedules`
+  +`/api/activity` endpoints, no new API surface)*, then the original
+  section cards (long/short/analytics/api-check/schedule/providers/
+  ai-studio)
 - `layout.js` — RTL Persian layout, Vazirmatn font
 - `providers.js` — NextAuth `SessionProvider` wrapper (name collision
   with the `providers/` route/page below is coincidental)
@@ -264,6 +268,14 @@ source. One pipeline implementation, three ways to trigger it.
 - `media/index.js` — thin wrapper re-exporting `fetchImages`/
   `fetchClips` from `providers/router.js`
 - `community/index.js` — `generateCommunityPost()`
+- `playlists/index.js` *(new, 2026-08-31)* — `PLAYLIST_CLUSTERS` (7
+  fixed topic groups), `matchCluster()` (word-overlap, 2-word min,
+  same technique as `metadata/index.js`'s related-video CTA),
+  `ensurePlaylistForCluster()` (creates a YouTube playlist once per
+  cluster via `playlists.insert`, tracked in the new `playlist_clusters`
+  table so later videos reuse it), `assignVideoToCluster()` — wired
+  into `pipeline.js` right after upload, reuses the already-
+  authenticated `youtube` client from the upload step
 - `comments/index.js` — `generateCommentReplyDrafts()`,
   `getRepliesForVideo()`; own small `pg` pool + `comment_replies` table
   (was previously undocumented here since it had no callers until
@@ -522,6 +534,7 @@ auto-flip to `produced` on that path (see Known issues).
 | `trend_scans` *(new, 2026-08-27)* | `started_at`/`finished_at`, `status`, `topics_found`, `candidates_considered`, `error` — one row per 6-hourly (or manual) scan run |
 | `trend_topics` *(new, 2026-08-27)* | `scan_id` FK, `topic`, `angle`, `suggested_format`, six `score_*` columns + `score_total`, `reasoning`, `source_signals` (jsonb — raw Trends/Reddit/News/YouTube data kept for audit), `status` (`pending`/`approved`/`rejected`/`produced`), `video_id` |
 | `activity_log` *(new, 2026-08-29)* | `type`, `message` (Persian, display-ready), `metadata` (jsonb), `created_at` — one row per site event (video upload/failure, trend scan, schedule trigger, repurpose, community-post draft); own small `pg` pool in `lib/activityLog.js` |
+| `playlist_clusters` *(new, 2026-08-31)* | `cluster_key` (PK, e.g. `"anxiety"`), `youtube_playlist_id`, `title`, `created_at` — one row per topic cluster, created the first time a video matches that cluster |
 
 ## Environment variables
 

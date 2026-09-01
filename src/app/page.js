@@ -2,6 +2,7 @@
 
 import { useSession, signIn, signOut } from "next-auth/react";
 import Link from "next/link";
+import DashboardSummary from "../components/dashboard/DashboardSummary";
 
 // ترتیب و محتوای این لیست عمداً با NAV_ITEMS توی NavBar.js همسو نگه داشته
 // می‌شه — قبلاً «زمان‌بندی خودکار» توی نوار بالا بود ولی اینجا نبود، یعنی
@@ -94,6 +95,8 @@ export default function Home() {
           </button>
         </div>
       </div>
+
+      <DashboardSummary />
 
       <div className="grid gap-3">
         {sections.map((s) => (

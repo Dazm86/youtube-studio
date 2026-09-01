@@ -10,6 +10,7 @@ import { distributeDurations, buildSrt, validateSrt, buildSentenceCaptions } fro
 import { translateCaptions } from "./script/translate.js";
 import { generateChapters } from "./metadata/index.js";
 import { generateCommunityPost } from "./community/index.js";
+import { assignVideoToCluster } from "./playlists/index.js";
 import { recordVideo, recordCommunityPost } from "./db/index.js";
 import { logEvent } from "./activityLog.js";
 
@@ -826,6 +827,25 @@ async function runPipelineCore(
     }
   }
 
+  // --- ۹. پلی‌لیست‌بندیِ خوشه‌ای (۲۰۲۶-۰۸-۳۱) ---
+  // youtube (خطِ بالاتر، همون کلاینتِ آپلود) رو دوباره استفاده می‌کنیم —
+  // نه یک accessTokenِ خام، تا نیازی به ساختنِ دوباره‌ی OAuth client نباشه.
+  let playlistStatus = "skipped";
+  try {
+    const assignment = await assignVideoToCluster(youtube, script, videoId);
+    playlistStatus = assignment.assigned ? `ok: ${assignment.clusterTitle}` : `skipped: ${assignment.reason}`;
+    if (assignment.assigned) {
+      logEvent({
+        type: "playlist_assigned",
+        message: `ویدیو به پلی‌لیستِ «${assignment.clusterTitle}» اضافه شد`,
+        metadata: { videoId, cluster: assignment.cluster, playlistId: assignment.playlistId },
+      });
+    }
+  } catch (playlistErr) {
+    console.error("playlist assignment failed:", playlistErr.message);
+    playlistStatus = "failed: " + playlistErr.message;
+  }
+
   if (captionStatus !== "ok") needsReviewReasons.push("شکستِ زیرنویسِ انگلیسی");
   // فقط وقتی *همه‌ی* زبان‌های ترجمه شکست خوردن پرچم می‌زنیم، نه یک زبانِ
   // تکی — شکستِ یک زبان از ۵ تا (که طراحیِ فیکسِ ۲۰۲۶-۰۸-۱۰ هم عمداً
@@ -858,6 +878,7 @@ async function runPipelineCore(
     translatedCaptionsSummary,
     communityPostStatus,
     communityPostDraft,
+    playlistStatus,
     needsReview,
     needsReviewReasons,
     runLog,

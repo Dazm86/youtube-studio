@@ -371,6 +371,43 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-08-31 (later same day) — Cluster-based playlist automation + unified dashboard
+Last two items from the original "10 ideas" list, built together as asked.
+
+**Playlist automation (growth idea #4).** New `lib/playlists/index.js`: 7 fixed topic clusters
+(anxiety, burnout, mindfulness, discipline, confidence, stoicism, relationships — chosen to align
+with `lib/trends/seeds.js`'s niche keywords, just grouped rather than one-keyword-per-entry, since
+a playlist needs to cover a cluster of related terms, not a single seed). `matchCluster()` scores
+a new video's script against each cluster's keyword list — reused the same word-overlap approach
+(and 2-word minimum threshold) already proven for the "related video" CTA and A/B matching earlier
+today, rather than inventing a new technique. Verified against 4 realistic scripts spanning
+different themes (anxiety, stoicism, boundaries, and one deliberately unrelated script) — each
+correctly matched or correctly matched nothing.
+
+`ensurePlaylistForCluster()` checks the new `playlist_clusters` DB table first; only calls
+`youtube.playlists.insert()` the first time a cluster is ever matched, then reuses that same
+playlist ID for every subsequent video in that cluster. Re-reads the DB row after insert (handles
+the rare race where two videos both trigger cluster creation at nearly the same moment — the
+`ON CONFLICT (cluster_key) DO NOTHING` on the save means only one write wins, so re-reading
+guarantees using whichever ID actually got persisted, not necessarily the one this specific call
+just created). Wired into `pipeline.js` right after upload, reusing the same already-authenticated
+`youtube` client the upload itself just used — no second OAuth round-trip. Same graceful-
+degradation pattern as the community-post section right next to it: tracked via a `playlistStatus`
+field on the pipeline result, never throws, never blocks the rest of the pipeline.
+
+**Unified dashboard (site improvement #3).** New `components/dashboard/DashboardSummary.js`,
+added to the top of the home page (`app/page.js`, above the existing nav-card grid, which stays
+as-is). Fetches `/api/activity`, `/api/trends`, and `/api/schedules` in parallel on mount — three
+already-existing endpoints, no new API surface needed. One correction made while building it: the
+Trend Finder card originally showed `latestScan.topics_found`, which is how many topics the *last
+scan* found — not the same as how many are still actually pending review (some could have been
+approved/rejected since). Switched to querying `status=pending` directly and using the real
+result count, so the number shown matches what `/trends` itself would show.
+
+Files (new): `lib/playlists/index.js`, `components/dashboard/DashboardSummary.js`. Files
+(modified): `lib/pipeline.js`, `lib/db/index.js`, `lib/activityLog.js`,
+`components/activity/ActivityFeed.js`, `app/page.js`.
+
 ### 2026-08-31 — "Watch next" CTA in the description, not a pinned comment
 Last item from the original "10 ideas" list actually built as proposed (growth idea #3) needed a
 correction first: my own original framing ("CTA in a pinned comment") isn't possible — YouTube
