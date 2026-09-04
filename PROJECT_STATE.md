@@ -183,7 +183,10 @@ source. One pipeline implementation, three ways to trigger it.
 - `community/route.js` — generates + stores a Community-tab post draft
   via `lib/community/index.js`
 - **`comments/route.js`** *(new, 2026-08-30 — wires up `lib/comments/
-  index.js`, which already existed fully built but had zero callers)*
+  index.js`, which already existed fully built but had zero callers;
+  note: `lib/comments/index.js` itself wasn't actually committed until
+  2026-09-05 — every deploy from 2026-08-31 through 2026-09-04 failed to
+  build because of it, see ROADMAP.md)*
   — POST generates AI reply drafts for a video's top comments (dedup'd,
   won't re-spend AI on already-drafted comments), GET lists existing
   drafts. Same "draft only, no auto-publish" framing as `community/

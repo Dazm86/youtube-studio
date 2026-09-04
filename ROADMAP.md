@@ -404,6 +404,32 @@ so no regression risk there.
 
 Files (modified): `app/api/auto-produce/route.js`, `app/api/jobs/callback/route.js`.
 
+### 2026-09-05 (later same day) — Found and fixed the real cause of 4 consecutive Render build failures: `lib/comments/index.js` was never actually committed
+User forwarded four Render build logs (2026-08-31 through 2026-09-04), all failing with the
+identical Turbopack error `Module not found: Can't resolve '@/lib/comments'` in
+`api/comments/route.js`. The recurring "Encountered unexpected file in NFT list" warnings at the
+top of each log are unrelated noise — non-fatal, and each log itself confirms exactly one real
+error (`Turbopack build failed with 1 errors`).
+
+Ruled out a Turbopack directory-import limitation before assuming one: `api/community/route.js`
+does the exact same `await import("@/lib/X")` of a folder-with-`index.js` (`@/lib/community`), and
+that build has never failed. Checked the file the user actually has locally (via an uploaded
+`src.zip`) — `lib/comments/index.js` exists, is syntactically valid (`node --check` on an `.mjs`
+copy), and is structurally identical to `lib/community/index.js`. Works for one identically-shaped
+module, fails only for the other, on a file confirmed present on disk — pointed at a git-tracking
+problem rather than a code problem: the file most likely existed locally since `comments/route.js`
+was added (2026-08-30) but was never `git add`ed alongside it, so every push since has been missing
+it on GitHub even though nothing about the code itself was wrong.
+
+Had the user confirm rather than assume, with a conditional Termux script
+(`git ls-files --error-unmatch src/lib/comments/index.js`) before touching anything — it printed
+the "never committed" branch. Fixed with `git add src/lib/comments/index.js && git commit && git
+push` — commit `7366055` (previous HEAD `f75d75b`), one file, 126 insertions, `create mode 100644`
+(git's own confirmation this was a brand-new blob to the repo, not a re-add of something already
+tracked).
+
+Files (added — was already written 2026-08-30, only now actually pushed): `lib/comments/index.js`.
+
 ### 2026-08-31 (later same day) — Cluster-based playlist automation + unified dashboard
 Last two items from the original "10 ideas" list, built together as asked.
 
