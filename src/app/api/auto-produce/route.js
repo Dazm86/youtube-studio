@@ -87,6 +87,12 @@ export async function POST(req) {
               videoMode: mode,
               useVideoClips: !!useVideoClips,
               imageKeyword: "",
+              // ۲۰۲۶-۰۹-۰۵ — فقط برای این‌که api/jobs/callback بعداً
+              // بتونه موضوعِ Trend Finder رو «produced» علامت بزنه؛
+              // runPipeline() این فیلد رو نادیده می‌گیره (destructuring
+              // صریحه، نه spread به SQL/جای دیگه)، پس اضافه‌کردنش این‌جا
+              // بی‌خطره حتی با اینکه همین input عیناً به worker هم می‌ره.
+              trendTopicId: trendTopicRow?.id || null,
             },
             {
               githubToken,
@@ -95,12 +101,13 @@ export async function POST(req) {
             }
           );
 
-          // نکته‌ی شناخته‌شده: تو حالتِ worker، آپلود دقیقه‌ها بعد و
-          // async از طریقِ callback انجام می‌شه — یعنی videoId این‌جا در
-          // دسترس نیست، پس اگه این موضوع از Trend Finder اومده بود،
-          // خودکار به «produced» تغییر نمی‌کنه (فقط تو حالتِ in-process
-          // این اتفاق می‌افته، پایین‌تر). می‌تونی بعداً دستی از /trends
-          // علامت بزنی.
+          // ۲۰۲۶-۰۹-۰۵ — قبلاً این‌جا videoId در دسترس نبود (آپلود
+          // async و دقیقه‌ها بعد، از طریقِ callback انجام می‌شه)، پس
+          // موضوعِ Trend Finder خودکار «produced» نمی‌شد. حالا
+          // trendTopicId بالاتر تو input جاب ذخیره شده و
+          // api/jobs/callback موقعِ گزارشِ موفقیت خودش از رویِ
+          // worker_jobs.input می‌خونتش و markTrendTopicProduced رو صدا
+          // می‌زنه — دیگه نیازی به علامت‌زدنِ دستی از /trends نیست.
           send({
             done: true,
             jobId,

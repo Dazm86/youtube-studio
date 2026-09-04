@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { verifyWorkerCredential, verifyJobPayload } from "@/lib/jobs";
-import { updateWorkerJob } from "@/lib/db/index.js";
+import { updateWorkerJob, getWorkerJob } from "@/lib/db/index.js";
 import { logEvent } from "@/lib/activityLog.js";
+import { markTrendTopicProduced } from "@/lib/trends/db.js";
 
 // ۲۰۲۶-۰۸-۱۸ — قبلاً یک Map درون‌حافظه‌ای بود که با هر ری‌استارتِ سرور
 // (رایج تو Render free tier) پاک می‌شد؛ الان تو دیتابیس ماندگاره.
@@ -44,6 +45,29 @@ export async function POST(request) {
         message: `ویدیو با موفقیت آپلود شد (Worker، Job ${jobId})`,
         metadata: { videoId: result.videoId, jobId, viaWorker: true },
       });
+
+      // ۲۰۲۶-۰۹-۰۵ — بستنِ حلقه‌ی Trend Finder برایِ مسیرِ worker. تو
+      // مسیرِ in-process این کار رو lib/autoProduce.js:autoProduceVideo()
+      // مستقیم انجام می‌ده چون videoId همون‌جا در دسترسه؛ این‌جا آپلود
+      // async و دقیقه‌ها بعد از dispatch کامل می‌شه. trendTopicId رو از
+      // رویِ خودِ ردیفِ worker_jobs می‌خونیم (input jsonb، همونی که
+      // api/auto-produce/route.js موقعِ dispatch توش گذاشته) — نه از
+      // payload اکوشده، چون worker/index.js:reportResult() اصلاً
+      // payload/signature رو تو بدنه‌ی این callback نمی‌فرسته (فقط
+      // status/result/error)، پس چکِ `payload && signature` چند خط
+      // بالاتر همیشه false بوده و هست.
+      try {
+        const jobRow = await getWorkerJob(jobId);
+        const trendTopicId = jobRow?.input?.trendTopicId;
+        if (trendTopicId) {
+          await markTrendTopicProduced(trendTopicId, result.videoId);
+        }
+      } catch (markErr) {
+        console.error(
+          "markTrendTopicProduced (worker callback) failed (video already uploaded fine):",
+          markErr.message
+        );
+      }
     } else if (error) {
       logEvent({
         type: "video_failed",

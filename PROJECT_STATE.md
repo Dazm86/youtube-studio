@@ -515,8 +515,9 @@ the script → `generateMetadata()`. Then either `runPipeline()` in-process
 (`autoProduceVideo()`, marks the trend topic `produced` on success) or,
 under `USE_RENDER_WORKER=true`, `dispatchAndTrackJob()` for just the
 render+upload half — same branch `generate-and-upload/route.js` already
-uses, and the same known worker-mode gap: the trend topic doesn't
-auto-flip to `produced` on that path (see Known issues).
+uses. As of 2026-09-05, both paths mark the trend topic `produced`: the
+worker path via `trendTopicId` threaded through the job `input` and read
+back by `api/jobs/callback/route.js` (see Known issues history).
 
 ## Database schema (Postgres, auto-created via `ensureSchema()`)
 
@@ -615,14 +616,12 @@ previously caused `invalid_client`/`deleted_client` confusion.
   had been flagging every video, not just broken ones).
 - ⚪ Several component-folder `index.js` barrels and the top-level
   `lib/index.js` barrel are unused dead code (harmless).
-- 🟡 **Auto-produce doesn't mark a Trend Finder topic "produced" when
-  `USE_RENDER_WORKER=true`** (new, 2026-08-28): the worker-dispatch path
-  uploads asynchronously via `api/jobs/callback`, so `videoId` isn't known
-  synchronously inside `api/auto-produce/route.js` the way it is on the
-  in-process path — the trend topic just stays `approved`. Fixable
-  manually from `/trends`; a real fix would mean threading the
-  `trendTopicId` through the job payload and having the callback handler
-  call `markTrendTopicProduced()`, not done yet.
+- ✅ ~~Auto-produce doesn't mark a Trend Finder topic "produced" when
+  `USE_RENDER_WORKER=true`~~ — **fixed 2026-09-05.** `trendTopicId` is now
+  threaded through the job `input`, and `api/jobs/callback/route.js` reads
+  it back via `getWorkerJob()` and calls `markTrendTopicProduced()` once a
+  successful `videoId` comes back. Not yet verified against a real worker
+  run — see that date's changelog entry.
 
 ---
 

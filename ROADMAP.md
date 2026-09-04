@@ -371,6 +371,39 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-09-05 — Auto-produce (worker mode) now marks the Trend Finder topic "produced"
+Closed the known 🟡 gap: under `USE_RENDER_WORKER=true`, `api/auto-produce/route.js` couldn't
+mark a Trend Finder topic `produced` because the upload happens asynchronously via
+`api/jobs/callback`, minutes after the dispatching request has already returned — `videoId` was
+never in scope at dispatch time.
+
+Traced two possible sources for `trendTopicId` at callback time before picking one. The callback
+route already destructures an echoed `payload`/`signature` off the request body for optional
+signature re-verification, which would have carried the original job `input` (including a
+`trendTopicId` added there) straight through — looked like the obvious hook. Checked
+`worker/index.js: reportResult()` directly rather than assuming, and it only ever POSTs
+`{ status, result, error }`, never `payload`/`signature` — so that echoed-payload branch in the
+callback has always been dead code, the `payload && signature` check never fires for a real worker
+run. Used `worker_jobs.input` instead, via the existing `getWorkerJob()`, which is populated at
+dispatch time regardless of what the worker echoes back.
+
+Fix: `api/auto-produce/route.js` now includes `trendTopicId: trendTopicRow?.id || null` in the job
+`input` handed to `dispatchAndTrackJob()` — a harmless extra field, since `runPipeline()`
+destructures only its named params, so it's silently ignored on the worker side even though the
+same `input` object is what gets sent to the worker. `api/jobs/callback/route.js` now calls
+`getWorkerJob(jobId)` after confirming a successful `result.videoId`, reads `input.trendTopicId`
+back off the row, and calls `markTrendTopicProduced()` — same fire-and-forget `.catch()`-style
+error handling as the in-process path in `lib/autoProduce.js`, so a bookkeeping failure here can
+never fail the callback response for a video that already uploaded fine.
+
+Verified both files with `node --check` on `.mjs` copies per this file's own note under Known
+constraints (not the unreliable plain-`.js` check). Not yet verified against a real worker run
+(needs `USE_RENDER_WORKER=true`, an approved trend topic, and an actual GitHub Actions dispatch) —
+the in-process path's equivalent logic in `lib/autoProduce.js: autoProduceVideo()` was untouched,
+so no regression risk there.
+
+Files (modified): `app/api/auto-produce/route.js`, `app/api/jobs/callback/route.js`.
+
 ### 2026-08-31 (later same day) — Cluster-based playlist automation + unified dashboard
 Last two items from the original "10 ideas" list, built together as asked.
 
