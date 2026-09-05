@@ -105,6 +105,14 @@ that assumes they don't exist:
   classNames; a value used only inside `@apply` (e.g. `gap-1.5`) broke
   the build with "Cannot apply unknown utility class". Every custom
   class in `globals.css` is now plain CSS against `@theme` vars instead.
+- **Prefer an existing pattern over a new npm dependency for small UI
+  needs (icons, etc.), when there's no confirmed `package.json` to check
+  against.** Added 2026-09-05 after the `src/lib/comments/index.js`
+  saga (a same-repo file, not even a package, but still killed 4
+  builds in a row by not resolving) — a genuinely new dependency is
+  higher-risk than that, since it's not even guaranteed to be
+  installed. `ai-studio/StudioIcons.js` is hand-rolled inline SVG for
+  exactly this reason, instead of pulling in e.g. `lucide-react`.
 
 ## Architecture
 
@@ -419,9 +427,42 @@ source. One pipeline implementation, three ways to trigger it.
 - `schedule/ScheduleSettings.js` — schedule CRUD UI + cron setup
   instructions + recent-runs log
 - `providers/ProviderManager.js` — add/edit/reorder/test API providers
-- `ai-studio/AIStudio.js` + `TextGenerator.js`/`ImageGenerator.js`/
-  `AudioGenerator.js`/`VideoGenerator.js` — standalone generation tools,
-  not tied to the video pipeline
+- **`ai-studio/AIStudio.js`** *(rebuilt 2026-09-05 — dashboard-style
+  redesign matching a reference screenshot the user provided; was a
+  plain 4-tab layout before)* — shell: session gate, `/api/providers`
+  fetch (unchanged), local `selectedMethod`/`selectedTool`/
+  `projectName` state, lays out the pieces below.
+  - `StudioIcons.js` — small hand-rolled inline-SVG icon set, no new
+    npm dependency on purpose (see Known constraints).
+  - `StudioSidebar.js` — nav where only 4 items link to a real page
+    (`/ai-studio`, `/analytics`, `/schedule`, `/providers`); the rest
+    are honestly inert (`href: null`, "به‌زودی" chip, no click
+    handler) instead of dead links. Resource Monitor is an honest
+    0%/"به‌زودی" state, not fabricated numbers.
+  - `StudioMethodBoard.js` — top tool-icon row (Text/Image/Video/Audio
+    real, Code/Document/More disabled) + the 5 method cards, only
+    `AI Only` has `available: true`; exports `METHODS`, shared by the
+    panels below.
+  - `StudioWorkflow.js` — static explanatory strip using the *real*
+    pipeline stages (Trend Finder → script → TTS/media → FFmpeg
+    render → quality gate → upload), not generic mockup labels.
+  - `StudioBuildPanel.js` — the functional part: `AI Only` renders the
+    real `TextGenerator`/`ImageGenerator`/`VideoGenerator`/
+    `AudioGenerator` (untouched) inside the new chrome; every other
+    method shows a disabled "تولید / ساخت" button instead of
+    pretending to work. AI/Code "contribution" bars are derived from
+    the selected method, not draggable.
+  - `StudioRightPanel.js` — method details, decorative Advanced
+    Settings (local state, no API calls), Project Info (name is a
+    real editable field, "ساخته‌شده توسط" is the real session user,
+    cost/duration show "—" instead of invented numbers), empty-state
+    Version History, capabilities checklist.
+  - `StudioTemplates.js` — non-clickable combo examples grounded in
+    real/near-real features (Trend Finder, comment-reply drafts,
+    community posts).
+  - `TextGenerator.js`/`ImageGenerator.js`/`VideoGenerator.js`/
+    `AudioGenerator.js` — unchanged, still the real generation tools,
+    not tied to the video pipeline.
 - **`trends/TrendFinder.js`** *(new, 2026-08-27)* — score-breakdown cards
   per topic, live NDJSON scan progress, status filter tabs, approve/
   reject, and (once approved) links into `/long?topic=...`/

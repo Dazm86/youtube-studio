@@ -2,21 +2,19 @@
 
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
-import { TextGenerator } from "./TextGenerator";
-import { ImageGenerator } from "./ImageGenerator";
-import { VideoGenerator } from "./VideoGenerator";
-import { AudioGenerator } from "./AudioGenerator";
-
-const TABS = [
-  { id: "text", label: "📝 متن", description: "اسکریپت، عنوان، ترجمه، پست" },
-  { id: "image", label: "🖼️ عکس", description: "تولید عکس از متن، استوک" },
-  { id: "video", label: "🎬 ویدیو", description: "کلیپ استوک، ویدیوهای کوتاه" },
-  { id: "audio", label: "🔊 صدا", description: "تبدیل متن به گفتار (TTS)" },
-];
+import { Icon } from "./StudioIcons";
+import StudioSidebar from "./StudioSidebar";
+import StudioMethodBoard from "./StudioMethodBoard";
+import StudioWorkflow from "./StudioWorkflow";
+import StudioBuildPanel from "./StudioBuildPanel";
+import StudioRightPanel from "./StudioRightPanel";
+import StudioTemplates from "./StudioTemplates";
 
 export default function AIStudio() {
   const { data: session, status: sessionStatus } = useSession();
-  const [activeTab, setActiveTab] = useState("text");
+  const [selectedMethod, setSelectedMethod] = useState("ai-only");
+  const [selectedTool, setSelectedTool] = useState("text");
+  const [projectName, setProjectName] = useState("");
   const [providers, setProviders] = useState({});
   const [loading, setLoading] = useState(true);
 
@@ -42,6 +40,14 @@ export default function AIStudio() {
     setLoading(false);
   }
 
+  // «پروژه‌ی جدید» صرفاً یک ریست محلیه — چیزی رو تو دیتابیس ذخیره/حذف
+  // نمی‌کنه، چون این صفحه هنوز مفهومِ «پروژه»‌ی پایدار نداره.
+  function handleNewProject() {
+    setSelectedMethod("ai-only");
+    setSelectedTool("text");
+    setProjectName("");
+  }
+
   if (sessionStatus === "loading") return null;
   if (!session) {
     return (
@@ -52,60 +58,54 @@ export default function AIStudio() {
   }
 
   return (
-    <main className="min-h-screen bg-bg text-text px-4 py-6 max-w-3xl mx-auto">
-      <header className="mb-6">
-        <h1 className="text-2xl font-bold mb-1">🎨 AI Studio</h1>
-        <p className="text-text-muted">
-          تولید محتوای هوش مصنوعی — متن، عکس، ویدیو و صدا با providerهای تنظیم‌شده
-        </p>
-      </header>
-
-      {/* Tab Navigation */}
-      <nav className="mb-4 flex gap-1 overflow-x-auto pb-2" aria-label="AI Studio tabs">
-        {TABS.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm shrink-0 transition-colors ${
-              activeTab === tab.id
-                ? "bg-amber/20 text-amber border border-amber"
-                : "text-text-muted hover:bg-surface-raised"
-            }`}
-            aria-current={activeTab === tab.id ? "page" : undefined}
-          >
-            <span>{tab.label}</span>
-            <span className="text-xs text-text-faint hidden sm:inline">{tab.description}</span>
-          </button>
-        ))}
-      </nav>
-
-      {loading ? (
-        <div className="flex items-center justify-center py-10 text-text-muted">در حال بارگذاری providerها...</div>
-      ) : (
-        <>
-          {activeTab === "text" && (
-            <TextGenerator providers={providers.text} />
-          )}
-          {activeTab === "image" && (
-            <ImageGenerator providers={providers.image} />
-          )}
-          {activeTab === "video" && (
-            <VideoGenerator providers={providers.video} />
-          )}
-          {activeTab === "audio" && (
-            <AudioGenerator providers={providers.audio} />
-          )}
-        </>
-      )}
-
-      {/* Provider status hint */}
-      {providers[activeTab]?.length === 0 && (
-        <div className="mt-6 rounded-lg border border-amber-dim bg-amber/10 p-4 text-sm text-amber">
-          <strong>⚠️ هیچ provider فعالی برای این نوع کار تنظیم نشده.</strong>
-          <p className="mt-1">به صفحه <a href="/providers" className="underline hover:text-amber">ارائه‌دهنده‌های API</a> برو و برای "{TABS.find((t) => t.id === activeTab)?.label}" یک provider اضافه کن.
+    <main className="min-h-screen bg-bg text-text px-4 py-6 max-w-[100rem] mx-auto">
+      <header className="mb-6 flex items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold mb-1 flex items-center gap-2">
+            <Icon name="sparkle" className="w-6 h-6 text-amber" />
+            AI Studio
+          </h1>
+          <p className="text-text-muted text-sm">
+            هر چیزی را، به هر روشی بساز — با هوش مصنوعی، با کد، یا هر ترکیبِ دیگری
           </p>
         </div>
-      )}
+        <button onClick={handleNewProject} className="btn-primary lg:hidden shrink-0">
+          <Icon name="plus" className="w-4 h-4" />
+          جدید
+        </button>
+      </header>
+
+      <div className="flex flex-col lg:flex-row gap-6 items-start">
+        <StudioSidebar onNewProject={handleNewProject} />
+
+        <div className="flex-1 min-w-0 w-full space-y-4">
+          <StudioMethodBoard
+            selectedMethod={selectedMethod}
+            onSelectMethod={setSelectedMethod}
+            selectedTool={selectedTool}
+            onSelectTool={setSelectedTool}
+          />
+
+          <StudioWorkflow />
+
+          <StudioBuildPanel
+            selectedMethod={selectedMethod}
+            selectedTool={selectedTool}
+            onSelectTool={setSelectedTool}
+            providers={providers}
+            providersLoading={loading}
+          />
+
+          <StudioTemplates />
+        </div>
+
+        <StudioRightPanel
+          selectedMethod={selectedMethod}
+          session={session}
+          projectName={projectName}
+          onProjectNameChange={setProjectName}
+        />
+      </div>
     </main>
   );
 }

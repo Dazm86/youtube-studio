@@ -371,6 +371,58 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-09-05 (later same day, after the build-failure fix) — AI Studio redesigned to match a reference screenshot
+User shared a screenshot of a generic "AI Studio — Create Anything With Any Method" dashboard
+mockup (sidebar nav, top method icons, 5 colored method cards, a visual workflow strip with
+"Agents Involved", a 2-column build panel with contribution sliders and model dropdowns, a right
+column with method details/advanced settings/project info/version history/a capabilities
+checklist, and a bottom row of method-combination examples) and asked to rebuild `ai-studio/`
+to match it. Confirmed with the user first how much of it should be real vs decorative, since the
+mockup depicts a whole multi-agent AI+Code orchestration product this app doesn't have a backend
+for — answer: build every panel, decorative is fine for the parts without a backend yet.
+
+Split the work honestly rather than faking the whole thing: `AI Only` (Text/Image/Video/Audio) is
+the one method with `available: true` and renders the real `TextGenerator`/`ImageGenerator`/
+`VideoGenerator`/`AudioGenerator` — completely untouched, same `providers` prop as before, so zero
+regression risk to something that already worked. `Code Only`/`AI + Code`/`Hybrid Advanced`/
+`Other` show a disabled "تولید / ساخت" button and an explicit "not implemented yet" card instead of
+a button that looks live but does nothing. Sidebar nav only links to pages that actually exist per
+this file's own "Pages" list (`/ai-studio`, `/analytics`, `/schedule`, `/providers`) — everything
+else (Edit, Agent Workspace, Assets, Publish, Templates, Workflows, Settings) has no `href` and
+renders visibly inert with a "به‌زودی" chip, not a dead link. Resource Monitor, cost/duration in
+Project Info, and Version History show an honest zero/empty state rather than invented numbers
+(the mockup's "$12.45", "v3 Final Version", etc. were illustrative mockup content, not a spec to
+fabricate real-looking fake data from). Project Info's "ساخته‌شده توسط" and the project-name field
+are real (session user, a real local text input) where that was free.
+
+Grounded the purely-decorative parts in the app's actual domain instead of the mockup's generic
+copy, per the design skill's steer to build from the real subject matter: the workflow strip's
+steps and roles are the real pipeline (Trend Finder → script → TTS/media → FFmpeg render → quality
+gate → upload), and the bottom "combination examples" row references real/near-real features
+(Trend Finder, comment-reply drafts, community posts) instead of abstract placeholders. Colors
+reuse the existing `amber`/`teal`/`secondary`/`warning` tokens from the 2026-08-22 "Dark Futuristic
+AI Dashboard" redesign rather than a new palette — that palette already happened to land close to
+the reference image's own violet-on-navy look.
+
+Deliberately skipped a new icon-library dependency (e.g. `lucide-react`) with no way to confirm
+it's actually in `package.json` — wrote a small hand-rolled inline-SVG set
+(`ai-studio/StudioIcons.js`) instead. See Known constraints for why, added as its own note today
+given what the previous entry just cost.
+
+Verified all 8 new/changed files with esbuild's JSX-aware transform (pure syntax check, no module
+resolution needed) rather than plain `node --check`, since these are components with JSX — `tsx`'s
+bundled esbuild happened to be available locally for this. Cross-checked every local import against
+its target file's actual exports, and every dynamically-referenced icon name against
+`StudioIcons.js`'s defined set, by hand — not build-verified against the real Next.js/Turbopack
+toolchain, so still worth a real `npm run build` (or at least a look at the page) after applying.
+
+Files (new): `ai-studio/StudioIcons.js`, `ai-studio/StudioSidebar.js`,
+`ai-studio/StudioMethodBoard.js`, `ai-studio/StudioWorkflow.js`, `ai-studio/StudioBuildPanel.js`,
+`ai-studio/StudioRightPanel.js`, `ai-studio/StudioTemplates.js`.
+Files (rewritten): `ai-studio/AIStudio.js`.
+Files (untouched, reused as-is): `ai-studio/TextGenerator.js`, `ai-studio/ImageGenerator.js`,
+`ai-studio/VideoGenerator.js`, `ai-studio/AudioGenerator.js`.
+
 ### 2026-09-05 — Auto-produce (worker mode) now marks the Trend Finder topic "produced"
 Closed the known 🟡 gap: under `USE_RENDER_WORKER=true`, `api/auto-produce/route.js` couldn't
 mark a Trend Finder topic `produced` because the upload happens asynchronously via
