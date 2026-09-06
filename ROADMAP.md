@@ -371,6 +371,57 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-09-06 (later same day) — Reviewed a Gemini channel-growth audit against the real code before touching anything
+User pasted a 6-category growth audit from Gemini (channel identity consistency, thumbnail CTR,
+3-second hooks, voice/animation emotion, multi-language subtitles + SEO, posting-schedule
+consistency) and asked to implement whatever's actually doable. Checked each category against the
+real code instead of assuming any of it was new:
+
+- **Hook in first 3 seconds + ending with a specific, topic-tied comment-inviting question**:
+  already thoroughly implemented in `lib/script/index.js`'s prompt — arguably more sophisticated
+  than what was suggested (an AI self-review step already checks `hookDelivered`/`toneAppropriate`
+  and rewrites once if either fails). Nothing to add.
+- **Thumbnail text shouldn't repeat the title, should be short/punchy**: already explicitly required
+  in `lib/metadata/index.js`'s prompt ("must NOT restate or shorten that title", "3-4 words...
+  think of the biggest, simplest words that would work shouted across a room"). Nothing to add.
+- **Natural breathing pauses / vocal emotion**: already deliberately handled — a comment in
+  `lib/script/index.js` documents that SSML pause tags were tried and found unreliable, so the
+  prompt leans on punctuation-driven pacing instead. Adding a literal "(sigh)" as a stage direction
+  would actually violate this same prompt's explicit "no stage directions" rule and likely get read
+  aloud as text by the TTS. Left alone on purpose, not missed.
+- **Multi-language subtitles**: already a real, working feature — English SRT plus 5 translated
+  languages (`es`/`pt`/`ar`/`hi`/`fa`) via `translateCaptions()`, uploaded to YouTube through
+  `captions.insert()`. Gemini's specific example (Spanish/Hindi/German) was 2/3 already covered —
+  added German (`de`) to `CAPTION_LANGUAGES` in `pipeline.js`, the one genuine gap. The
+  "ask viewers to comment, in multiple languages" idea is also already covered for free: the
+  script's English closing question gets machine-translated along with everything else, into every
+  caption language.
+- **Consistent thumbnail template for future Shorts**: `mayaThumbnail.js` already has one fixed
+  template (Maya bottom-right, auto-wrapped centered text, same font/size/stroke every time) — the
+  underlying goal (consistency) is already met, just with a different specific layout than Gemini's
+  example (center-face + top text band). Didn't silently redesign an established, working visual
+  template on Gemini's illustrative example alone — that's a brand-identity call for the user to
+  make, not an implementation detail to guess at.
+- **Maya's gaze/expression shifting mid-video (down during the problem, direct eye contact for the
+  solution)**: a real gap, only partially addressed. `pickMayaPose()` already picks a mood from
+  keywords (excited/thinking/meditating/caring/surprised/teaching/confident) — but once, for the
+  *whole* script, used for both the thumbnail and the one pose used for the *entire* rendered video
+  (`buildMayaAnimationFilter` only cycles blink/talk frames of that single pose, never switches
+  pose). Doing this for real needs two things this session didn't have: (a) per-segment mood
+  scoring instead of whole-script, and (b) a genuinely different-looking pose asset for "looking
+  down, uncertain" — the existing pose set doesn't have one (a 2026-08-29 comment already flags this
+  same gap for the thumbnail's "stress" mood, using `surprised` as the nearest approximation for
+  lack of a dedicated asset). Even with existing poses reused per-segment, this touches the FFmpeg
+  filter-graph construction directly, with no way to render-test it here — flagged rather than
+  shipped blind, per the same caution as every other filter-graph change in this file's history.
+- **Posting schedule (daily Shorts at a fixed local time, weekly long-form on Sundays)**: not a code
+  change at all — `schedules`/`ScheduleSettings.js`/`/schedule` already do exactly this, it's a
+  configuration the user sets from that page, not something this session could reach (no live access
+  to the deployed app/DB from here).
+- **Un-listing old Shorts with real human faces**: explicitly the user's own task, not touched.
+
+Files (modified): `lib/pipeline.js` (added German to `CAPTION_LANGUAGES`).
+
 ### 2026-09-06 — Resource Monitor and Version History are now genuinely persistent (new `studio_activity` table)
 The two remaining decorative panels asked for next: پایشِ منابع (cost/token monitor) and a real,
 cross-session Version History. Both needed actual server-side persistence — the previous

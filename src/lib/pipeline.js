@@ -784,6 +784,9 @@ async function runPipelineCore(
     { code: "ar", name: "العربية" },
     { code: "hi", name: "हिन्दी" },
     { code: "fa", name: "فارسی" },
+    // ۲۰۲۶-۰۹-۰۶ — طبقِ پیشنهادِ Gemini (اسپانیایی/هندی/آلمانی)؛ دوتای
+    // اول از قبل بودن، فقط آلمانی جدیده.
+    { code: "de", name: "Deutsch" },
   ];
   let translatedOk = 0;
   for (const lang of CAPTION_LANGUAGES) {
