@@ -31,6 +31,7 @@ export default function StudioBuildPanel({
   onSelectTool,
   providers,
   providersLoading,
+  onActivity,
 }) {
   const [orchestration, setOrchestration] = useState(ORCHESTRATION_OPTIONS[0]);
   const [autoOptimize, setAutoOptimize] = useState(true);
@@ -123,10 +124,30 @@ export default function StudioBuildPanel({
                 <p className="text-sm text-text-muted py-6 text-center">در حال بارگذاری providerها...</p>
               ) : (
                 <>
-                  {selectedTool === "text" && <TextGenerator providers={providers.text} />}
-                  {selectedTool === "image" && <ImageGenerator providers={providers.image} />}
-                  {selectedTool === "video" && <VideoGenerator providers={providers.video} />}
-                  {selectedTool === "audio" && <AudioGenerator providers={providers.audio} />}
+                  {selectedTool === "text" && (
+                    <TextGenerator
+                      providers={providers.text}
+                      onActivity={(a) => onActivity?.({ tool: "text", ...a })}
+                    />
+                  )}
+                  {selectedTool === "image" && (
+                    <ImageGenerator
+                      providers={providers.image}
+                      onActivity={(a) => onActivity?.({ tool: "image", ...a })}
+                    />
+                  )}
+                  {selectedTool === "video" && (
+                    <VideoGenerator
+                      providers={providers.video}
+                      onActivity={(a) => onActivity?.({ tool: "video", ...a })}
+                    />
+                  )}
+                  {selectedTool === "audio" && (
+                    <AudioGenerator
+                      providers={providers.audio}
+                      onActivity={(a) => onActivity?.({ tool: "audio", ...a })}
+                    />
+                  )}
 
                   {providers[selectedTool]?.length === 0 && (
                     <div className="mt-3 rounded-lg border border-amber-dim bg-amber/10 p-3 text-xs text-amber">

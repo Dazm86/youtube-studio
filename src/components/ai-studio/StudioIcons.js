@@ -37,6 +37,7 @@ const PATHS = {
   output: "M4 5h16v14H4V5zm4 9l3-3 2 2 4-4",
   copy: "M8 8h11v11H8V8zM5 16V4h11",
   check: "M5 12l4 4 10-10",
+  close: "M6 6l12 12M18 6L6 18",
   clock: "M12 7v5l3.5 2 M12 21a9 9 0 100-18 9 9 0 000 18z",
 };
 

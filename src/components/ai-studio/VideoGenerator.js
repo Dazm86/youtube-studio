@@ -7,7 +7,7 @@ const PRESETS = [
   { id: "broll", label: "🎬 لیست B-roll", prompt: "Create a shot list of 8-10 specific B-roll clips for a video on the topic below. Each line: brief visual description + suggested duration. Optimized for mindfulness/motivation content. Numbered list only." },
 ];
 
-export function VideoGenerator({ providers }) {
+export function VideoGenerator({ providers, onActivity }) {
   const [preset, setPreset] = useState("keywords");
   const [topic, setTopic] = useState("");
   const [customPrompt, setCustomPrompt] = useState("");
@@ -25,6 +25,8 @@ export function VideoGenerator({ providers }) {
     setLoading(true);
     setError("");
     setResult(null);
+    const startedAt = Date.now();
+    onActivity?.({ phase: "start" });
 
     try {
       const prompt = isCustom ? customPrompt : `${PRESETS.find((p) => p.id === preset).prompt}\n\nTopic: "${topic.trim()}"`;
@@ -36,8 +38,14 @@ export function VideoGenerator({ providers }) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "خطا در جستجوی کلیپ");
       setResult(data);
+      onActivity?.({
+        phase: "done",
+        durationMs: Date.now() - startedAt,
+        summary: `${(data.clips?.length || 0).toLocaleString("fa-IR")} کلیپ`,
+      });
     } catch (err) {
       setError(err.message);
+      onActivity?.({ phase: "error", durationMs: Date.now() - startedAt, message: err.message });
     }
     setLoading(false);
   }

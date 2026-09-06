@@ -10,16 +10,25 @@ const CHECKLIST = [
   { done: true, label: "۴ ابزارِ واقعی: متن، عکس، ویدیو، صدا" },
   { done: true, label: "برای هرکدوم providerِ جدا انتخاب کن" },
   { done: true, label: "نتیجه رو مستقیم کپی یا دانلود کن" },
+  { done: true, label: "مدت و تاریخچه‌ی همین‌نشست واقعی‌ان" },
   { done: false, label: "روش‌های Code Only / AI+Code / ترکیبِ پیشرفته" },
-  { done: false, label: "پیگیریِ خودکارِ هزینه و زمانِ ساخت" },
+  { done: false, label: "پیگیریِ خودکارِ هزینه (توکن/دلار)" },
 ];
 
-export default function StudioRightPanel({ selectedMethod, session, projectName, onProjectNameChange }) {
+function formatDuration(ms) {
+  if (ms === undefined || ms === null) return "—";
+  const totalSec = ms / 1000;
+  if (totalSec < 60) return `${totalSec.toLocaleString("fa-IR", { maximumFractionDigits: 1 })} ثانیه`;
+  const min = Math.floor(totalSec / 60);
+  const sec = Math.round(totalSec % 60);
+  return `${min}:${String(sec).padStart(2, "0")} دقیقه`;
+}
+
+export default function StudioRightPanel({ selectedMethod, session, projectName, onProjectNameChange, sessionLog = [] }) {
   const [autoSelect, setAutoSelect] = useState(true);
   const [optimizeFor, setOptimizeFor] = useState(OPTIMIZE_OPTIONS[0]);
-  const [autoRetry, setAutoRetry] = useState(true);
-  const [multiProvider, setMultiProvider] = useState(true);
   const [createdAt] = useState(() => new Date());
+  const lastActivity = sessionLog[0];
 
   return (
     <aside className="lg:w-80 shrink-0 space-y-4">
@@ -68,29 +77,30 @@ export default function StudioRightPanel({ selectedMethod, session, projectName,
             ))}
           </select>
         </div>
+        <p className="text-[11px] text-text-faint -mt-2">
+          این دوتای بالا فعلاً نمایشی‌ان — روشِ دیگه‌ای غیر از «فقط هوش
+          مصنوعی» نیست که بینشون انتخاب کنه.
+        </p>
 
-        <label className="flex items-center justify-between text-sm cursor-pointer">
+        <div className="flex items-center justify-between text-sm">
           <span className="text-text-muted">تلاشِ خودکارِ مجدد</span>
-          <input
-            type="checkbox"
-            checked={autoRetry}
-            onChange={(e) => setAutoRetry(e.target.checked)}
-            className="accent-amber w-4 h-4"
-          />
-        </label>
-        <label className="flex items-center justify-between text-sm cursor-pointer">
+          <span className="badge-ok">همیشه فعاله</span>
+        </div>
+        <div className="flex items-center justify-between text-sm">
           <span className="text-text-muted">استفاده از چند Provider</span>
-          <input
-            type="checkbox"
-            checked={multiProvider}
-            onChange={(e) => setMultiProvider(e.target.checked)}
-            className="accent-amber w-4 h-4"
-          />
-        </label>
-        <p className="text-[11px] text-text-faint">فعلاً نمایشیه — به‌زودی به تنظیماتِ واقعیِ providerها وصل می‌شه.</p>
+          <span className="badge-ok">همیشه فعاله</span>
+        </div>
+        <p className="text-[11px] text-text-faint">
+          این دوتا واقعاً همیشه روشنن، نه یک تنظیمِ قابل‌خاموش‌کردن — لایه‌ی
+          providerها (lib/providers/router.js) بدونِ قید‌وشرط هم
+          rate-limit/تایم‌اوت رو retry می‌کنه، هم به providerِ بعدی
+          fallback می‌کنه.
+        </p>
       </div>
 
-      {/* اطلاعاتِ پروژه — بخشی واقعیه (نام، کاربر، زمان)، بخشی صادقانه خالیه (هزینه/مدت) */}
+      {/* اطلاعاتِ پروژه — بیشترش واقعیه (نام، کاربر، زمانِ شروع، وضعیت،
+          مدت از رویِ sessionLog)؛ فقط هزینه صادقانه خالیه، چون هیچ‌جا
+          توکن/دلار محاسبه نمی‌شه */}
       <div className="card space-y-2.5">
         <p className="field-label">اطلاعاتِ پروژه</p>
         <div>
@@ -116,7 +126,9 @@ export default function StudioRightPanel({ selectedMethod, session, projectName,
           <div className="flex justify-between">
             <dt className="text-text-faint">وضعیت</dt>
             <dd>
-              <span className="badge-ok">آماده</span>
+              {!lastActivity && <span className="badge-ok">آماده</span>}
+              {lastActivity?.ok && <span className="badge-ok">تکمیل شد</span>}
+              {lastActivity && !lastActivity.ok && <span className="badge-fail">خطا</span>}
             </dd>
           </div>
           <div className="flex justify-between">
@@ -125,19 +137,38 @@ export default function StudioRightPanel({ selectedMethod, session, projectName,
           </div>
           <div className="flex justify-between">
             <dt className="text-text-faint">مدت</dt>
-            <dd className="text-text-faint">—</dd>
+            <dd className="text-text-muted readout">{formatDuration(lastActivity?.durationMs)}</dd>
           </div>
         </dl>
       </div>
 
-      {/* تاریخچه‌ی نسخه‌ها — صادقانه خالی، نه عددِ ساختگی */}
+      {/* تاریخچه — واقعیه، ولی فقط تویِ همین نشست (رفرش پاکش می‌کنه)،
+          چون هنوز جایی سمتِ سرور ذخیره نمی‌شه */}
       <div className="card">
-        <div className="flex items-center justify-between">
-          <p className="field-label !mb-0">تاریخچه‌ی نسخه‌ها</p>
-        </div>
-        <p className="text-xs text-text-faint mt-2 leading-relaxed">
-          بعد از اولین ساخت، نسخه‌ها اینجا نمایش داده می‌شن.
-        </p>
+        <p className="field-label">تاریخچه (همین نشست)</p>
+        {sessionLog.length === 0 ? (
+          <p className="text-xs text-text-faint mt-2 leading-relaxed">
+            بعد از اولین ساخت، اینجا نمایش داده می‌شه.
+          </p>
+        ) : (
+          <ul className="space-y-2.5 mt-2 max-h-64 overflow-y-auto">
+            {sessionLog.map((entry) => (
+              <li key={entry.id} className="flex items-start gap-2 text-xs">
+                <Icon
+                  name={entry.ok ? "check" : "close"}
+                  className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${entry.ok ? "text-teal" : "text-danger"}`}
+                />
+                <div className="min-w-0">
+                  <p className={entry.ok ? "text-text-muted" : "text-danger"}>{entry.summary}</p>
+                  <p className="text-text-faint readout">
+                    {entry.at.toLocaleTimeString("fa-IR", { hour: "2-digit", minute: "2-digit" })}
+                    {entry.durationMs != null ? ` · ${formatDuration(entry.durationMs)}` : ""}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       {/* قابلیت‌ها */}

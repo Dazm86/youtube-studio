@@ -17,6 +17,7 @@ export default function AIStudio() {
   const [projectName, setProjectName] = useState("");
   const [providers, setProviders] = useState({});
   const [loading, setLoading] = useState(true);
+  const [sessionLog, setSessionLog] = useState([]);
 
   useEffect(() => {
     if (session) loadProviders();
@@ -40,12 +41,32 @@ export default function AIStudio() {
     setLoading(false);
   }
 
+  // این تنها جایی‌ه که «تاریخچه‌ی نسخه‌ها» و «مدت» از روش واقعی پر می‌شن —
+  // فقط تویِ همین نشست (رفرش پاکش می‌کنه)، چون هنوز جایی سمتِ سرور
+  // ذخیره نمی‌شه؛ ولی خودِ عددها (مدت، نوع، موفق/ناموفق) واقعی‌ان، نه
+  // نمونه‌ای مثلِ بقیه‌ی پنل‌ها.
+  function handleActivity(activity) {
+    if (activity.phase === "start") return;
+    setSessionLog((prev) => [
+      {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        tool: activity.tool,
+        ok: activity.phase === "done",
+        summary: activity.phase === "done" ? activity.summary : activity.message,
+        durationMs: activity.durationMs,
+        at: new Date(),
+      },
+      ...prev,
+    ]);
+  }
+
   // «پروژه‌ی جدید» صرفاً یک ریست محلیه — چیزی رو تو دیتابیس ذخیره/حذف
   // نمی‌کنه، چون این صفحه هنوز مفهومِ «پروژه»‌ی پایدار نداره.
   function handleNewProject() {
     setSelectedMethod("ai-only");
     setSelectedTool("text");
     setProjectName("");
+    setSessionLog([]);
   }
 
   if (sessionStatus === "loading") return null;
@@ -94,6 +115,7 @@ export default function AIStudio() {
             onSelectTool={setSelectedTool}
             providers={providers}
             providersLoading={loading}
+            onActivity={handleActivity}
           />
 
           <StudioTemplates />
@@ -104,6 +126,7 @@ export default function AIStudio() {
           session={session}
           projectName={projectName}
           onProjectNameChange={setProjectName}
+          sessionLog={sessionLog}
         />
       </div>
     </main>

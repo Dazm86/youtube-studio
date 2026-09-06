@@ -431,14 +431,18 @@ source. One pipeline implementation, three ways to trigger it.
   redesign matching a reference screenshot the user provided; was a
   plain 4-tab layout before)* — shell: session gate, `/api/providers`
   fetch (unchanged), local `selectedMethod`/`selectedTool`/
-  `projectName` state, lays out the pieces below.
+  `projectName` state, plus `sessionLog` *(added later same day)* — a
+  session-local (not persisted) array of real generation events, fed
+  by `onActivity`, lays out the pieces below.
   - `StudioIcons.js` — small hand-rolled inline-SVG icon set, no new
     npm dependency on purpose (see Known constraints).
-  - `StudioSidebar.js` — nav where only 4 items link to a real page
-    (`/ai-studio`, `/analytics`, `/schedule`, `/providers`); the rest
-    are honestly inert (`href: null`, "به‌زودی" chip, no click
-    handler) instead of dead links. Resource Monitor is an honest
-    0%/"به‌زودی" state, not fabricated numbers.
+  - `StudioSidebar.js` — nav where 5 items link to a real page
+    (`/ai-studio`, `/analytics`, `/schedule`, `/providers`, and `/long`
+    for "انتشار" *(wired later same day — the publish flow already
+    lives in `VideoStudio`)*); the rest are honestly inert
+    (`href: null`, "به‌زودی" chip, no click handler) instead of dead
+    links. Resource Monitor is an honest 0%/"به‌زودی" state, not
+    fabricated numbers.
   - `StudioMethodBoard.js` — top tool-icon row (Text/Image/Video/Audio
     real, Code/Document/More disabled) + the 5 method cards, only
     `AI Only` has `available: true`; exports `METHODS`, shared by the
@@ -448,21 +452,38 @@ source. One pipeline implementation, three ways to trigger it.
     render → quality gate → upload), not generic mockup labels.
   - `StudioBuildPanel.js` — the functional part: `AI Only` renders the
     real `TextGenerator`/`ImageGenerator`/`VideoGenerator`/
-    `AudioGenerator` (untouched) inside the new chrome; every other
+    `AudioGenerator` inside the new chrome, forwarding each one's
+    `onActivity` up tagged with which tool fired it; every other
     method shows a disabled "تولید / ساخت" button instead of
     pretending to work. AI/Code "contribution" bars are derived from
     the selected method, not draggable.
-  - `StudioRightPanel.js` — method details, decorative Advanced
-    Settings (local state, no API calls), Project Info (name is a
-    real editable field, "ساخته‌شده توسط" is the real session user,
-    cost/duration show "—" instead of invented numbers), empty-state
-    Version History, capabilities checklist.
+  - `StudioRightPanel.js` — method details; Advanced Settings where
+    "تلاشِ خودکارِ مجدد"/"استفاده از چند Provider" are a static
+    "همیشه فعاله" badge *(changed from an editable-looking checkbox
+    later same day, once `lib/providers/router.js` confirmed retry/
+    fallback are unconditional there — an editable control for a
+    behavior nothing can disable would've been actively misleading,
+    not just decorative)*, "انتخابِ خودکار"/"بهینه برایِ" stay
+    decorative with a caption saying so; Project Info (name is a real
+    editable field, "ساخته‌شده توسط" the real session user, "وضعیت"/
+    "مدت" now read from the most recent `sessionLog` entry, cost still
+    shows "—" — no adapter reports token/cost usage anywhere yet);
+    "تاریخچه (همین نشست)" now renders real `sessionLog` entries
+    (icon/summary/time/duration) instead of always being empty —
+    still session-only, lost on refresh, no new DB table.
   - `StudioTemplates.js` — non-clickable combo examples grounded in
     real/near-real features (Trend Finder, comment-reply drafts,
     community posts).
   - `TextGenerator.js`/`ImageGenerator.js`/`VideoGenerator.js`/
-    `AudioGenerator.js` — unchanged, still the real generation tools,
-    not tied to the video pipeline.
+    `AudioGenerator.js` — each gained an optional `onActivity` prop
+    *(later same day)* firing `{phase:"start"}`/`{phase:"done"|"error",
+    durationMs, summary|message}` around their existing
+    `handleGenerate`; nothing about the actual request/response
+    handling changed. A real "Assets" page was considered and dropped
+    — these components never persist a generation server-side (images
+    arrive as a provider URL or client-side-only base64, video clips
+    as a direct URL), so there's no existing record to list without
+    adding new persistence first.
 - **`trends/TrendFinder.js`** *(new, 2026-08-27)* — score-breakdown cards
   per topic, live NDJSON scan progress, status filter tabs, approve/
   reject, and (once approved) links into `/long?topic=...`/

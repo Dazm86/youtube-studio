@@ -371,6 +371,55 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-09-05 (later still, same day) — Made the "near-free" and "medium" decorative AI Studio panels real
+After the redesign above, asked what to do about it and reviewed each decorative panel for genuine
+feasibility rather than treating "decorative is fine" as a reason to stop looking. Two turned out to
+be free because the backend already does them unconditionally, one needed a small real wire-up
+across all 4 generators, and one (sidebar "انتشار") was just a missing `href` to a page that already
+exists. Also re-scoped "Assets" honestly: on inspection, `ImageGenerator`/`VideoGenerator` results
+are never persisted server-side (images arrive as a provider URL or raw bytes turned into a client-
+side data URL, videos as a direct clip URL) — there's no existing record to list, so a real "Assets"
+page would mean adding new persistence, not wiring up something that already exists. Didn't build
+that; folded the same underlying need into the session-log work below instead, which needed no
+schema changes.
+
+- **Auto Retry / Use Multi-Provider, in the right panel's Advanced Settings**: these were rendered
+  as checkboxes implying an optional, toggleable setting. Checked `lib/providers/router.js`'s
+  `tryProviders()` directly — it retries on rate-limit/timeout and falls back to the next configured
+  provider *unconditionally*, with no flag anywhere that turns it off. Editable checkboxes for a
+  behavior nothing can disable would be actively misleading, not just decorative, so replaced them
+  with a static "همیشه فعاله" badge and a caption naming the file/function that makes it true.
+- **Sidebar "انتشار"**: had `href: null` (correctly, at the time — there's no dedicated publish page).
+  But the real publish flow already lives inside `VideoStudio` via `/long`/`/short` — pointed it at
+  `/long`, since that's a real page, not a new one.
+- **"مدت" (Duration) in Project Info, and a real session-local "تاریخچه"**: added an optional
+  `onActivity` prop to `TextGenerator`/`ImageGenerator`/`VideoGenerator`/`AudioGenerator` — each now
+  reports `{ phase: "start" }` right before its existing `fetch` and `{ phase: "done"|"error",
+  durationMs, summary|message }` right after, using a `Date.now()` timestamp taken at the top of the
+  already-existing `handleGenerate`. Nothing about each generator's own request/response handling
+  changed. `StudioBuildPanel` forwards this up tagged with which tool produced it;
+  `AIStudio.js` keeps it as `sessionLog` (React state, lost on refresh — no new DB table, on
+  purpose, since nothing else on this page persists either). `StudioRightPanel` now renders that log
+  for real (icon, summary, time, duration, ok/fail) instead of an always-empty placeholder, and
+  Project Info's "وضعیت"/"مدت" are read from the most recent entry instead of being static.
+  "پروژه‌ی جدید" now also clears this log, matching what starting fresh should mean.
+
+Left as decorative, deliberately, and said so plainly rather than quietly building past the user's
+own instruction: "انتخابِ خودکارِ بهترین روش" / "بهینه برایِ" (nothing to select between until a
+second method exists), Cost tracking (no adapter reports token/cost usage anywhere yet — a real
+version needs that upstream first, not just a UI change), and the four still-unavailable methods
+(Code Only/AI+Code/Hybrid/Other) plus the sidebar items with no backing page (Edit, Agent Workspace,
+Assets, Templates, Workflows, Settings).
+
+Re-ran the same esbuild JSX-transform syntax check (see the redesign entry above for why not plain
+`node --check`) on all 12 touched files, and re-ran the import/export and icon-name cross-checks by
+hand after every edit, not just once at the end.
+
+Files (modified): `ai-studio/StudioRightPanel.js`, `ai-studio/StudioBuildPanel.js`,
+`ai-studio/StudioSidebar.js`, `ai-studio/StudioIcons.js` (added a `close` icon — `clock` was being
+reused for error states, which didn't fit), `ai-studio/AIStudio.js`, `ai-studio/TextGenerator.js`,
+`ai-studio/ImageGenerator.js`, `ai-studio/VideoGenerator.js`, `ai-studio/AudioGenerator.js`.
+
 ### 2026-09-05 (later same day, after the build-failure fix) — AI Studio redesigned to match a reference screenshot
 User shared a screenshot of a generic "AI Studio — Create Anything With Any Method" dashboard
 mockup (sidebar nav, top method icons, 5 colored method cards, a visual workflow strip with

@@ -10,7 +10,7 @@ const PRESETS = [
   { id: "community", label: "📱 پست کامیونیتی", prompt: "Write an engaging YouTube Community post for the topic below. Friendly, conversational, ends with a question to drive comments. Include 3-5 relevant hashtags. Under 2000 chars." },
 ];
 
-export function TextGenerator({ providers }) {
+export function TextGenerator({ providers, onActivity }) {
   const [preset, setPreset] = useState("script-long");
   const [topic, setTopic] = useState("");
   const [customPrompt, setCustomPrompt] = useState("");
@@ -27,6 +27,8 @@ export function TextGenerator({ providers }) {
     setLoading(true);
     setError("");
     setResult("");
+    const startedAt = Date.now();
+    onActivity?.({ phase: "start" });
 
     try {
       const prompt = isCustom ? customPrompt : `${selectedPreset.prompt}\n\nTopic: "${topic.trim()}"`;
@@ -38,8 +40,14 @@ export function TextGenerator({ providers }) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "خطا در تولید متن");
       setResult(data.text);
+      onActivity?.({
+        phase: "done",
+        durationMs: Date.now() - startedAt,
+        summary: `متن — ${(data.text || "").length.toLocaleString("fa-IR")} نویسه`,
+      });
     } catch (err) {
       setError(err.message);
+      onActivity?.({ phase: "error", durationMs: Date.now() - startedAt, message: err.message });
     }
     setLoading(false);
   }

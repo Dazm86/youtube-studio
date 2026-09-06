@@ -14,7 +14,7 @@ const NAV_ITEMS = [
   { icon: "automate", label: "خودکارسازی", href: "/schedule", description: "زمان‌بندیِ خودکار" },
   { icon: "agents", label: "فضای Agentها", href: null, description: "همکاریِ چند-Agent" },
   { icon: "assets", label: "دارایی‌ها", href: null, description: "مدیریتِ فایل‌ها" },
-  { icon: "publish", label: "انتشار", href: null, description: "پابلیش در همه‌جا" },
+  { icon: "publish", label: "انتشار", href: "/long", description: "پابلیش در همه‌جا" },
 ];
 
 const NAV_SECONDARY = [

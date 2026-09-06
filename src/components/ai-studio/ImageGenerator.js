@@ -25,7 +25,7 @@ function bytesToBase64(bufferLike) {
   return btoa(binary);
 }
 
-export function ImageGenerator({ providers }) {
+export function ImageGenerator({ providers, onActivity }) {
   const [preset, setPreset] = useState("prompt");
   const [topic, setTopic] = useState("");
   const [customPrompt, setCustomPrompt] = useState("");
@@ -43,6 +43,8 @@ export function ImageGenerator({ providers }) {
     setLoading(true);
     setError("");
     setResult(null);
+    const startedAt = Date.now();
+    onActivity?.({ phase: "start" });
 
     try {
       const prompt = isCustom ? customPrompt : `${PRESETS.find((p) => p.id === preset).prompt}\n\nTopic: "${topic.trim()}"`;
@@ -54,8 +56,14 @@ export function ImageGenerator({ providers }) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "خطا در تولید عکس");
       setResult(data);
+      onActivity?.({
+        phase: "done",
+        durationMs: Date.now() - startedAt,
+        summary: `${(data.images?.length || 0).toLocaleString("fa-IR")} عکس`,
+      });
     } catch (err) {
       setError(err.message);
+      onActivity?.({ phase: "error", durationMs: Date.now() - startedAt, message: err.message });
     }
     setLoading(false);
   }

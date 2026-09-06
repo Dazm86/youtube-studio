@@ -23,7 +23,7 @@ const VOICES = {
   ],
 };
 
-export function AudioGenerator({ providers }) {
+export function AudioGenerator({ providers, onActivity }) {
   const [text, setText] = useState("");
   const [provider, setProvider] = useState(providers[0]?.id || "");
   const [voice, setVoice] = useState("");
@@ -50,6 +50,8 @@ export function AudioGenerator({ providers }) {
     setLoading(true);
     setError("");
     setResult(null);
+    const startedAt = Date.now();
+    onActivity?.({ phase: "start" });
 
     try {
       const res = await fetch("/api/ai/generate-audio", {
@@ -60,8 +62,14 @@ export function AudioGenerator({ providers }) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "خطا در تولید صدا");
       setResult(data);
+      onActivity?.({
+        phase: "done",
+        durationMs: Date.now() - startedAt,
+        summary: `صدا — ~${Math.round((data.size || 0) / 1024).toLocaleString("fa-IR")} کیلوبایت`,
+      });
     } catch (err) {
       setError(err.message);
+      onActivity?.({ phase: "error", durationMs: Date.now() - startedAt, message: err.message });
     }
     setLoading(false);
   }
