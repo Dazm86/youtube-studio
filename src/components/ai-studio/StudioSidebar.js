@@ -67,7 +67,7 @@ function NavRow({ item }) {
   );
 }
 
-export default function StudioSidebar({ onNewProject }) {
+export default function StudioSidebar({ onNewProject, usageSummary }) {
   return (
     <aside className="lg:w-60 shrink-0 flex lg:flex-col gap-4 lg:gap-6 overflow-x-auto lg:overflow-visible">
       <div className="hidden lg:block">
@@ -99,26 +99,46 @@ export default function StudioSidebar({ onNewProject }) {
         ))}
       </nav>
 
-      {/* Resource Monitor — عمداً صفر/خالیه، نه عددِ ساختگی: هنوز هیچ‌جا
-          مصرفِ API/توکن/فضا برای این صفحه محاسبه نمی‌شه. */}
+      {/* پایشِ منابع — واقعیه (از جدولِ studio_activity)، ولی: (۱) هزینه‌ی
+          دلاری نداره چون هیچ adapterای قیمت برنمی‌گردونه، (۲) هیچ سقفِ
+          واقعی‌ای (مثلِ "$100" تو تصویرِ مرجع) وجود نداره، پس به‌جایِ
+          نوارِ درصدِ گمراه‌کننده، عددِ خام نشون داده می‌شه. */}
       <div className="hidden lg:block mt-auto">
         <div className="card !p-3 space-y-3">
           <p className="field-label !mb-0">پایشِ منابع</p>
-          {[
-            { label: "هزینه‌ی API", note: "هنوز محاسبه نمی‌شه" },
-            { label: "توکن‌ها", note: "به‌زودی" },
-            { label: "فضای ذخیره", note: "به‌زودی" },
-          ].map((row) => (
-            <div key={row.label}>
-              <div className="flex items-center justify-between text-xs text-text-muted mb-1">
-                <span>{row.label}</span>
-                <span className="text-text-faint">{row.note}</span>
+          {!usageSummary || usageSummary.total_calls === 0 ? (
+            <p className="text-xs text-text-faint leading-relaxed">
+              هنوز چیزی نساختی — بعد از اولین تولید اینجا پر می‌شه.
+            </p>
+          ) : (
+            <>
+              <div>
+                <div className="flex items-center justify-between text-xs text-text-muted mb-1">
+                  <span>نرخِ موفقیت</span>
+                  <span className="readout">
+                    {usageSummary.ok_calls.toLocaleString("fa-IR")}/{usageSummary.total_calls.toLocaleString("fa-IR")}
+                  </span>
+                </div>
+                <div className="progress-track">
+                  <div
+                    className="progress-fill"
+                    style={{ width: `${Math.round((usageSummary.ok_calls / usageSummary.total_calls) * 100)}%` }}
+                  />
+                </div>
               </div>
-              <div className="progress-track">
-                <div className="progress-fill" style={{ width: "0%" }} />
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-text-muted">توکن‌هایِ متن (کل)</span>
+                <span className="readout text-text">
+                  {(usageSummary.total_input_tokens + usageSummary.total_output_tokens).toLocaleString("fa-IR")}
+                </span>
               </div>
-            </div>
-          ))}
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-text-muted">هزینه‌ی دلاری</span>
+                <span className="text-text-faint">محاسبه نمی‌شه</span>
+              </div>
+            </>
+          )}
+          <p className="text-[11px] text-text-faint">همه‌ی کاربرها، از اولِ راه‌اندازی — نه فقط همین نشست.</p>
         </div>
       </div>
     </aside>

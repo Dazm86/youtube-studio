@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth/authOptions";
-import { getProviderById } from "@/lib/db";
+import { getProviderById, logStudioActivity } from "@/lib/db";
 import { synthesizeSpeech, resolveApiKey } from "@/lib/providers/router";
 import { REGISTRY } from "@/lib/providers/registry";
 
@@ -20,6 +20,9 @@ export async function POST(req) {
     return NextResponse.json({ error: "متن لازمه" }, { status: 400 });
   }
 
+  const startedAt = Date.now();
+  let providerService = null;
+
   try {
     let result;
     if (providerId) {
@@ -27,6 +30,7 @@ export async function POST(req) {
       if (!provider) {
         return NextResponse.json({ error: "ارائه‌دهنده پیدا نشد" }, { status: 404 });
       }
+      providerService = provider.service;
       const entry = REGISTRY[provider.service];
       if (!entry || !entry.adapters.audio) {
         return NextResponse.json({ error: "این سرویس از تولید صدا پشتیبانی نمی‌کنه" }, { status: 400 });
@@ -44,6 +48,14 @@ export async function POST(req) {
     const base64 = result.buffer.toString("base64");
     const audioUrl = `data:${result.mimeType};base64,${base64}`;
 
+    logStudioActivity({
+      tool: "audio",
+      providerService,
+      ok: true,
+      summary: `صدا — ~${Math.round(result.buffer.length / 1024).toLocaleString("fa-IR")} کیلوبایت`,
+      durationMs: Date.now() - startedAt,
+    }).catch((e) => console.error("logStudioActivity failed:", e.message));
+
     return NextResponse.json({
       audioUrl,
       mimeType: result.mimeType,
@@ -51,6 +63,13 @@ export async function POST(req) {
     });
   } catch (err) {
     console.error("generate-audio error:", err);
+    logStudioActivity({
+      tool: "audio",
+      providerService,
+      ok: false,
+      summary: err.message,
+      durationMs: Date.now() - startedAt,
+    }).catch((e) => console.error("logStudioActivity failed:", e.message));
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }

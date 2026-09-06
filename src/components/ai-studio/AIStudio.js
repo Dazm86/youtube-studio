@@ -18,9 +18,13 @@ export default function AIStudio() {
   const [providers, setProviders] = useState({});
   const [loading, setLoading] = useState(true);
   const [sessionLog, setSessionLog] = useState([]);
+  const [usageSummary, setUsageSummary] = useState(null);
 
   useEffect(() => {
-    if (session) loadProviders();
+    if (session) {
+      loadProviders();
+      loadActivity();
+    }
   }, [session]);
 
   async function loadProviders() {
@@ -41,15 +45,41 @@ export default function AIStudio() {
     setLoading(false);
   }
 
-  // این تنها جایی‌ه که «تاریخچه‌ی نسخه‌ها» و «مدت» از روش واقعی پر می‌شن —
-  // فقط تویِ همین نشست (رفرش پاکش می‌کنه)، چون هنوز جایی سمتِ سرور
-  // ذخیره نمی‌شه؛ ولی خودِ عددها (مدت، نوع، موفق/ناموفق) واقعی‌ان، نه
-  // نمونه‌ای مثلِ بقیه‌ی پنل‌ها.
+  // ۲۰۲۶-۰۹-۰۶ — تاریخچه و پایشِ منابع حالا واقعاً پایدارن (جدولِ
+  // studio_activity، پرشده از خودِ route هایِ generate-*)، نه فقط
+  // همین‌نشست. این fetch نسخه‌ی واقعیِ همه‌ی نشست‌های قبلی رو میاره؛
+  // handleActivity پایین فقط رویِ همینه که برایِ بازخوردِ فوری (بدونِ
+  // صبر برایِ رفرش) رویِ همون لیست optimistic اضافه می‌کنه.
+  async function loadActivity() {
+    try {
+      const res = await fetch("/api/ai-studio/activity");
+      const data = await res.json();
+      if (res.ok) {
+        setSessionLog(
+          (data.activity || []).map((row) => ({
+            id: row.id,
+            tool: row.tool,
+            ok: row.ok,
+            summary: row.summary,
+            durationMs: row.duration_ms,
+            at: new Date(row.created_at),
+          }))
+        );
+        setUsageSummary(data.usage || null);
+      }
+    } catch (err) {
+      console.error("Failed to load AI Studio activity:", err);
+    }
+  }
+
+  // بازخوردِ فوریِ سمتِ کلاینت — خودِ رویدادِ واقعی از قبل تو
+  // generate-*/route.js سمتِ سرور لاگ شده (این‌جا فقط دوباره نمایشش
+  // می‌ده تا لازم نباشه صبر کنی صفحه رفرش بشه).
   function handleActivity(activity) {
     if (activity.phase === "start") return;
     setSessionLog((prev) => [
       {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         tool: activity.tool,
         ok: activity.phase === "done",
         summary: activity.phase === "done" ? activity.summary : activity.message,
@@ -60,8 +90,9 @@ export default function AIStudio() {
     ]);
   }
 
-  // «پروژه‌ی جدید» صرفاً یک ریست محلیه — چیزی رو تو دیتابیس ذخیره/حذف
-  // نمی‌کنه، چون این صفحه هنوز مفهومِ «پروژه»‌ی پایدار نداره.
+  // «پروژه‌ی جدید» فقط نمایشِ محلی رو پاک می‌کنه — چیزی از
+  // studio_activity واقعاً حذف نمی‌شه؛ با رفرش دوباره‌ی صفحه، تاریخچه‌ی
+  // کامل (شاملِ چیزهایی که همین‌جا موقتاً پنهون شدن) دوباره میاد.
   function handleNewProject() {
     setSelectedMethod("ai-only");
     setSelectedTool("text");
@@ -97,7 +128,7 @@ export default function AIStudio() {
       </header>
 
       <div className="flex flex-col lg:flex-row gap-6 items-start">
-        <StudioSidebar onNewProject={handleNewProject} />
+        <StudioSidebar onNewProject={handleNewProject} usageSummary={usageSummary} />
 
         <div className="flex-1 min-w-0 w-full space-y-4">
           <StudioMethodBoard

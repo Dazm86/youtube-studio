@@ -10,9 +10,10 @@ const CHECKLIST = [
   { done: true, label: "۴ ابزارِ واقعی: متن، عکس، ویدیو، صدا" },
   { done: true, label: "برای هرکدوم providerِ جدا انتخاب کن" },
   { done: true, label: "نتیجه رو مستقیم کپی یا دانلود کن" },
-  { done: true, label: "مدت و تاریخچه‌ی همین‌نشست واقعی‌ان" },
+  { done: true, label: "تاریخچه و پایشِ منابع پایدارن (بینِ نشست‌ها هم می‌مونن)" },
+  { done: true, label: "توکن‌هایِ واقعیِ متن ردیابی می‌شن" },
   { done: false, label: "روش‌های Code Only / AI+Code / ترکیبِ پیشرفته" },
-  { done: false, label: "پیگیریِ خودکارِ هزینه (توکن/دلار)" },
+  { done: false, label: "هزینه‌ی دلاری (نیاز به جدولِ قیمتِ هر مدل داره)" },
 ];
 
 function formatDuration(ms) {
@@ -142,10 +143,10 @@ export default function StudioRightPanel({ selectedMethod, session, projectName,
         </dl>
       </div>
 
-      {/* تاریخچه — واقعیه، ولی فقط تویِ همین نشست (رفرش پاکش می‌کنه)،
-          چون هنوز جایی سمتِ سرور ذخیره نمی‌شه */}
+      {/* تاریخچه — واقعیه و پایدار (جدولِ studio_activity)، نه فقط
+          همین نشست؛ AIStudio.js موقعِ mount از سرور می‌خونتش */}
       <div className="card">
-        <p className="field-label">تاریخچه (همین نشست)</p>
+        <p className="field-label">تاریخچه</p>
         {sessionLog.length === 0 ? (
           <p className="text-xs text-text-faint mt-2 leading-relaxed">
             بعد از اولین ساخت، اینجا نمایش داده می‌شه.

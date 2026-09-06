@@ -221,7 +221,16 @@ source. One pipeline implementation, three ways to trigger it.
   `providers/[id]/check/route.js` — CRUD + connectivity check for the
   provider system
 - `ai/generate-text`, `ai/generate-image`, `ai/generate-video`,
-  `ai/generate-audio` — standalone endpoints backing the AI Studio page
+  `ai/generate-audio` — standalone endpoints backing the AI Studio page.
+  *(all 4, 2026-09-06)* each now call `logStudioActivity()`
+  (fire-and-forget) on both success and failure; `generate-text` also
+  uses `entry.adapters.textRaw` (when the provider is groq/openai/
+  anthropic) to get real token usage back from the provider's own
+  response and returns it as an extra `usage` field.
+- **`ai-studio/activity/route.js`** *(new, 2026-09-06)* — `GET`, returns
+  `{ activity, usage }` from `getStudioActivity(30)` +
+  `getStudioUsageSummary()` in one call; backs the Studio page's
+  Version History and Resource Monitor panels
 - `jobs/dispatch/route.js` — generic manual endpoint to dispatch a
   `render_video`/`render_short` job
 - `jobs/callback/route.js` — worker POSTs the final result here
@@ -431,18 +440,25 @@ source. One pipeline implementation, three ways to trigger it.
   redesign matching a reference screenshot the user provided; was a
   plain 4-tab layout before)* — shell: session gate, `/api/providers`
   fetch (unchanged), local `selectedMethod`/`selectedTool`/
-  `projectName` state, plus `sessionLog` *(added later same day)* — a
-  session-local (not persisted) array of real generation events, fed
-  by `onActivity`, lays out the pieces below.
+  `projectName` state, plus `sessionLog`/`usageSummary` *(the latter
+  added 2026-09-06)* — seeded on mount from `GET /api/ai-studio/
+  activity` (real, persisted across sessions), then appended to
+  optimistically by `onActivity` for instant feedback without waiting
+  on a refetch. Lays out the pieces below.
   - `StudioIcons.js` — small hand-rolled inline-SVG icon set, no new
     npm dependency on purpose (see Known constraints).
   - `StudioSidebar.js` — nav where 5 items link to a real page
-    (`/ai-studio`, `/analytics`, `/schedule`, `/providers`, and `/long`
-    for "انتشار" *(wired later same day — the publish flow already
-    lives in `VideoStudio`)*); the rest are honestly inert
-    (`href: null`, "به‌زودی" chip, no click handler) instead of dead
-    links. Resource Monitor is an honest 0%/"به‌زودی" state, not
-    fabricated numbers.
+    (`/ai-studio`, `/analytics`, `/schedule`, `/providers`, `/long` for
+    "انتشار" — the publish flow already lives in `VideoStudio`); the
+    rest are honestly inert (`href: null`, "به‌زودی" chip, no click
+    handler) instead of dead links. Resource Monitor *(real data as of
+    2026-09-06)* shows a real success-rate bar (a genuine bounded
+    0–100%) and a real text-token total as a plain count (no bar — no
+    real ceiling to measure against); dollar cost explicitly reads
+    "محاسبه نمی‌شه" rather than a guessed number, since no adapter
+    returns pricing. All-users/all-time, not per-session — see the
+    `studio_activity` table note under Database schema for why there's
+    no per-user column.
   - `StudioMethodBoard.js` — top tool-icon row (Text/Image/Video/Audio
     real, Code/Document/More disabled) + the 5 method cards, only
     `AI Only` has `available: true`; exports `METHODS`, shared by the
@@ -459,31 +475,27 @@ source. One pipeline implementation, three ways to trigger it.
     the selected method, not draggable.
   - `StudioRightPanel.js` — method details; Advanced Settings where
     "تلاشِ خودکارِ مجدد"/"استفاده از چند Provider" are a static
-    "همیشه فعاله" badge *(changed from an editable-looking checkbox
-    later same day, once `lib/providers/router.js` confirmed retry/
-    fallback are unconditional there — an editable control for a
-    behavior nothing can disable would've been actively misleading,
-    not just decorative)*, "انتخابِ خودکار"/"بهینه برایِ" stay
-    decorative with a caption saying so; Project Info (name is a real
-    editable field, "ساخته‌شده توسط" the real session user, "وضعیت"/
-    "مدت" now read from the most recent `sessionLog` entry, cost still
-    shows "—" — no adapter reports token/cost usage anywhere yet);
-    "تاریخچه (همین نشست)" now renders real `sessionLog` entries
-    (icon/summary/time/duration) instead of always being empty —
-    still session-only, lost on refresh, no new DB table.
+    "همیشه فعاله" badge (confirmed unconditional in
+    `lib/providers/router.js` before making this claim), "انتخابِ
+    خودکار"/"بهینه برایِ" stay decorative with a caption saying so;
+    Project Info (name is a real editable field, "ساخته‌شده توسط" the
+    real session user, "وضعیت"/"مدت" read from the most recent
+    activity entry, dollar cost still "—"); "تاریخچه" *(dropped "همین
+    نشست" from the label 2026-09-06)* renders real, now
+    cross-session, activity entries.
   - `StudioTemplates.js` — non-clickable combo examples grounded in
     real/near-real features (Trend Finder, comment-reply drafts,
     community posts).
   - `TextGenerator.js`/`ImageGenerator.js`/`VideoGenerator.js`/
-    `AudioGenerator.js` — each gained an optional `onActivity` prop
-    *(later same day)* firing `{phase:"start"}`/`{phase:"done"|"error",
-    durationMs, summary|message}` around their existing
-    `handleGenerate`; nothing about the actual request/response
-    handling changed. A real "Assets" page was considered and dropped
-    — these components never persist a generation server-side (images
-    arrive as a provider URL or client-side-only base64, video clips
-    as a direct URL), so there's no existing record to list without
-    adding new persistence first.
+    `AudioGenerator.js` — each has an optional `onActivity` prop firing
+    `{phase:"start"}`/`{phase:"done"|"error", durationMs,
+    summary|message}` around their existing `handleGenerate`; nothing
+    about the actual request/response handling changed. A dedicated
+    "Assets" page was considered and dropped — these components never
+    persist a generated image/video server-side themselves (that
+    happens, if at all, one layer up in `studio_activity`'s `summary`
+    text only, not the actual media), so a real Assets *browser* would
+    still need more than what exists today.
 - **`trends/TrendFinder.js`** *(new, 2026-08-27)* — score-breakdown cards
   per topic, live NDJSON scan progress, status filter tabs, approve/
   reject, and (once approved) links into `/long?topic=...`/
@@ -601,6 +613,7 @@ back by `api/jobs/callback/route.js` (see Known issues history).
 | `trend_topics` *(new, 2026-08-27)* | `scan_id` FK, `topic`, `angle`, `suggested_format`, six `score_*` columns + `score_total`, `reasoning`, `source_signals` (jsonb — raw Trends/Reddit/News/YouTube data kept for audit), `status` (`pending`/`approved`/`rejected`/`produced`), `video_id` |
 | `activity_log` *(new, 2026-08-29)* | `type`, `message` (Persian, display-ready), `metadata` (jsonb), `created_at` — one row per site event (video upload/failure, trend scan, schedule trigger, repurpose, community-post draft); own small `pg` pool in `lib/activityLog.js` |
 | `playlist_clusters` *(new, 2026-08-31)* | `cluster_key` (PK, e.g. `"anxiety"`), `youtube_playlist_id`, `title`, `created_at` — one row per topic cluster, created the first time a video matches that cluster |
+| `studio_activity` *(new, 2026-09-06)* | `id` (serial), `tool` (`text`/`image`/`video`/`audio`), `provider_service`, `ok`, `summary`, `input_tokens`/`output_tokens` (only ever populated for `text` — no adapter for image/video/audio returns a token count), `duration_ms`, `created_at` — one row per real AI Studio generation; backs the Resource Monitor and Version History panels. No `user_email` column (not scoped per-user — see that entry's own note on why) and no dollar-cost column (no adapter returns pricing) |
 
 ## Environment variables
 

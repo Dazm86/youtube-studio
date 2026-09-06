@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth/authOptions";
-import { getProviderById } from "@/lib/db";
+import { getProviderById, logStudioActivity } from "@/lib/db";
 import { fetchClips, resolveApiKey } from "@/lib/providers/router";
 import { REGISTRY } from "@/lib/providers/registry";
 
@@ -20,6 +20,9 @@ export async function POST(req) {
     return NextResponse.json({ error: "پرامپت لازمه" }, { status: 400 });
   }
 
+  const startedAt = Date.now();
+  let providerService = null;
+
   try {
     let result;
     if (providerId) {
@@ -27,6 +30,7 @@ export async function POST(req) {
       if (!provider) {
         return NextResponse.json({ error: "ارائه‌دهنده پیدا نشد" }, { status: 404 });
       }
+      providerService = provider.service;
       const entry = REGISTRY[provider.service];
       if (!entry || !entry.adapters.video) {
         return NextResponse.json({ error: "این سرویس از جستجوی ویدیو پشتیبانی نمی‌کنه" }, { status: 400 });
@@ -40,9 +44,24 @@ export async function POST(req) {
       result = await fetchClips({ text: prompt, keyword: "", count, orientation });
     }
 
+    logStudioActivity({
+      tool: "video",
+      providerService,
+      ok: true,
+      summary: `${(result.clips?.length || 0).toLocaleString("fa-IR")} کلیپ`,
+      durationMs: Date.now() - startedAt,
+    }).catch((e) => console.error("logStudioActivity failed:", e.message));
+
     return NextResponse.json(result);
   } catch (err) {
     console.error("generate-video error:", err);
+    logStudioActivity({
+      tool: "video",
+      providerService,
+      ok: false,
+      summary: err.message,
+      durationMs: Date.now() - startedAt,
+    }).catch((e) => console.error("logStudioActivity failed:", e.message));
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }

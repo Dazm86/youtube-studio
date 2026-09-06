@@ -53,7 +53,7 @@ function imagePromptFromQuery(query) {
 
 // ===================== متن (text) =====================
 
-async function groqText({ apiKey, prompt, maxTokens, temperature, jsonMode }) {
+async function groqTextRaw({ apiKey, prompt, maxTokens, temperature, jsonMode }) {
   const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
@@ -77,10 +77,26 @@ async function groqText({ apiKey, prompt, maxTokens, temperature, jsonMode }) {
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data?.error?.message || "خطای Groq");
-  return (data?.choices?.[0]?.message?.content || "").trim();
+  return {
+    text: (data?.choices?.[0]?.message?.content || "").trim(),
+    // OpenAI-compatible usage shape — Groq همون فیلدهای OpenAI رو برمی‌گردونه.
+    usage: data?.usage
+      ? { inputTokens: data.usage.prompt_tokens ?? null, outputTokens: data.usage.completion_tokens ?? null }
+      : null,
+  };
 }
 
-async function openaiText({ apiKey, prompt, maxTokens, temperature, jsonMode }) {
+// ۲۰۲۶-۰۹-۰۶ — این تابعِ اصلی (groqText) دست‌نخورده می‌مونه: امضا و
+// خروجی‌ش (رشته‌ی خام) دقیقاً همونیه که قبلاً بود، چون همه‌جای بقیه‌ی
+// پروژه (lib/script/index.js، lib/autoProduce.js، community/comments و...)
+// همین قرارداد رو صدا می‌زنن. groqTextRaw فقط برایِ مسیرِ جدیدِ AI
+// Studio (که به توکن‌ها نیاز داره) اضافه شده، بدونِ اینکه چیزیِ موجود رو
+// عوض کنه.
+async function groqText(args) {
+  return (await groqTextRaw(args)).text;
+}
+
+async function openaiTextRaw({ apiKey, prompt, maxTokens, temperature, jsonMode }) {
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
@@ -94,10 +110,19 @@ async function openaiText({ apiKey, prompt, maxTokens, temperature, jsonMode }) 
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data?.error?.message || "خطای OpenAI");
-  return (data?.choices?.[0]?.message?.content || "").trim();
+  return {
+    text: (data?.choices?.[0]?.message?.content || "").trim(),
+    usage: data?.usage
+      ? { inputTokens: data.usage.prompt_tokens ?? null, outputTokens: data.usage.completion_tokens ?? null }
+      : null,
+  };
 }
 
-async function anthropicText({ apiKey, prompt, maxTokens, temperature }) {
+async function openaiText(args) {
+  return (await openaiTextRaw(args)).text;
+}
+
+async function anthropicTextRaw({ apiKey, prompt, maxTokens, temperature }) {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -114,7 +139,16 @@ async function anthropicText({ apiKey, prompt, maxTokens, temperature }) {
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data?.error?.message || "خطای Anthropic");
-  return (data?.content || []).map((b) => b.text || "").join("").trim();
+  return {
+    text: (data?.content || []).map((b) => b.text || "").join("").trim(),
+    usage: data?.usage
+      ? { inputTokens: data.usage.input_tokens ?? null, outputTokens: data.usage.output_tokens ?? null }
+      : null,
+  };
+}
+
+async function anthropicText(args) {
+  return (await anthropicTextRaw(args)).text;
 }
 
 // ===================== عکس (image) =====================
@@ -338,19 +372,19 @@ export const REGISTRY = {
     label: "Groq",
     capabilities: ["text"],
     detect: probeGroq,
-    adapters: { text: groqText },
+    adapters: { text: groqText, textRaw: groqTextRaw },
   },
   openai: {
     label: "OpenAI",
     capabilities: ["text", "image", "audio"],
     detect: probeOpenAI,
-    adapters: { text: openaiText, image: openaiImages, audio: openaiTts },
+    adapters: { text: openaiText, textRaw: openaiTextRaw, image: openaiImages, audio: openaiTts },
   },
   anthropic: {
     label: "Anthropic (Claude)",
     capabilities: ["text"],
     detect: probeAnthropic,
-    adapters: { text: anthropicText },
+    adapters: { text: anthropicText, textRaw: anthropicTextRaw },
   },
   elevenlabs: {
     label: "ElevenLabs",

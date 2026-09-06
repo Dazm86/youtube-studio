@@ -190,6 +190,26 @@ async function ensureSchema() {
           created_at TIMESTAMPTZ DEFAULT now()
         );
       `);
+      // ۲۰۲۶-۰۹-۰۶ — لاگِ واقعیِ استفاده از AI Studio (نه نمونه‌ای): هر
+      // تولیدِ واقعی (متن/عکس/ویدیو/صدا) یک ردیف اینجا می‌گیره. توکن‌ها
+      // فقط برایِ متن پر می‌شن (تنها adapterهایی که یک usage استاندارد
+      // برمی‌گردونن؛ عکس/ویدیو/صدا NULL می‌مونن، نه یک عددِ حدسی).
+      // هزینه‌ی دلاری عمداً اینجا نیست — هیچ‌جای این پروژه قیمتِ هر
+      // توکن/مدل رو نگه نمی‌داره و ساختنش بدونِ داده‌ی واقعی یعنی
+      // نمایشِ یک عددِ نادرست به کاربر، که بدتر از نداشتنشه.
+      await getPool().query(`
+        CREATE TABLE IF NOT EXISTS studio_activity (
+          id SERIAL PRIMARY KEY,
+          tool TEXT NOT NULL,
+          provider_service TEXT,
+          ok BOOLEAN NOT NULL,
+          summary TEXT,
+          input_tokens INTEGER,
+          output_tokens INTEGER,
+          duration_ms INTEGER,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+      `);
       await ensureBuiltInProviders();
     })().catch((err) => {
       // اگه راه‌اندازیِ schema شکست بخوره، schemaReady رو null کن تا
@@ -694,4 +714,47 @@ export async function listStaleWorkerJobs(olderThanMinutes = 30) {
     [olderThanMinutes]
   );
   return res.rows;
+}
+
+// ===================== studio_activity (AI Studio، ۲۰۲۶-۰۹-۰۶) =====================
+
+export async function logStudioActivity({ tool, providerService, ok, summary, inputTokens, outputTokens, durationMs }) {
+  await ensureSchema();
+  await getPool().query(
+    `INSERT INTO studio_activity (tool, provider_service, ok, summary, input_tokens, output_tokens, duration_ms)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [tool, providerService || null, ok, summary || null, inputTokens ?? null, outputTokens ?? null, durationMs ?? null]
+  );
+}
+
+// برای پنلِ «تاریخچه» — پایدار (بین نشست‌ها/رفرش‌ها هم می‌مونه)، برخلافِ
+// sessionLogِ سمتِ کلاینت که فقط تویِ همون یک بارگذاریِ صفحه زنده‌ست.
+export async function getStudioActivity(limit = 30) {
+  await ensureSchema();
+  const res = await getPool().query(
+    `SELECT id, tool, provider_service, ok, summary, input_tokens, output_tokens, duration_ms, created_at
+     FROM studio_activity ORDER BY created_at DESC LIMIT $1`,
+    [limit]
+  );
+  return res.rows;
+}
+
+// برای پایشِ منابع — فقط چیزهایی که واقعاً قابل‌شمارشن (تعدادِ تماس،
+// نرخِ موفقیت، مجموعِ توکن‌هایِ متن). هیچ عددِ دلاری اینجا نیست، همون
+// دلیلی که بالای CREATE TABLE توضیح داده شده.
+export async function getStudioUsageSummary() {
+  await ensureSchema();
+  const res = await getPool().query(`
+    SELECT
+      COUNT(*)::int AS total_calls,
+      COUNT(*) FILTER (WHERE ok)::int AS ok_calls,
+      COALESCE(SUM(input_tokens), 0)::int AS total_input_tokens,
+      COALESCE(SUM(output_tokens), 0)::int AS total_output_tokens,
+      COUNT(*) FILTER (WHERE tool = 'text')::int AS text_calls,
+      COUNT(*) FILTER (WHERE tool = 'image')::int AS image_calls,
+      COUNT(*) FILTER (WHERE tool = 'video')::int AS video_calls,
+      COUNT(*) FILTER (WHERE tool = 'audio')::int AS audio_calls
+    FROM studio_activity
+  `);
+  return res.rows[0];
 }

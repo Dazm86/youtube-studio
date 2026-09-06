@@ -371,6 +371,68 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-09-06 — Resource Monitor and Version History are now genuinely persistent (new `studio_activity` table)
+The two remaining decorative panels asked for next: پایشِ منابع (cost/token monitor) and a real,
+cross-session Version History. Both needed actual server-side persistence — the previous
+`sessionLog` was real data but lived only in React state, gone on refresh.
+
+New table `studio_activity` (id, tool, provider_service, ok, summary, input_tokens, output_tokens,
+duration_ms, created_at) via the same `ensureSchema()`/`getPool()` pattern every other table in this
+file uses. New functions `logStudioActivity()`, `getStudioActivity(limit)`,
+`getStudioUsageSummary()` in `lib/db/index.js`. New `GET /api/ai-studio/activity` returns both
+(one request backs both panels). `AIStudio.js` fetches it on mount now, alongside `/api/providers`.
+
+Deliberately did NOT add a `user_email` column or a dollar-cost figure. No per-user scoping because
+this looks like a single-operator app in practice, and pretending otherwise would just be
+unused complexity; said so plainly in a code comment rather than silently deciding it. No dollar
+figure because — see below — no adapter anywhere returns pricing, and a guessed number would be
+actively misleading, worse than the honest "not computed" it shows instead.
+
+Real *token* counts for text (not fabricated) needed a real change, made as narrowly as possible:
+`groqText`/`openaiText`/`anthropicText` in `lib/providers/registry.js` already discarded a `usage`
+field that was sitting right there in each provider's raw JSON response, extracting only the string
+content. Rather than change what these three already-exported functions return (used all over the
+real pipeline — `lib/script/index.js`, `lib/autoProduce.js`, comments, community — a change there
+would have been exactly the kind of "seemed incremental" edit that quietly breaks everything else),
+each was split into a `*Raw` variant returning `{text, usage}` plus the original name kept as a thin
+wrapper (`return (await xTextRaw(args)).text`) — byte-identical contract for every existing caller,
+verified by diffing what each wrapper does against the original function's old body. `REGISTRY`
+entries for groq/openai/anthropic gained an additional `adapters.textRaw` next to the untouched
+`adapters.text`. Only `generate-text/route.js` (the one route that's AI-Studio-only) was taught to
+prefer `textRaw` when present. Image/video/audio adapters were not touched at all — Pexels/
+Stability/TTS don't return a token count in any standard shape, so those log with `tokens: null`
+rather than a guessed number; call-count and success rate are still real for them via the same table.
+
+All 4 `generate-*` route handlers now call `logStudioActivity()` — fire-and-forget (`.catch()`,
+not awaited), matching this file's existing pattern for non-critical logging, so a logging hiccup
+can never fail a generation that actually succeeded. The empty-response check in
+`generate-text/route.js` was reshaped from an early `return` into a `throw` so it flows through the
+same catch block and gets logged as a failure too — the response the client sees is byte-identical
+(same status, same message), only the control flow moved.
+
+Frontend: `StudioSidebar`'s Resource Monitor now shows a real success-rate progress bar (a real
+bounded 0–100%, unlike the other numbers) and a real token total as a plain count — not a bar, since
+there's no real ceiling to measure against and a percentage without one would misstate what's being
+shown. `StudioRightPanel`'s "تاریخچه" dropped "(همین نشست)" from its label now that it isn't
+session-only, and the capabilities checklist was updated to reflect exactly this (persistence: done;
+real text tokens: done; dollar cost: still not done, and named why).
+
+Verified: `node --check` on `.mjs` copies for every plain-JS file (`lib/db/index.js`,
+`lib/providers/registry.js`, all 4 `generate-*` routes, the new `ai-studio/activity/route.js`), the
+same esbuild JSX-transform check as previous entries for the 3 changed components, and a manual
+export/import cross-check specifically for `logStudioActivity`/`getStudioActivity`/
+`getStudioUsageSummary` against every call site. Not verified against a live Postgres instance or a
+real provider call — the new table's `CREATE TABLE IF NOT EXISTS` will run the next time any
+existing DB function is called (same lazy `ensureSchema()` every table here already relies on), but
+worth watching the first real generate-text call after deploy to confirm `usage` actually comes back
+in the shape assumed here (each provider's docs were not re-verified against a live request today).
+
+Files (new): `app/api/ai-studio/activity/route.js`.
+Files (modified): `lib/db/index.js`, `lib/providers/registry.js`, `app/api/ai/generate-text/route.js`,
+`app/api/ai/generate-image/route.js`, `app/api/ai/generate-video/route.js`,
+`app/api/ai/generate-audio/route.js`, `ai-studio/AIStudio.js`, `ai-studio/StudioSidebar.js`,
+`ai-studio/StudioRightPanel.js`.
+
 ### 2026-09-05 (later still, same day) — Made the "near-free" and "medium" decorative AI Studio panels real
 After the redesign above, asked what to do about it and reviewed each decorative panel for genuine
 feasibility rather than treating "decorative is fine" as a reason to stop looking. Two turned out to
