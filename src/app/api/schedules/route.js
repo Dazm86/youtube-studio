@@ -9,6 +9,25 @@ import {
   listRecentScheduleRuns,
 } from "@/lib/db";
 
+// ۲۰۲۶-۰۹-۰۸ — قبلاً هیچ اعتبارسنجی‌ای رویِ timezone نبود؛ فیلدِ متناظر
+// تو ScheduleSettings.js صرفاً یک <input type="text"> آزاده (placeholder
+// "Asia/Tehran" فقط یک راهنماست، نه یک select محدود). یک تایپوی ساده
+// (مثلاً "Tehran" به‌جای "Asia/Tehran") بی‌صدا تو دیتابیس ذخیره می‌شد و
+// بعداً، هر بار که scheduler/run سعی می‌کرد الانِ اون timezone رو حساب
+// کنه، یک RangeError پرت می‌شد — که (قبل از فیکسِ همون فایل) کلِ آپلودِ
+// خودکار رو برای *همه‌ی* زمان‌بندی‌ها می‌خابوند. اینجا همون تستِ واقعی‌ای
+// که Intl.DateTimeFormat خودش موقعِ اجرا انجام می‌ده رو زودتر، موقعِ
+// ثبت/ویرایش، انجام می‌دیم تا یک ورودیِ خراب اصلاً وارد دیتابیس نشه.
+function isValidTimeZone(tz) {
+  if (!tz) return true; // خالی یعنی از پیش‌فرضِ دیتابیس (Asia/Tehran) استفاده می‌شه
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session) {
@@ -34,6 +53,12 @@ export async function POST(req) {
       { status: 400 }
     );
   }
+  if (!isValidTimeZone(timezone)) {
+    return NextResponse.json(
+      { error: `منطقه‌ی زمانیِ «${timezone}» معتبر نیست — باید یک شناسه‌ی IANA درست باشه (مثلاً Asia/Tehran)` },
+      { status: 400 }
+    );
+  }
   try {
     const created = await createSchedule({ videoMode, daysOfWeek, timeOfDay, timezone, privacyStatus });
     return NextResponse.json({ id: created.id });
@@ -50,6 +75,12 @@ export async function PUT(req) {
   const { id, daysOfWeek, timeOfDay, timezone, privacyStatus, enabled } = await req.json();
   if (!id) {
     return NextResponse.json({ error: "id لازمه" }, { status: 400 });
+  }
+  if (timezone && !isValidTimeZone(timezone)) {
+    return NextResponse.json(
+      { error: `منطقه‌ی زمانیِ «${timezone}» معتبر نیست — باید یک شناسه‌ی IANA درست باشه (مثلاً Asia/Tehran)` },
+      { status: 400 }
+    );
   }
   try {
     await updateSchedule(id, { daysOfWeek, timeOfDay, timezone, privacyStatus, enabled });

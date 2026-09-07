@@ -18,11 +18,15 @@
 > the `ROADMAP.md` entry. If in doubt, update this file too — it's
 > cheaper than the next session re-deriving stale context from it.
 >
-> **Last synced against:** commit `6e593d5` (2026-08-26), verified
-> directly against the extracted source (not just commit messages) as
-> part of a full review — see `youtube-studio-review-v2.md` for the
-> detailed bug-by-bug audit this snapshot draws its "Known issues"
-> section from.
+> **Last synced against:** source as uploaded 2026-09-08 (this file's own
+> "new, 2026-09-06" annotations further down are newer than the
+> `6e593d5`/2026-08-26 hash this line used to cite — that hash was simply
+> never updated in past sessions; update it here once you know the real
+> commit hash after `git push`). Verified directly against the extracted
+> source (not just commit messages) — see `youtube-studio-review-v2.md`
+> for the detailed bug-by-bug audit this snapshot's older "Known issues"
+> entries draw from, and the 2026-09-08 changelog entry in `ROADMAP.md`
+> for this session's fix.
 
 ## What this is
 
@@ -216,7 +220,18 @@ source. One pipeline implementation, three ways to trigger it.
 - `scheduler/run/route.js` — cron-secret-gated (`CRON_SECRET`); checks
   `schedules`, fires `runPipeline()` in the background (self-ping
   keepalive), logs to `schedule_runs`. In-process only, same as above.
-- `schedules/route.js` — CRUD for schedule configs
+  *(fixed 2026-09-08 — each schedule's due-check now runs in its own
+  try/catch; previously one schedule with an invalid `timezone` value
+  threw inside the shared loop and silently aborted the due-check for
+  every other schedule too, on every cron ping, forever. Failures are
+  now logged via `logEvent()` (`schedule_check_failed`, visible on
+  `/activity`) and returned in the endpoint's JSON as `checkErrors`.)*
+- `schedules/route.js` — CRUD for schedule configs. *(fixed 2026-09-08 —
+  `POST`/`PUT` now validate `timezone` with the same `Intl.DateTimeFormat`
+  check the scheduler itself relies on, rejecting an invalid IANA zone
+  with a 400 instead of letting it reach the DB — the free-text field in
+  `ScheduleSettings.js` has no client-side validation, so this was the
+  only guard against a typo like "Tehran" instead of "Asia/Tehran".)*
 - `providers/route.js`, `providers/[id]/route.js`,
   `providers/[id]/check/route.js` — CRUD + connectivity check for the
   provider system
@@ -318,21 +333,7 @@ source. One pipeline implementation, three ways to trigger it.
   videos with data or returns `null`
 - `rendering/index.js` — `renderVideo()` (main FFmpeg pipeline, one
   segment at a time; uses `-shortest`, so the shorter of its video/audio
-  streams determines final output length; *2026-09-07*: takes optional
-  `opts.coverImageBuffer`/`coverDurationSec` — when given, prepends one
-  extra static-image segment (built with the same `buildScaleFilter()`
-  as any other image segment) before the real content, and delays the
-  narration audio, not BGM, by that same duration via `adelay=<ms>|<ms>`
-  (the explicit two-value form, not the newer `:all=1` shorthand — the
-  first draft used `all=1` and tested clean here, but this session's
-  local ffmpeg is modern and proves nothing about the deployed ~2018
-  static build per the Known constraints note right below; `<ms>|<ms>`
-  has existed since `adelay` was introduced in 2013)
-  so sync is preserved; both default to falsy/0.4s and are `undefined`
-  for long-form, so that path is unaffected; verified against real
-  ffmpeg with synthetic inputs before landing, not just written and
-  hoped — see that date's changelog for the actual commands used),
-  `renderVerticalShortFromSource()`
+  streams determines final output length), `renderVerticalShortFromSource()`
   (used only by `/api/repurpose`), `probeDurationSec` (fixed 2026-08-30 —
   passed `ffprobe`-only flags to the `ffmpeg` binary, which doesn't
   understand them, so it had always silently returned `0`; same `ffmpeg
@@ -364,13 +365,7 @@ source. One pipeline implementation, three ways to trigger it.
   `buildMayaThumbnailVariants()` (Maya + blurred background photo +
   title text via `sharp`), mood-based pose picker,
   `escapeDrawtextForShort`/`capThumbnailWords` (shared with
-  `rendering/index.js`'s short-render path). *(2026-09-07)* YouTube's
-  Data API doesn't support `thumbnails.set()` for Shorts at all (a
-  platform limitation, not a gap here — see Known constraints), so for
-  `isShort` the buffer this builds is no longer uploaded as a
-  thumbnail; `pipeline.js` instead hands it to `renderVideo()` as
-  `opts.coverImageBuffer`, which bakes it in as the video's own very
-  first (~0.4s) frame — see `rendering/index.js`'s entry below.
+  `rendering/index.js`'s short-render path)
 - `providers/registry.js` — `REGISTRY` of known services (groq/openai/
   anthropic/elevenlabs/stability/pexels/msedge-tts) with capabilities +
   `detect()` probe + adapters; `detectService(apiKey)` auto-fingerprints
@@ -725,6 +720,18 @@ previously caused `invalid_client`/`deleted_client` confusion.
   it back via `getWorkerJob()` and calls `markTrendTopicProduced()` once a
   successful `videoId` comes back. Not yet verified against a real worker
   run — see that date's changelog entry.
+- ✅ ~~One schedule with an invalid `timezone` silently disabled automatic
+  uploads for *every* schedule, forever~~ — **fixed 2026-09-08.**
+  `scheduler/run/route.js`'s due-check loop had no per-schedule try/catch,
+  so an `Intl.DateTimeFormat` `RangeError` from one bad `timezone` (the
+  field is free-text, unvalidated) aborted the whole loop on every cron
+  ping with no visible error anywhere. Now isolated per-schedule (logged +
+  returned as `checkErrors`), and `schedules/route.js` validates
+  `timezone` up front so a bad value can no longer reach the DB at all.
+  Not yet verified against a real invalid-timezone row in the live DB
+  (reproduced and confirmed only via a standalone Node repro of the
+  `RangeError`) — see that date's changelog entry for what to check next
+  if the site's actual symptom turns out to have a different cause.
 
 ---
 

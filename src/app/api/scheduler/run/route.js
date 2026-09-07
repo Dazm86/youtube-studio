@@ -150,16 +150,42 @@ export async function GET(req) {
   try {
     const schedules = await listSchedules();
     const dueSchedules = [];
+    const checkErrors = [];
 
     // هر schedule تایم‌زونِ خودش رو داره؛ باید جدا محاسبه بشه (نه یک
     // "الان" مشترک برای همه).
+    //
+    // باگِ ۲۰۲۶-۰۹-۰۸ (پیدا و فیکس شد): این حلقه قبلاً هیچ try/catch ای
+    // نداشت. getNowInTimezone از Intl.DateTimeFormat استفاده می‌کنه که
+    // برای یک timezone نامعتبر (مثلاً یک تایپوی ساده تو فیلدِ آزادِ متنیِ
+    // ScheduleSettings.js — که هیچ اعتبارسنجی‌ای نداره — مثلِ "Tehran"
+    // به‌جای "Asia/Tehran"، یا یک رشته‌ی خالی) یک RangeError پرت می‌کنه.
+    // چون این throw داخلِ خودِ for-loop بود، همون یک زمان‌بندیِ خراب کلِ
+    // حلقه رو همون‌جا متوقف می‌کرد — یعنی نه فقط اون یکی، بلکه *هیچ*
+    // زمان‌بندیِ دیگه‌ای (حتی کاملاً سالم‌ها) بعد از اون تو همون اجرا چک
+    // نمی‌شد، بدونِ اینکه هیچ خطای قابل‌مشاهده‌ای جایی ثبت بشه (چون
+    // پینگِ cron هر بار فقط یک ۵۰۰ کلی می‌گرفت که هیچ‌جا لاگ نمی‌شد) —
+    // نتیجه: «قسمتِ آپلودِ خودکار» برای همیشه، برای همه‌ی زمان‌بندی‌ها،
+    // بی‌صدا از کار می‌افتاد. حالا هر زمان‌بندی جدا try/catch می‌شه؛ یک
+    // خرابی فقط همون یکی رو skip می‌کنه و هم لاگ می‌شه، هم تو جوابِ خودِ
+    // endpoint و هم تو activity_log قابل‌مشاهده‌ست.
     for (const schedule of schedules) {
-      const nowInfo = getNowInTimezone(schedule.timezone || "Asia/Tehran");
-      if (isDue(schedule, nowInfo)) {
-        dueSchedules.push(schedule);
-        // claim فوری، قبل از شروعِ کارِ واقعی — تا یک ping هم‌پوشان دوباره
-        // همین رو due تشخیص نده.
-        await markScheduleRan(schedule.id, nowInfo.dateStr);
+      try {
+        const nowInfo = getNowInTimezone(schedule.timezone || "Asia/Tehran");
+        if (isDue(schedule, nowInfo)) {
+          dueSchedules.push(schedule);
+          // claim فوری، قبل از شروعِ کارِ واقعی — تا یک ping هم‌پوشان دوباره
+          // همین رو due تشخیص نده.
+          await markScheduleRan(schedule.id, nowInfo.dateStr);
+        }
+      } catch (scheduleErr) {
+        console.error(`scheduler/run: schedule ${schedule.id} due-check failed (skipped):`, scheduleErr.message);
+        checkErrors.push({ id: schedule.id, error: scheduleErr.message });
+        logEvent({
+          type: "schedule_check_failed",
+          message: `چکِ زمان‌بندیِ #${schedule.id} با خطا مواجه شد و این دور نادیده گرفته شد: ${scheduleErr.message}`,
+          metadata: { scheduleId: schedule.id, timezone: schedule.timezone, error: scheduleErr.message },
+        });
       }
     }
 
@@ -174,6 +200,7 @@ export async function GET(req) {
     return NextResponse.json({
       checked: schedules.length,
       triggered: dueSchedules.map((s) => ({ id: s.id, videoMode: s.video_mode })),
+      ...(checkErrors.length > 0 ? { checkErrors } : {}),
     });
   } catch (err) {
     console.error("scheduler/run error:", err.message);
