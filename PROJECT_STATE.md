@@ -318,7 +318,21 @@ source. One pipeline implementation, three ways to trigger it.
   videos with data or returns `null`
 - `rendering/index.js` — `renderVideo()` (main FFmpeg pipeline, one
   segment at a time; uses `-shortest`, so the shorter of its video/audio
-  streams determines final output length), `renderVerticalShortFromSource()`
+  streams determines final output length; *2026-09-07*: takes optional
+  `opts.coverImageBuffer`/`coverDurationSec` — when given, prepends one
+  extra static-image segment (built with the same `buildScaleFilter()`
+  as any other image segment) before the real content, and delays the
+  narration audio, not BGM, by that same duration via `adelay=<ms>|<ms>`
+  (the explicit two-value form, not the newer `:all=1` shorthand — the
+  first draft used `all=1` and tested clean here, but this session's
+  local ffmpeg is modern and proves nothing about the deployed ~2018
+  static build per the Known constraints note right below; `<ms>|<ms>`
+  has existed since `adelay` was introduced in 2013)
+  so sync is preserved; both default to falsy/0.4s and are `undefined`
+  for long-form, so that path is unaffected; verified against real
+  ffmpeg with synthetic inputs before landing, not just written and
+  hoped — see that date's changelog for the actual commands used),
+  `renderVerticalShortFromSource()`
   (used only by `/api/repurpose`), `probeDurationSec` (fixed 2026-08-30 —
   passed `ffprobe`-only flags to the `ffmpeg` binary, which doesn't
   understand them, so it had always silently returned `0`; same `ffmpeg
@@ -350,7 +364,13 @@ source. One pipeline implementation, three ways to trigger it.
   `buildMayaThumbnailVariants()` (Maya + blurred background photo +
   title text via `sharp`), mood-based pose picker,
   `escapeDrawtextForShort`/`capThumbnailWords` (shared with
-  `rendering/index.js`'s short-render path)
+  `rendering/index.js`'s short-render path). *(2026-09-07)* YouTube's
+  Data API doesn't support `thumbnails.set()` for Shorts at all (a
+  platform limitation, not a gap here — see Known constraints), so for
+  `isShort` the buffer this builds is no longer uploaded as a
+  thumbnail; `pipeline.js` instead hands it to `renderVideo()` as
+  `opts.coverImageBuffer`, which bakes it in as the video's own very
+  first (~0.4s) frame — see `rendering/index.js`'s entry below.
 - `providers/registry.js` — `REGISTRY` of known services (groq/openai/
   anthropic/elevenlabs/stability/pexels/msedge-tts) with capabilities +
   `detect()` probe + adapters; `detectService(apiKey)` auto-fingerprints

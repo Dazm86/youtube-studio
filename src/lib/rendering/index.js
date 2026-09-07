@@ -327,12 +327,44 @@ async function renderVideo({
     fontSize = 48,
     bgmPath,
     bgmVolume = 0.12,
+    // ۲۰۲۶-۰۹-۰۷ — یوتیوب تامبنیلِ سفارشی برایِ Shorts رو از API قبول
+    // نمی‌کنه (مستندِ رسمی + یک باگ‌ریپورتِ بازِ خودِ گوگل)، پس به‌جاش
+    // خودِ عکسِ تامبنیل رو به‌عنوانِ یک فریمِ ثابت و خیلی کوتاه، قبل از
+    // محتوایِ اصلی، تویِ خودِ ویدیو می‌ذاریم — چیزی که یوتیوب برایِ
+    // پیش‌نمایشِ Shorts معمولاً از یک فریمِ اول استفاده می‌کنه. تست شد
+    // با ffmpegِ واقعی (concat + adelay رویِ روایت، نه BGM) قبل از اینکه
+    // این‌جا نوشته بشه.
+    coverImageBuffer = null,
+    coverDurationSec = 0.4,
   } = opts;
 
   const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), "render-"));
   const segmentFiles = [];
 
   try {
+    // ۰. فریمِ کاور (اختیاری) — اگه باشه، همیشه سگمنتِ صفرمه، قبل از
+    // هر محتوایی. عمداً ثابته (بدونِ Ken Burns/زیرنویس/مایا) — یک
+    // فلشِ کوتاه و واضح، نه یک انیمیشن.
+    if (coverImageBuffer && coverDurationSec > 0) {
+      const coverPath = path.join(tmpDir, "cover.png");
+      await fsp.writeFile(coverPath, coverImageBuffer);
+      const coverOut = path.join(tmpDir, "cover_seg.mp4");
+      await runFfmpeg([
+        "-y",
+        "-loop", "1",
+        "-i", coverPath,
+        "-filter_complex", buildScaleFilter(width, height),
+        "-map", "[v0]",
+        "-t", String(coverDurationSec),
+        "-r", String(fps),
+        "-c:v", "libx264",
+        "-preset", "veryfast",
+        "-pix_fmt", "yuv420p",
+        coverOut,
+      ]);
+      segmentFiles.push(coverOut);
+    }
+
     // ۱. برای هر سگمنت (خط زیرنویس) یک ویدیو کوتاه بساز
     for (let i = 0; i < segments.length; i++) {
       const seg = segments[i];
@@ -513,11 +545,26 @@ async function renderVideo({
       ttsPath,
     ];
     let audioFilter;
+    // ۲۰۲۶-۰۹-۰۷ — اگه فریمِ کاور اضافه شده، ویدیو الان coverDurationSec
+    // ثانیه بلندتر از قبله؛ روایت (نه BGM — BGM از t=0 پخش می‌مونه، حتی
+    // زیرِ خودِ فریمِ کاور) باید به همون اندازه دیر شروع بشه، وگرنه صدا
+    // زودتر از تصویرِ متناظرش میاد. سینتکسِ `adelay=ms|ms` (نه
+    // `adelay=ms:all=1`) عمداً انتخاب شده — طبقِ همین فایل زیرِ «Known
+    // constraints»، ffmpegِ استاتیکِ دیپلوی‌شده مالِ حدودِ ۲۰۱۸ه و قبلاً
+    // یک option جدیدتر (`force_divisible_by`) رو نداشت؛ `adelay=ms|ms`
+    // از همون commitِ اولیه‌ی خودِ این فیلتر (۲۰۱۳) وجود داره، پس مطمئناً
+    // پشتیبانی می‌شه. مقدارِ دوم برایِ سیگنالِ stereo لازمه؛ اگه صدا
+    // mono باشه، طبقِ مستندِ ffmpeg مقدارِ اضافه بی‌صدا نادیده گرفته
+    // می‌شه، نه ارور — هردو حالت با ffmpegِ واقعی تست شد.
+    const coverActive = coverImageBuffer && coverDurationSec > 0;
+    const delayMs = coverActive ? Math.round(coverDurationSec * 1000) : 0;
     if (bgmPath && fs.existsSync(bgmPath)) {
       finalArgs.push("-i", bgmPath);
-      audioFilter = `[2:a]volume=${bgmVolume}[bgm];[1:a][bgm]amix=inputs=2:duration=first[a]`;
+      audioFilter = coverActive
+        ? `[1:a]adelay=${delayMs}|${delayMs}[narr];[2:a]volume=${bgmVolume}[bgm];[narr][bgm]amix=inputs=2:duration=first[a]`
+        : `[2:a]volume=${bgmVolume}[bgm];[1:a][bgm]amix=inputs=2:duration=first[a]`;
     } else {
-      audioFilter = "[1:a]anull[a]";
+      audioFilter = coverActive ? `[1:a]adelay=${delayMs}|${delayMs}[a]` : "[1:a]anull[a]";
     }
     finalArgs.push(
       "-filter_complex",

@@ -371,6 +371,57 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-09-07 — Shorts thumbnails: found the real platform limitation, then baked the thumbnail into the video itself
+User asked to also generate thumbnails for Shorts, "like the long videos". Checked first rather than assuming
+it was just an unimplemented feature: `youtube.thumbnails.set()` was already being called unconditionally for
+*every* video, Short or long — no `isShort` gate at all. Verified against current sources (Google's own API
+docs plus an open issue on Google's own issue tracker) that **YouTube's Data API does not support setting a
+custom thumbnail for Shorts at all** — a platform limitation, not a gap in this code. So that existing
+unconditional call was, for every Short, either doing nothing or actively failing and adding a false
+"شکستِ تامبنیل" to the review queue on every single Short upload.
+
+First pass: gated the call to `!isShort`, with an honest `thumbnailStatus` explaining why, instead of the
+wasted/failing attempt. User then suggested the actual workaround: since YouTube commonly uses an early frame
+of a Short as its preview when there's no real custom thumbnail, bake the thumbnail image in as the video's
+own opening frame instead.
+
+Implemented and **tested against real ffmpeg before writing the final code** (this container has a full
+ffmpeg 6.1.1 available) — built synthetic cover/content segments and verified the exact command sequence:
+prepend a short (0.4s default) static image segment built with the same `buildScaleFilter()` already used for
+every other image segment (no Ken Burns/captions/Maya — a clean, sharp cover, not a moving frame), then, at
+the final audio mux, delay the *narration* track by that same duration so it stays in sync with the
+now-longer video (BGM is deliberately left un-delayed, so it plays continuously through the cover flash too).
+
+First draft used `adelay=<ms>:all=1` and tested clean — but this file's own Known constraints already warn
+that the *deployed* ffmpeg is a static ~2018 build missing modern filter options (that section exists
+because `scale`'s `force_divisible_by` crashed with "Option not found" once, the hard way). Testing against
+a modern local ffmpeg here proves nothing about a 2018 binary's filter option support, so this needed a
+second pass before it could be trusted: switched to the explicit `adelay=<ms>|<ms>` form instead, which has
+existed since `adelay` was first added to ffmpeg (2013) — old enough to be safe on anything this project
+would plausibly be running. Re-tested that exact syntax, including specifically confirming it degrades
+safely on a synthetic *mono* input (extra delay value silently ignored, per ffmpeg's own docs, not an
+error) — TTS output's channel count wasn't known for certain either. Confirmed via `ffprobe`/`volumedetect`
+on the final version: exact expected total duration, true digital silence for the delay window on the
+no-BGM path, audible BGM (not silence) during that same window on the BGM path, narration starting exactly
+on cue afterward on both.
+
+`renderVideo()` in `lib/rendering/index.js` gained two new optional `opts`: `coverImageBuffer`/
+`coverDurationSec` (default 0.4s) — both `undefined`/`null` by default, so long-form rendering (which never
+passes them) is byte-for-byte unaffected; this was checked by construction, not just assumed, since the new
+cover-segment block and the audio-filter's `coverActive` branch are the *only* new code paths, and both
+short-circuit to the prior behavior when no cover image is given. `pipeline.js` now builds the thumbnail PNG
+*before* calling `renderVideo()` (only for `isShort` — long-form still builds it later, at upload time, as
+before) via the same `buildMayaThumbnail()` used for the real long-form thumbnail upload, non-fatally (a
+build failure just means no cover frame, not a broken render).
+
+Not verified: an actual end-to-end run of the real `renderVideo()` function itself — this session's sandbox
+doesn't have the project's real `public/maya/*.png` or `public/fonts/` assets (only `src/` was uploaded), so
+a full integration test wasn't possible here. What *was* verified is the entire new logic in isolation
+against real ffmpeg, and that the change is additive/opt-in rather than modifying any existing code path.
+Worth watching the next real Short render closely.
+
+Files (modified): `lib/pipeline.js`, `lib/rendering/index.js`.
+
 ### 2026-09-06 (later still, same day) — Actually looked at the live channel (vidIQ), found 2 real issues, fixed one
 User asked for a real look at the channel, not another audit based on assumptions. Direct `web_fetch` on the
 channel page only returned the static "About" box (the video grid needs JS this session can't execute), and

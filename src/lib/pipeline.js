@@ -478,6 +478,21 @@ async function runPipelineCore(
   endStage("media");
   emit({ status: "رسانه‌ها آماده شد ✅", progress: 15 });
 
+  // ۲۰۲۶-۰۹-۰۷ — برایِ short، تامبنیل رو *قبل از* رندر می‌سازیم تا به
+  // renderVideo() بدیمش (به‌عنوانِ فریمِ اولِ خودِ ویدیو — چون یوتیوب
+  // تامبنیلِ سفارشی برایِ Shorts رو از API قبول نمی‌کنه، پایین‌تر تویِ
+  // این فایل). ناموفق‌بودنش نباید کلِ رندر رو متوقف کنه — همون فلسفه‌ی
+  // بلوکِ تامبنیلِ لانگ‌فرم پایین‌تر.
+  let coverImageBuffer = null;
+  if (isShort) {
+    try {
+      const { buildMayaThumbnail } = await getMayaThumbnail();
+      coverImageBuffer = await buildMayaThumbnail({ title, thumbnailText, script, bgImageUrl, variant: "A" });
+    } catch (coverErr) {
+      console.error("cover-frame build error (proceeding without it):", coverErr.message);
+    }
+  }
+
   // --- ۳. رندر ویدیو ---
   beginStage("render");
   emit({ status: "مرحله ۳ از ۵: در حال رندر ویدیو...", progress: 16 });
@@ -597,6 +612,7 @@ async function runPipelineCore(
         fontSize: videoMode === "short" ? 44 : 48,
         bgmPath,
         bgmVolume: 0.12,
+        coverImageBuffer,
       },
     });
 
@@ -692,7 +708,22 @@ async function runPipelineCore(
   emit({ status: "مرحله ۵ از ۵: در حال تنظیم تامبنیل و زیرنویس...", progress: 92 });
 
   // --- ۵. تامبنیل ---
+  // ۲۰۲۶-۰۹-۰۷ — یوتیوب از طریقِ Data API اصلاً از تامبنیلِ سفارشی
+  // برایِ Shorts پشتیبانی نمی‌کنه (مستندِ رسمیِ گوگل + یک باگ‌ریپورتِ
+  // بازِ خودشون — این محدودیتِ پلتفرمه، نه چیزی که این کد بتونه دورش
+  // بزنه). قبلاً این کد بدونِ شرط youtube.thumbnails.set() رو برایِ
+  // short هم صدا می‌زد — یا هیچ اثری نداشت یا واقعاً شکست می‌خورد و
+  // بی‌دلیل صفِ بازبینی رو با «شکستِ تامبنیل» شلوغ می‌کرد. الان به‌جاش:
+  // خودِ تامبنیل بالاتر (قبل از renderVideo) ساخته می‌شه و به‌عنوانِ
+  // یک فریمِ ثابتِ خیلی کوتاه (coverDurationSec، پیش‌فرض ۰.۴ ثانیه)
+  // قبل از محتوایِ اصلی، تویِ خودِ ویدیو گنجونده می‌شه — چیزی که یوتیوب
+  // برایِ پیش‌نمایشِ Shorts معمولاً از یک فریمِ اول استفاده می‌کنه.
   let thumbnailStatus = "skipped";
+  if (isShort) {
+    thumbnailStatus = coverImageBuffer
+      ? "به‌عنوانِ فریمِ اولِ ویدیو گنجونده شد (یوتیوب تامبنیلِ واقعیِ Shorts رو از API قبول نمی‌کنه)"
+      : "skipped: یوتیوب تامبنیلِ سفارشی برایِ Shorts رو از API قبول نمی‌کنه، و ساختِ فریمِ کاور هم ناموفق بود";
+  } else
   try {
     const { buildMayaThumbnail } = await getMayaThumbnail();
     const thumbBuffer = await buildMayaThumbnail({
