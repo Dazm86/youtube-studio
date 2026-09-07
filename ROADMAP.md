@@ -371,6 +371,43 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-09-06 (later still, same day) — Actually looked at the live channel (vidIQ), found 2 real issues, fixed one
+User asked for a real look at the channel, not another audit based on assumptions. Direct `web_fetch` on the
+channel page only returned the static "About" box (the video grid needs JS this session can't execute), and
+web search returned nothing (channel too small/new to be indexed) — connected vidIQ (`suggest_connectors` →
+user picked it) and pulled real data via `vidiq_channel_stats` + `vidiq_channel_videos` (both formats).
+
+Headline finding, worth stating plainly since it reframes the whole "growth audit" conversation: **1
+subscriber, 447 total views across 41 videos**. Most individual videos sit in the 0–20 view range. This is a
+cold-start channel the algorithm hasn't started distributing yet — cosmetic/CTR polish (thumbnails, hooks,
+the whole prior audit) is good hygiene for *when* discovery starts, but isn't what's holding view counts
+down right now; there's essentially no impression volume yet for CTR to act on.
+
+Found two concrete, evidence-based issues in the real title data (not guessed):
+
+1. **Grammar bug in AI-generated titles** — "Why You Stuck on Crossword Clues (And How to Solve Them Fast)"
+   is missing "'re". `lib/metadata/index.js`'s title prompt had zero explicit instruction about grammatical
+   correctness despite being very detailed about everything else (hook pattern, length budget, forbidden
+   styles) — under a tight character budget the model apparently drops a contraction rather than a different
+   word. **Fixed**: added an explicit rule to the prompt, using this exact real failure as the negative
+   example ("must read 'Why You're Stuck...'" ), for both `titleA`/`titleB` and the thumbnail-text fields.
+
+2. **A 33-second "long-form" video** ("Heal Your Past", published 2026-08-04) — every other long-form video
+   is 2:58–7:47, so this is a clear outlier, not noise. Didn't need to write a new fix: `PROJECT_STATE.md`'s
+   own file-map already documents the almost-certain cause, already resolved before this session even
+   started. `estimateAudioDurationSec()`'s file-size-based bitrate guess was wrong whenever the real TTS
+   bitrate differed from the assumed one (fixed 2026-08-29) — combined with `renderVideo()`'s `-shortest`
+   flag (output length = the *shorter* of the video/audio streams), an under-estimated audio duration would
+   build a too-short video track and `-shortest` would truncate the final render to match. `probeDurationSec`
+   was *also* separately broken (fixed 2026-08-30 — passed `ffprobe`-only flags to the `ffmpeg` binary, which
+   doesn't understand them, so it silently always returned `0`), which is exactly what would let a truncated
+   render like this slip past the "final duration vs. expected" checkpoint added 2026-08-29 without
+   tripping it. Both fixes landed by 2026-08-30, three weeks after this specific video published — nothing
+   to change in code today; the bug that made "Heal Your Past" is already gone for anything produced since.
+   No action needed on that one old video unless the user wants it deleted/re-made.
+
+Files (modified): `lib/metadata/index.js`.
+
 ### 2026-09-06 (later same day) — Reviewed a Gemini channel-growth audit against the real code before touching anything
 User pasted a 6-category growth audit from Gemini (channel identity consistency, thumbnail CTR,
 3-second hooks, voice/animation emotion, multi-language subtitles + SEO, posting-schedule

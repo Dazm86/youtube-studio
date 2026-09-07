@@ -284,7 +284,12 @@ source. One pipeline implementation, three ways to trigger it.
   covers the AI-success and both heuristic-fallback paths through one
   shared step. Comment-pinning was considered instead but isn't
   possible — YouTube Data API v3 has no endpoint for it, see Known
-  constraints.
+  constraints. *(2026-09-06)* title/thumbnail-text prompt now
+  explicitly requires grammatically correct English (a real title this
+  prompt produced was missing a contraction — "Why You Stuck..."
+  instead of "Why You're Stuck..." — found via a live vidIQ check of
+  the channel's actual titles, used as the prompt's own negative
+  example).
 - `media/index.js` — thin wrapper re-exporting `fetchImages`/
   `fetchClips` from `providers/router.js`
 - `community/index.js` — `generateCommunityPost()`
