@@ -579,7 +579,10 @@ any job over ~5 minutes.**
 current time in each schedule's own timezone, claims due ones, and
 calls `runPipeline()` **directly in-process** (fire-and-forget,
 self-ping keepalive) — never via the worker/jobs system, so it's
-unaffected by the credential-expiry issue.
+unaffected by the credential-expiry issue. *(Confirmed working live
+2026-09-08 — the pinger is UptimeRobot free tier, 5-min interval,
+monitor URL `https://youtube-studio-7bnw.onrender.com/api/scheduler/run?secret=<CRON_SECRET>`.
+Before that date `CRON_SECRET` was unset in Render — see Known issues.)*
 
 **4. Repurpose (long → short).** `/api/repurpose` reads the retention
 curve for an existing video, finds the best window, and calls
@@ -728,10 +731,27 @@ previously caused `invalid_client`/`deleted_client` confusion.
   ping with no visible error anywhere. Now isolated per-schedule (logged +
   returned as `checkErrors`), and `schedules/route.js` validates
   `timezone` up front so a bad value can no longer reach the DB at all.
-  Not yet verified against a real invalid-timezone row in the live DB
-  (reproduced and confirmed only via a standalone Node repro of the
-  `RangeError`) — see that date's changelog entry for what to check next
-  if the site's actual symptom turns out to have a different cause.
+  Real-world root cause of the user's actual report turned out to be
+  different (see next entry) — this fix is still worth having (a bad
+  `timezone` would still silently break everyone), it just wasn't *the*
+  bug this time.
+- ✅ ~~Automatic upload never fired at all, even after the fix above~~ —
+  **root cause found + fixed live 2026-09-08, config only, no code
+  change.** Two things, both required: (1) `CRON_SECRET` was never set in
+  Render's Environment Variables — `scheduler/run/route.js` returns a 500
+  immediately when it's unset, so the endpoint had been completely inert
+  since Phase 4 was built; (2) the user's only external monitor
+  (UptimeRobot, free tier, 5-min interval) was pointed at the site's root
+  URL (`/`), not at `/api/scheduler/run` — so it was only keeping Render
+  awake, never actually calling the scheduler. Fixed by generating a
+  `CRON_SECRET` (`openssl rand -hex 24`), adding it in Render, and editing
+  the UptimeRobot monitor's URL to
+  `.../api/scheduler/run?secret=<CRON_SECRET>`. Confirmed live: a test
+  schedule fired and uploaded successfully. **Lesson for future
+  sessions:** if "automatic upload doesn't work" comes up again, check
+  live config first (is `CRON_SECRET` actually set? what URL does the
+  external pinger actually hit?) before assuming it's a code bug — this
+  case looked identical to a code bug from the outside but wasn't one.
 
 ---
 

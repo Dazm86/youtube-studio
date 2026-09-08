@@ -371,6 +371,31 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-09-08 (later, same day) — Live-debugged with the user: real root cause wasn't the code bug, it was missing CRON_SECRET + monitor pointed at the wrong URL
+After deploying the due-check isolation fix below, automatic upload still didn't fire. Walked through it live
+with the user via screenshots of their Render dashboard and UptimeRobot account:
+
+1. `CRON_SECRET` was never set in Render's Environment Variables at all — `scheduler/run/route.js`'s `GET`
+   handler returns a 500 immediately when it's unset, so the endpoint had been completely inert since Phase 4
+   was originally built.
+2. The user's only external monitor (UptimeRobot, free tier, 5-min interval) was pointed at the site's root
+   URL (`/`), not at `/api/scheduler/run` — so even once `CRON_SECRET` existed, nothing was ever actually
+   calling the scheduler endpoint. It was only keeping Render awake, not triggering anything.
+
+Fixed by: generating a random `CRON_SECRET` (`openssl rand -hex 24`), adding it in Render, and editing the
+existing UptimeRobot monitor's URL to
+`https://youtube-studio-7bnw.onrender.com/api/scheduler/run?secret=<CRON_SECRET>`. Confirmed live: the
+monitor shows "Up" (200, not 401/500) hitting the real endpoint, and a test schedule set for 7:43 actually
+fired and uploaded at 7:46 (within the code's normal 15-min tolerance / 5-min poll interval — not a bug).
+
+**Takeaway for future sessions:** the due-check isolation fix below is still a real, worthwhile fix (a bad
+`timezone` value would still silently break every schedule) — but it was never what caused *this* user's
+reported failure. The two actual root causes here were pure configuration/setup, invisible from source code
+alone. If "automatic upload doesn't work" comes up again, check the *live* config first — `CRON_SECRET`
+actually set in Render? exactly what URL does the external pinger hit? — before assuming it's a code bug.
+
+Files changed: none (config-only, in Render + UptimeRobot dashboards).
+
 ### 2026-09-08 — Automatic-upload scheduler: one bad schedule could silently kill the whole feature; found + fixed
 User reported "قسمت اپلود خودکار کار نمیکنه" (the automatic-upload part isn't working) and asked for a bug
 hunt across a fresh `src.zip` + `ROADMAP.md` + `PROJECT_STATE.md` upload. Went file-by-file through the
