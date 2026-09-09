@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
+import ThemedCommunityPosts from "./ThemedCommunityPosts";
 
 function formatDuration(totalSeconds) {
   const s = Math.max(0, Math.round(totalSeconds || 0));
@@ -187,6 +188,8 @@ export default function ChannelAnalytics() {
       </button>
       {syncStatus && <p className="text-sm text-text-muted text-center mb-2">{syncStatus}</p>}
 
+      <ThemedCommunityPosts />
+
       {loading && <p className="text-center text-text-muted">در حال بارگذاری...</p>}
       {error && <p className="text-center text-danger">خطا: {error}</p>}
 
@@ -233,6 +236,7 @@ export default function ChannelAnalytics() {
                       >
                         {v.title || "بدون عنوان"}
                       </a>
+                      <HealthFlags flags={v.healthFlags} />
                     </td>
                     <td className="p-2 text-text-muted">{v.video_mode === "short" ? "شورت" : "لانگ"}</td>
                     <td className="p-2 readout">{Number(v.views || 0).toLocaleString("fa-IR")}</td>
@@ -280,6 +284,7 @@ export default function ChannelAnalytics() {
                   </a>
                   <span className="badge-neutral shrink-0">{v.video_mode === "short" ? "شورت" : "لانگ"}</span>
                 </div>
+                <HealthFlags flags={v.healthFlags} />
 
                 <div className="grid grid-cols-3 gap-2 text-center mb-2">
                   <MiniStat label="بازدید" value={Number(v.views || 0).toLocaleString("fa-IR")} />
@@ -329,6 +334,22 @@ function MiniStat({ label, value }) {
     <div className="rounded-md bg-surface-raised border border-border py-1.5">
       <div className="text-sm font-semibold readout">{value}</div>
       <div className="text-[0.65rem] text-text-muted mt-0.5">{label}</div>
+    </div>
+  );
+}
+
+// ۲۰۲۶-۰۹-۰۸ — چک‌لیستِ تفسیرِ آمار (computeHealthFlags تو lib/analytics)
+// رو به‌صورتِ چند خطِ کوچیکِ زیرِ عنوان نشون می‌ده — هم تو جدولِ دسکتاپ،
+// هم تو کارتِ موبایل.
+function HealthFlags({ flags }) {
+  if (!flags || flags.length === 0) return null;
+  return (
+    <div className="mt-1 space-y-0.5">
+      {flags.map((f, i) => (
+        <div key={i} className={`text-[0.7rem] ${f.level === "warning" ? "text-warning" : "text-text-muted"}`}>
+          ⚠️ {f.message}
+        </div>
+      ))}
     </div>
   );
 }

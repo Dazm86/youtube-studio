@@ -12,6 +12,11 @@ export default function VideoStudio({ mode }) {
 
   const [title, setTitle] = useState("");
   const [thumbnailText, setThumbnailText] = useState("");
+  // ۲۰۲۶-۰۹-۰۸ — پیشنهادِ حالتِ چهره‌ی مایا برای این تامبنیل، از همون
+  // پاسخِ suggest-metadata (mayaExpressionA). فقط نمایشی/راهنماست — به
+  // انتخابِ خودکارِ پوزِ رندر وصل نیست، صرفاً یک راهنمای دستی برای کاربر
+  // موقعِ گرفتن اسکرین‌شاتِ تامبنیل.
+  const [mayaExpressionHint, setMayaExpressionHint] = useState("");
   const [description, setDescription] = useState("");
   const [privacyStatus, setPrivacyStatus] = useState("private");
   const [publishAt, setPublishAt] = useState("");
@@ -497,6 +502,7 @@ export default function VideoStudio({ mode }) {
       }
       setTitle(data.title || "");
       setThumbnailText(data.thumbnailText || "");
+      setMayaExpressionHint(data.mayaExpressionA || "");
       setDescription(data.description || "");
       setTagsStr((data.tags || []).join(", "));
       setSuggestMetaStatus(
@@ -817,6 +823,11 @@ export default function VideoStudio({ mode }) {
         <p className="text-xs text-text-muted mt-1.5 mb-4">
           پیش‌نمایش تقریبیِ صورت کوچک — پس‌زمینه‌ی واقعی و ژست مایا موقع رندر نهایی ست می‌شن.
         </p>
+        {mayaExpressionHint && (
+          <p className="text-xs text-text-muted mb-4">
+            💡 پیشنهادِ حالتِ چهره‌ی مایا برای این تامبنیل: <span className="text-teal">{mayaExpressionHint}</span>
+          </p>
+        )}
 
         <label className="field-label">توضیحات</label>
         <textarea

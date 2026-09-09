@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth/authOptions";
 import { getAllVideos } from "@/lib/db";
+import { annotateVideosWithHealthFlags } from "@/lib/analytics";
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -11,7 +12,7 @@ export async function GET() {
 
   try {
     const videos = await getAllVideos();
-    return NextResponse.json({ videos });
+    return NextResponse.json({ videos: annotateVideosWithHealthFlags(videos) });
   } catch (err) {
     console.error("videos list error:", err.message);
     return NextResponse.json({ error: err.message }, { status: 500 });

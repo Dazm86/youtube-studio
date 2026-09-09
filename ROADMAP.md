@@ -371,6 +371,59 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-09-08 (even later, same day) — Compared 8 Gemini-written content prompts against the site's own; implemented the recommended pieces
+User had been getting prompt ideas from Gemini for thumbnail text, titles, Shorts hooks, long-form script
+structure, CTAs, SEO/description, Community posts, and an analytics-based edit checklist — asked for an
+overlap comparison against what the site already does before deciding what to add. After that comparison
+(percentages were rough qualitative estimates, not measured), user said to implement the recommended pieces.
+Implemented:
+
+1. **Thumbnail (`lib/metadata/index.js`)** — added `mayaExpressionA`/`mayaExpressionB` to the metadata prompt's
+   JSON shape: a short facial-expression/pose suggestion paired with each thumbnail-text variant. Surfaced as a
+   read-only hint in `VideoStudio.js`'s thumbnail preview. Deliberately NOT wired into automatic Maya pose
+   selection (`pickMayaPose`) — that would need a real mapping from free-text expression descriptions to actual
+   pose image filenames, which is Phase-6-animation-adjacent territory, not a quick addition.
+2. **Title angle diversity (`lib/metadata/index.js`)** — titleA/titleB can now genuinely differ in angle (one a
+   direct question, the other a mistake/warning framing), not just wording/length. Did NOT loosen the existing
+   hard "must promise a concrete problem+solution" rule for either one — that rule was clearly hardened from a
+   real past failure mode (see the 2026-09-06 contraction-bug entry) and Gemini's own "contrarian, no solution
+   promised" angle looked exactly like the kind of vague/clever title that rule exists to prevent.
+3. **Shorts hook (`lib/script/index.js`)** — tightened the existing hook instruction: explicit 10-12 word / <3s
+   cap, added "a mistake/warning about something the viewer is doing right now" as a 4th example angle.
+4. **Like micro-ask (`lib/script/index.js`)** — long-form structure gained a required "like" ask (agreement-
+   framed, not a favor-ask) right after the biggest actionable-step payoff, kept structurally separate from the
+   existing subscribe-ask in the closing. **Deliberately skipped for Shorts** — the 90-130 word budget already
+   has a strict self-review re-write loop on deviation, and Gemini's own like-ask wasn't specifically requested
+   for the tight Shorts format; adding a mandatory new beat there risked breaking that budget for a feature this
+   session invented, not one the user asked for on shorts specifically.
+5. **Themed Community posts (new)** — `lib/community/index.js: generateThemedCommunityPosts({theme})` (poll +
+   discussion question + teaser, for the gap *between* uploads — separate concept from the existing per-video
+   auto-post), a new `api/community/theme/route.js`, and a new `components/analytics/ThemedCommunityPosts.js`
+   card mounted above the video list on `/analytics`. Nothing is persisted to `community_posts` — that table
+   requires `video_id NOT NULL` and there's no video here — the 3 drafts are just returned for copy/paste.
+6. **SEO/description** — skipped. Gemini's only genuinely new piece (a "join the community" callout line in the
+   description) would be redundant with the Community-post feature that already exists as its own thing.
+7. **Analytics health-flags checklist (new)** — `lib/analytics/index.js: computeHealthFlags()` +
+   `annotateVideosWithHealthFlags()`, a pure/non-AI threshold checklist (CTR<4%, retention<50% long-form,
+   retention<70% shorts, high like-ratio+low-views vs. the channel's own median), wired into
+   `api/videos/route.js` and shown as small warning lines under each video's title in `ChannelAnalytics.js`.
+   This was the single biggest real gap Gemini's prompts surfaced — the site had zero prescriptive analytics
+   logic before this, only raw number fetching. **Important limitation, documented in `PROJECT_STATE.md`:** 2 of
+   the 4 rules (the literal "first 30 seconds" retention drop, and Shorts "swipe-away rate") would need a real
+   elapsedVideoTimeRatio retention curve (`repurpose/index.js: getRetentionCurve()`) plus each video's exact
+   duration in seconds — neither is currently stored per-video, only the aggregate `retention_pct`. Implemented
+   using that aggregate as the closest available proxy instead of blocking the whole feature on a bigger
+   duration/curve-storage change; reasoning for why this proxy is reasonable (especially for Shorts, where the
+   aggregate and an "early" reading are nearly the same signal anyway) is in the code comment.
+
+Verified with the same esbuild-based syntax+import-resolution pass as the scheduler fix earlier today — clean
+(122 files now, only the same pre-existing `lib/index.js` dead-barrel gap, unrelated).
+
+Files (new): `app/api/community/theme/route.js`, `components/analytics/ThemedCommunityPosts.js`.
+Files (modified): `lib/metadata/index.js`, `lib/script/index.js`, `lib/community/index.js`,
+`lib/analytics/index.js`, `app/api/videos/route.js`, `components/studio/VideoStudio.js`,
+`components/analytics/ChannelAnalytics.js`.
+
 ### 2026-09-08 (later, same day) — Live-debugged with the user: real root cause wasn't the code bug, it was missing CRON_SECRET + monitor pointed at the wrong URL
 After deploying the due-check isolation fix below, automatic upload still didn't fire. Walked through it live
 with the user via screenshots of their Render dashboard and UptimeRobot account:

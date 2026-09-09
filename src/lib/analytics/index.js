@@ -118,3 +118,73 @@ export async function fetchStatsForVideoInRange(accessToken, videoId, startDate,
   const [, views] = row;
   return { views: Number(views) || 0, thumbnailImpressions: 0, thumbnailCtr: 0, avgViewPercentage: 0 };
 }
+
+// ۲۰۲۶-۰۹-۰۸ — چک‌لیستِ تفسیرِ آمار: چهار قانونِ آستانه‌ای درخواستی.
+// عمداً کاملاً ریاضی/بدونِ AI — رویِ داده‌ای که already synced هست
+// (views/likes/thumbnail_ctr/retention_pct تو جدولِ videos) کار می‌کنه،
+// هیچ API call یا هزینه‌ی اضافه‌ای نداره.
+//
+// دو تا از ۴ قانون («افتِ نگه‌داشت دقیقاً تو ۳۰ ثانیه‌ی اول» برای
+// ویدیوی بلند، و «swipe-away rate» برای شورت) به یک منحنیِ نگه‌داشتِ
+// زمان‌بندی‌شده (elapsedVideoTimeRatio، شبیهِ getRetentionCurve تو
+// repurpose/index.js) + طولِ دقیقِ ویدیو نیاز دارن که هیچ‌کدوم الان تو
+// دیتابیس ذخیره نمی‌شن (فقط retention_pct کلی/میانگین ذخیره می‌شه، نه
+// منحنی). برای همین این دو قانون با نزدیک‌ترین پراکسیِ ممکن از رویِ
+// retention_pct پیاده شدن:
+//   - ویدیویِ بلند: retention_pct پایین یعنی به‌طورِ میانگین خیلی زود
+//     رهاش می‌کنن؛ حدِ ۵۰٪ مستقیماً رویِ همون میانگین.
+//   - شورت: چون کلِ ویدیو فقط ۳۰-۶۰ ثانیه‌ست، retention_pct میانگین
+//     عملاً همون سیگنالِ "چقدر زود رهاش کردن" رو می‌ده (فاصله‌ی "اولش"
+//     و "کلش" تو یک شورت خیلی کمه) — حدِ ۷۰٪ (یعنی swipe-away بیشتر
+//     از ۳۰٪) رویِ همون.
+// اگه بعداً منحنیِ واقعی + طولِ دقیقِ ویدیو ذخیره بشه، این دو قانون
+// می‌تونن دقیق‌تر (بدونِ پراکسی) بشن.
+export function computeHealthFlags(video, channelMedianViews) {
+  const flags = [];
+  const ctr = Number(video.thumbnail_ctr);
+  const retention = Number(video.retention_pct);
+  const views = Number(video.views) || 0;
+  const likes = Number(video.likes) || 0;
+
+  if (video.thumbnail_ctr != null && ctr < 4) {
+    flags.push({
+      level: "warning",
+      message: `CTR ${ctr.toFixed(1)}٪ — زیرِ ۴٪. تامبنیل رو عوض کن و متنِ روش رو به ۳ کلمه‌ی شوکه‌کننده تقلیل بده.`,
+    });
+  }
+
+  if (video.retention_pct != null) {
+    if (video.video_mode !== "short" && retention < 50) {
+      flags.push({
+        level: "warning",
+        message: `نگه‌داشتِ میانگین ${retention.toFixed(0)}٪ — زیرِ ۵۰٪. مقدمه‌چینی احتمالاً طولانی بوده؛ داستانِ اولیه رو حذف کن، مستقیم برو سراغِ راهکار.`,
+      });
+    }
+    if (video.video_mode === "short" && retention < 70) {
+      flags.push({
+        level: "warning",
+        message: `نگه‌داشتِ میانگین ${retention.toFixed(0)}٪ — یعنی مخاطب زود رهاش کرده. قلابِ ۳ثانیه‌ی اول نیاز به شوکِ بصری/صوتیِ قوی‌تر داره.`,
+      });
+    }
+  }
+
+  if (channelMedianViews > 0 && views > 0 && views < channelMedianViews && likes / views > 0.05) {
+    flags.push({
+      level: "info",
+      message: `نسبتِ لایک بالاست (${((likes / views) * 100).toFixed(1)}٪) ولی بازدید زیرِ میانه‌ی کانالـه — کیفیت خوبه، احتمالاً موضوع پرجستجو نیست. عنوان رو سوالی/پرجستجوتر بازنویسی کن.`,
+    });
+  }
+
+  return flags;
+}
+
+// خروجیِ getAllVideos() رو با healthFlags پر می‌کنه — برای هر ویدیو، بر
+// اساسِ بقیه‌ی ویدیوهای همون لیست (برای میانه‌ی بازدید).
+export function annotateVideosWithHealthFlags(videos) {
+  const viewCounts = videos
+    .map((v) => Number(v.views) || 0)
+    .filter((n) => n > 0)
+    .sort((a, b) => a - b);
+  const medianViews = viewCounts.length > 0 ? viewCounts[Math.floor(viewCounts.length / 2)] : 0;
+  return videos.map((v) => ({ ...v, healthFlags: computeHealthFlags(v, medianViews) }));
+}

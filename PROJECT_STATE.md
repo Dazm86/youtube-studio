@@ -185,7 +185,10 @@ source. One pipeline implementation, three ways to trigger it.
   `getMayaThumbnailExports()`)
 - `sync-stats/route.js` — pulls views/subscribers/likes/retention/
   thumbnail CTR from YouTube Analytics into the DB
-- `videos/route.js` — lists recorded videos (analytics page)
+- `videos/route.js` — lists recorded videos (analytics page); *(new,
+  2026-09-08)* each video is annotated with `healthFlags` via
+  `lib/analytics/index.js: annotateVideosWithHealthFlags()` before
+  being returned — see that file's entry below
 - `status/route.js`, `status/groq`, `status/pexels`, `status/youtube` —
   legacy raw-env-var connectivity checks, separate from the provider
   system below
@@ -193,7 +196,17 @@ source. One pipeline implementation, three ways to trigger it.
   OAuth, JWT refresh using `account.expires_at`, persists
   `refresh_token` to the DB on sign-in
 - `community/route.js` — generates + stores a Community-tab post draft
-  via `lib/community/index.js`
+  via `lib/community/index.js`, always tied to one just-uploaded
+  `videoId`
+- **`community/theme/route.js`** *(new, 2026-09-08)* — generates 3
+  theme-based Community-tab post drafts (poll + discussion question +
+  teaser) via `lib/community/index.js: generateThemedCommunityPosts()`,
+  for filling the gap *between* uploads. Takes a free-text `theme`, no
+  `videoId` — nothing is persisted (the `community_posts` table requires
+  `video_id NOT NULL` and there's no video here), the 3 drafts are just
+  returned for the user to copy/paste. UI: new
+  `components/analytics/ThemedCommunityPosts.js`, mounted at the top of
+  the analytics page.
 - **`comments/route.js`** *(new, 2026-08-30 — wires up `lib/comments/
   index.js`, which already existed fully built but had zero callers;
   note: `lib/comments/index.js` itself wasn't actually committed until
@@ -279,7 +292,19 @@ source. One pipeline implementation, three ways to trigger it.
   `runQuickTest()` (fast connectivity smoke test) and a 25-minute
   `PIPELINE_TIMEOUT_MS` race. **Used identically by the interactive
   route, the scheduler, and the worker** — one implementation, not three.
-- `script/index.js` — `generateScript()`
+- `script/index.js` — `generateScript()`. *(2026-09-08)* short-form hook
+  instruction tightened (explicit 10-12 word / <3s cap, added a
+  "mistake/warning" example angle alongside the existing surprising-
+  claim/relatable-moment/question ones); long-form structure gained a
+  new required "like" micro-ask (agreement-framed, e.g. "if that's hit
+  home for you, hit like") right after the biggest actionable-step
+  payoff lands, kept deliberately separate from the existing subscribe-
+  ask in the closing so they never collapse into one bare "like and
+  subscribe" line. Deliberately NOT added to the short-form structure —
+  shorts are already tightly word-budgeted (90-130 words, with a strict
+  self-review re-write loop on deviation) and adding a mandatory new
+  beat risked breaking that budget for one flag AI evaluators had not
+  actually asked to have on shorts specifically.
 - `script/timing.js` — `splitSentences`, `buildSentenceCaptions`,
   `distributeDurations`, `escapeDrawtext`, `buildSrt`, `validateSrt`,
   `regroupForSubtitles`, `wrapCaption`
@@ -304,10 +329,25 @@ source. One pipeline implementation, three ways to trigger it.
   prompt produced was missing a contraction — "Why You Stuck..."
   instead of "Why You're Stuck..." — found via a live vidIQ check of
   the channel's actual titles, used as the prompt's own negative
-  example).
+  example). *(2026-09-08)* two more additions to the same prompt: (1)
+  `mayaExpressionA`/`mayaExpressionB` — a short facial-expression/pose
+  description paired with each thumbnail-text variant (e.g. "shocked,
+  wide eyes"), surfaced as a read-only hint in `VideoStudio.js`'s
+  thumbnail preview — not wired into automatic pose selection
+  (`pickMayaPose`), just a manual suggestion for now; (2) titleA/titleB
+  can now genuinely differ in ANGLE, not just length — one may frame the
+  problem as a direct question, the other as a mistake/warning — while
+  both still keep the existing hard problem+solution requirement (that
+  requirement was NOT loosened; only the specific angle used to arrive
+  at it was diversified).
 - `media/index.js` — thin wrapper re-exporting `fetchImages`/
   `fetchClips` from `providers/router.js`
-- `community/index.js` — `generateCommunityPost()`
+- `community/index.js` — `generateCommunityPost()` (tied to a
+  just-uploaded video). *(new, 2026-09-08)*
+  `generateThemedCommunityPosts({theme})` — a separate, free-text-theme
+  version returning 3 drafts (poll + discussion + teaser) for the gap
+  *between* uploads; not persisted (see `community/theme/route.js`
+  above for why).
 - `playlists/index.js` *(new, 2026-08-31)* — `PLAYLIST_CLUSTERS` (7
   fixed topic groups), `matchCluster()` (word-overlap, 2-word min,
   same technique as `metadata/index.js`'s related-video CTA),
@@ -324,7 +364,25 @@ source. One pipeline implementation, three ways to trigger it.
   multiple videos at once) + `fetchStatsForVideoInRange()` *(new,
   2026-08-30)* — same query, one video, caller-supplied date range;
   built for the A/B results comparison above, real
-  `videoThumbnailImpressionsClickRate` data from YouTube Analytics
+  `videoThumbnailImpressionsClickRate` data from YouTube Analytics.
+  *(new, 2026-09-08)* `computeHealthFlags(video, channelMedianViews)` +
+  `annotateVideosWithHealthFlags(videos)` — a pure, non-AI threshold
+  checklist (CTR<4%, retention<50% for long-form, retention<70% for
+  shorts, high like-ratio+low-views vs. the channel's median) that
+  annotates each video with plain-language `healthFlags`, wired into
+  `api/videos/route.js` and displayed under each video's title in
+  `ChannelAnalytics.js`. Two of the four rules are proxies, not exact:
+  the requested "retention drop specifically in the first 30 seconds"
+  (long-form) and "swipe-away rate" (shorts) both need a real
+  elapsedVideoTimeRatio retention curve (`repurpose/index.js:
+  getRetentionCurve()`) plus the video's exact duration — neither is
+  currently stored per-video (only the aggregate `retention_pct` is).
+  Implemented instead using that aggregate as the nearest available
+  signal (justified in-code for shorts, where the whole video is only
+  30-60s so the aggregate and an "early" reading are nearly the same
+  thing anyway; a real approximation for long-form). If the curve +
+  real duration ever get stored per-video, these two rules can be made
+  exact.
 - `repurpose/index.js` — `getRetentionCurve()`, `findBestRetentionWindow()`,
   `getAggregateRetentionInsight()` *(new, 2026-08-30)* — averages
   several same-mode videos' retention curves (parallel fetch) to find
@@ -447,9 +505,17 @@ source. One pipeline implementation, three ways to trigger it.
 ### `components/`
 - `studio/VideoStudio.js` — long/short creation UI; when
   `USE_RENDER_WORKER=true`, dispatches then polls `/api/jobs/status`
-  every 10s for up to 40 minutes
+  every 10s for up to 40 minutes. *(2026-09-08)* thumbnail preview area
+  now shows a read-only "پیشنهادِ حالتِ چهره‌ی مایا" hint line from
+  `suggest-metadata`'s new `mayaExpressionA` field.
 - `analytics/ChannelAnalytics.js` — video list/stats, community-post-
-  draft button, A/B title switch buttons, mobile card view
+  draft button, A/B title switch buttons, mobile card view. *(2026-09-08)*
+  each video's title now shows small warning lines from its
+  `healthFlags` (see `lib/analytics/index.js` above); mounts the new
+  `ThemedCommunityPosts` component above the video list.
+- `analytics/ThemedCommunityPosts.js` *(new, 2026-09-08)* — free-text
+  theme input → calls `api/community/theme`, displays the 3 returned
+  drafts (poll/discussion/teaser) for copy-paste; nothing persisted.
 - `api-status/ApiStatus.js` — legacy env-var connectivity checks
 - `layout/NavBar.js` — nav, auto-signs-out on unrecoverable refresh
   failure
