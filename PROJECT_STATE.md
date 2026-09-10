@@ -292,6 +292,11 @@ source. One pipeline implementation, three ways to trigger it.
   `runQuickTest()` (fast connectivity smoke test) and a 25-minute
   `PIPELINE_TIMEOUT_MS` race. **Used identically by the interactive
   route, the scheduler, and the worker** — one implementation, not three.
+  *(2026-09-08)* the auto (non-manual-keyword) media-fetch loop now
+  calls `script/visualKeywords.js: extractVisualKeywordsForSegments()`
+  once before the loop instead of passing raw caption text into
+  `fetchImages`/`fetchClips` on every iteration — see that file's entry
+  below.
 - `script/index.js` — `generateScript()`. *(2026-09-08)* short-form hook
   instruction tightened (explicit 10-12 word / <3s cap, added a
   "mistake/warning" example angle alongside the existing surprising-
@@ -310,6 +315,27 @@ source. One pipeline implementation, three ways to trigger it.
   `regroupForSubtitles`, `wrapCaption`
 - `script/translate.js` — `translateCaptions()`; batches caption lines
   into one AI call (`BATCH_SIZE=12`) instead of one call per line
+- **`script/visualKeywords.js`** *(new, 2026-09-08)* —
+  `extractVisualKeywordsForSegments(captions)`: same batch/retry pattern
+  as `translate.js` (`BATCH_SIZE=12`, one retry with a stricter prompt on
+  count mismatch), but for per-segment media search. Replaces
+  `providers/textUtils.js: extractKeywords()` as the default path in
+  `pipeline.js`'s media-fetch loop — that function is purely local
+  (word-frequency on a single sentence, effectively meaningless — see
+  its entry above) and was the real cause behind a user report of
+  footage not matching the script topic. This one AI-batches all of a
+  video's captions at once and asks for a concrete, physically-filmable
+  search query per caption (never an abstract/emotion word), with a
+  special rule for caption #1 of the *first* batch only (the real hook,
+  not just the first item of whichever batch happens to be processing)
+  requiring the single most obvious, literal scene — directly so a
+  viewer understands the topic within the first second. `pipeline.js`
+  calls this once before the per-segment loop and falls back to the old
+  per-segment `{text: captions[i]}` path (→ `extractKeywords()`) if it
+  throws for any reason — same graceful-degradation philosophy as
+  everywhere else in this codebase. Adds one batched AI call per video
+  render (same cost shape as the existing per-language caption
+  translation, not per-segment).
 - `metadata/index.js` — `generateChapters()`, `generateMetadata()`.
   The latter's own comment promises it never throws — every failure
   path falls back to `heuristicMetadata()` — and as of 2026-08-28 that's
@@ -445,7 +471,16 @@ source. One pipeline implementation, three ways to trigger it.
   configured one instead of immediately surfacing as a final error.
 - `providers/crypto.js` — `encrypt`/`decrypt` (AES-256-GCM, key derived
   from `NEXTAUTH_SECRET`) for provider API keys at rest
-- `providers/textUtils.js` — `extractKeywords()`
+- `providers/textUtils.js` — `extractKeywords()`: purely local (no AI),
+  most-frequent-non-stopword-word extraction from raw text. *(2026-09-08
+  — no longer the primary path)* still used as the graceful-degradation
+  fallback when `script/visualKeywords.js` fails, but on a single short
+  caption sentence, "most frequent" is close to meaningless (almost no
+  word repeats within one sentence, so it silently degrades to "first
+  few non-stopword words in the sentence, with equal weight given to a
+  concrete noun like *phone* and an unrelated verb like *finally*") —
+  see `script/visualKeywords.js`'s entry below for why this was replaced
+  as the default.
 - **`trends/`** *(new, 2026-08-27, verified against real source
   2026-08-28)* — `index.js: runTrendScan()` (orchestrator), `candidates.js`
   (Trends/Reddit/News → deduped candidate pool → per-candidate deep

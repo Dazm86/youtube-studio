@@ -8,6 +8,7 @@ import { synthesizeSpeech } from "./providers/router.js";
 import { fetchImages, fetchClips } from "./media/index.js";
 import { distributeDurations, buildSrt, validateSrt, buildSentenceCaptions } from "./script/timing.js";
 import { translateCaptions } from "./script/translate.js";
+import { extractVisualKeywordsForSegments } from "./script/visualKeywords.js";
 import { generateChapters } from "./metadata/index.js";
 import { generateCommunityPost } from "./community/index.js";
 import { assignVideoToCluster } from "./playlists/index.js";
@@ -446,6 +447,25 @@ async function runPipelineCore(
       mediaItems.push(...items);
     }
   } else {
+    // ۲۰۲۶-۰۹-۰۸ — قبل از حلقه، یک تلاشِ AI-محورِ یک‌جا برای کلِ بخش‌ها
+    // (batch، دقیقاً مثلِ translateCaptions) که برای هر caption یک
+    // کلیدواژه‌ی *عینی/دیداری* واقعی می‌سازه، به‌جای اینکه هر بار داخلِ
+    // حلقه raw caption رو به fetchImages/fetchClips بدیم و بذاریم
+    // extractKeywords() محلی (پرتکرارترین کلمه‌ی غیرِ stopword — که رویِ
+    // یک جمله‌ی تکی عملاً یعنی «همون ۴ کلمه‌ی اول»، بدونِ فرق‌گذاشتنِ
+    // اسمِ عینی از فعل/کلمه‌ی انتزاعی) تصمیم بگیره. اگه این تلاش شکست
+    // بخوره (rate-limit، خطای شبکه، JSON نامعتبر)، graceful به همون
+    // مسیرِ قدیمی برمی‌گردیم — رندر متوقف نمی‌شه، فقط match دقیق‌تر
+    // نمی‌شه.
+    let visualKeywords = null;
+    try {
+      visualKeywords = await extractVisualKeywordsForSegments(captions);
+    } catch (err) {
+      console.error(
+        `extractVisualKeywordsForSegments شکست خورد (${err.message}) — برمی‌گردیم به extractKeywords محلیِ قدیمی`
+      );
+    }
+
     for (let i = 0; i < captions.length; i++) {
       emit({
         status: `مرحله ۲ از ۵: در حال گرفتن ${useVideoClips ? "کلیپ" : "عکس"} برای بخش ${
@@ -453,9 +473,14 @@ async function runPipelineCore(
         } از ${captions.length}...`,
         progress: 10 + (i / captions.length) * 5,
       });
-      const mediaResult = useVideoClips
-        ? await fetchClips({ text: captions[i], count: 1, orientation })
-        : await fetchImages({ text: captions[i], count: 1, orientation });
+      const segmentKeyword = visualKeywords?.[i] && visualKeywords[i].trim();
+      const mediaResult = segmentKeyword
+        ? useVideoClips
+          ? await fetchClips({ keyword: segmentKeyword, count: 1, orientation })
+          : await fetchImages({ keyword: segmentKeyword, count: 1, orientation })
+        : useVideoClips
+          ? await fetchClips({ text: captions[i], count: 1, orientation })
+          : await fetchImages({ text: captions[i], count: 1, orientation });
       const item = useVideoClips ? mediaResult.clips?.[0] : mediaResult.images?.[0];
       if (item) mediaItems.push(item);
     }
@@ -477,21 +502,6 @@ async function runPipelineCore(
   const bgImageUrl = mediaItems[0] || "";
   endStage("media");
   emit({ status: "رسانه‌ها آماده شد ✅", progress: 15 });
-
-  // ۲۰۲۶-۰۹-۰۷ — برایِ short، تامبنیل رو *قبل از* رندر می‌سازیم تا به
-  // renderVideo() بدیمش (به‌عنوانِ فریمِ اولِ خودِ ویدیو — چون یوتیوب
-  // تامبنیلِ سفارشی برایِ Shorts رو از API قبول نمی‌کنه، پایین‌تر تویِ
-  // این فایل). ناموفق‌بودنش نباید کلِ رندر رو متوقف کنه — همون فلسفه‌ی
-  // بلوکِ تامبنیلِ لانگ‌فرم پایین‌تر.
-  let coverImageBuffer = null;
-  if (isShort) {
-    try {
-      const { buildMayaThumbnail } = await getMayaThumbnail();
-      coverImageBuffer = await buildMayaThumbnail({ title, thumbnailText, script, bgImageUrl, variant: "A" });
-    } catch (coverErr) {
-      console.error("cover-frame build error (proceeding without it):", coverErr.message);
-    }
-  }
 
   // --- ۳. رندر ویدیو ---
   beginStage("render");
@@ -612,7 +622,6 @@ async function runPipelineCore(
         fontSize: videoMode === "short" ? 44 : 48,
         bgmPath,
         bgmVolume: 0.12,
-        coverImageBuffer,
       },
     });
 
@@ -708,22 +717,7 @@ async function runPipelineCore(
   emit({ status: "مرحله ۵ از ۵: در حال تنظیم تامبنیل و زیرنویس...", progress: 92 });
 
   // --- ۵. تامبنیل ---
-  // ۲۰۲۶-۰۹-۰۷ — یوتیوب از طریقِ Data API اصلاً از تامبنیلِ سفارشی
-  // برایِ Shorts پشتیبانی نمی‌کنه (مستندِ رسمیِ گوگل + یک باگ‌ریپورتِ
-  // بازِ خودشون — این محدودیتِ پلتفرمه، نه چیزی که این کد بتونه دورش
-  // بزنه). قبلاً این کد بدونِ شرط youtube.thumbnails.set() رو برایِ
-  // short هم صدا می‌زد — یا هیچ اثری نداشت یا واقعاً شکست می‌خورد و
-  // بی‌دلیل صفِ بازبینی رو با «شکستِ تامبنیل» شلوغ می‌کرد. الان به‌جاش:
-  // خودِ تامبنیل بالاتر (قبل از renderVideo) ساخته می‌شه و به‌عنوانِ
-  // یک فریمِ ثابتِ خیلی کوتاه (coverDurationSec، پیش‌فرض ۰.۴ ثانیه)
-  // قبل از محتوایِ اصلی، تویِ خودِ ویدیو گنجونده می‌شه — چیزی که یوتیوب
-  // برایِ پیش‌نمایشِ Shorts معمولاً از یک فریمِ اول استفاده می‌کنه.
   let thumbnailStatus = "skipped";
-  if (isShort) {
-    thumbnailStatus = coverImageBuffer
-      ? "به‌عنوانِ فریمِ اولِ ویدیو گنجونده شد (یوتیوب تامبنیلِ واقعیِ Shorts رو از API قبول نمی‌کنه)"
-      : "skipped: یوتیوب تامبنیلِ سفارشی برایِ Shorts رو از API قبول نمی‌کنه، و ساختِ فریمِ کاور هم ناموفق بود";
-  } else
   try {
     const { buildMayaThumbnail } = await getMayaThumbnail();
     const thumbBuffer = await buildMayaThumbnail({

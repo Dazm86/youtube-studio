@@ -371,6 +371,46 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-09-08 (yet later, same day) — Root-caused why footage didn't match a phone/sleep video's script; replaced the local keyword extractor with an AI batch call
+User reported (from watching an actual rendered video about phones/sleep) that the footage didn't match the
+script's topic, and that the opening 1-3 seconds didn't visually establish the subject — asked for these as
+"immediate actions for future videos".
+
+Traced it to the real mechanism: when no manual `imageKeyword` is set (the normal case for every automatic
+video), `pipeline.js`'s per-segment media loop passes the raw caption sentence into `fetchImages`/`fetchClips`
+as `text`, which `providers/registry.js: resolveQueryAndOrientation()` falls through to
+`providers/textUtils.js: extractKeywords()` — a purely local, no-AI function that picks the N *most frequent*
+non-stopword words in that text. The bug: on a single sentence (not a paragraph), almost no word repeats, so
+"most frequent" silently degrades to "whichever non-stopword words happen to come first in a stable sort" —
+giving a concrete, searchable noun like "phone" or "bed" no more weight than an unrelated verb like "finally"
+or "trying". For a phone/sleep-themed sentence, the actual search query sent to Pexels could easily end up
+missing "phone"/"bed" entirely while carrying irrelevant filler words — which is exactly the mismatch
+reported, and also explains why the very first segment's image often didn't read as "someone on their phone in
+bed" specifically (no mechanism ever forced the hook segment toward the single most literal, obvious scene).
+
+**Fixed** with a new module, `lib/script/visualKeywords.js: extractVisualKeywordsForSegments(captions)`, same
+proven batch/retry shape as `script/translate.js: translateCaptions()` (`BATCH_SIZE=12`, one retry with a
+stricter prompt on a count mismatch): one AI call (batched, not per-segment) that reads every caption and
+returns a concrete, physically-filmable 2-4 word search query per caption — explicitly forbidding
+abstract/emotion words, and (for caption #1 of the true first batch only, not just whichever caption happens
+to be first in a later batch of a long video) requiring the single most obvious, literal scene so a viewer
+understands the topic within the first second. `pipeline.js` calls this once before its per-segment loop and
+uses `{keyword: ...}` instead of `{text: ...}` when it succeeds; on any failure (rate-limit, network, bad
+JSON) it falls back to the exact old per-segment `{text: captions[i]}` path — same graceful-degradation
+philosophy used everywhere else in this codebase, so a flaky AI call can't break media-fetching outright.
+
+Adds one batched AI call per render (same cost shape as the already-existing per-language caption translation
+— not one call per segment). `providers/textUtils.js: extractKeywords()` itself wasn't touched — it's still
+there as the fallback path, just no longer the default.
+
+Verified with the same esbuild syntax+import-resolution pass (123 files, same single pre-existing
+`lib/index.js` gap, unrelated). Not yet verified against a real render with real footage — next session should
+confirm the actual Pexels results for a phone/sleep-style script look right, and check Groq quota/latency
+impact of the extra batched call on a long video with many segments.
+
+Files (new): `lib/script/visualKeywords.js`.
+Files (modified): `lib/pipeline.js`.
+
 ### 2026-09-08 (even later, same day) — Compared 8 Gemini-written content prompts against the site's own; implemented the recommended pieces
 User had been getting prompt ideas from Gemini for thumbnail text, titles, Shorts hooks, long-form script
 structure, CTAs, SEO/description, Community posts, and an analytics-based edit checklist — asked for an
