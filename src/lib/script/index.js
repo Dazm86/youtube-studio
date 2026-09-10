@@ -25,11 +25,11 @@ export async function generateScript({ topic, mode, accessToken }) {
   }
 
   const structureInstruction = isShort
-    ? `Write a spoken narration script for a short video (30-60 seconds when read aloud, roughly 90-130 words), structured in four beats:
-1. Hook (first ~3 seconds, max 10-12 words — must be sayable out loud in under 3 seconds): one line that immediately grabs attention — a surprising claim, a "you've probably felt this" moment, a mistake/warning about something the viewer is likely doing right now, or a direct question.
-2. Empathy (next ~10 seconds): show you understand the viewer's struggle, in their own words.
-3. Insight (next ~30 seconds): the core reframe or unexpected angle — the heart of the video, not just a slogan.
-4. Closing (final ~15-20 seconds): end with one specific, personal question tied directly to this video's topic, then explicitly invite viewers to answer in the comments (in the spirit of: "What's a memory you can't seem to shake? Tell me in the comments." — always reworded and specific to this video's actual topic, never a generic "what do you think?" — the easier it is to answer in just a few words, the better, since friction kills comments). Woven into that same closing breath (not a separate beat), add one quick, natural nudge toward subscribing — never the bare phrase "like and subscribe"; instead make the viewer feel they'd be missing something specific if they scrolled past, not that they'd be doing Maya a favor (e.g. hinting this is one piece of something ongoing). One clause is enough — it should feel like part of the goodbye, not an ad break. Additionally, land the very last line on a word, phrase, or image that echoes the opening hook (not a literal repeat of the same sentence — a callback that makes the ending loop back into the beginning), so a viewer who watches on repeat feels the video connect into itself rather than just stopping.`
+    ? `Write a spoken narration script for a short video — target 70-110 words when read aloud (aim for 35-45 seconds, not the full 60-second ceiling: near-100% watch-through and replays are stronger virality signals for Shorts than extra runtime, so trim ruthlessly — cut metaphorical flourish, cut restating the same point twice — rather than let any beat run long). Structured in four beats:
+1. Hook (first ~3 seconds, max 10-12 words — must be sayable out loud in under 3 seconds): BLUNT and DIRECT, never a soft metaphor or a gentle "have you ever felt like..." framing — those read as slow and vague on Shorts specifically. Prefer a direct imperative command ("Stop doing X. Do this instead.") or a blunt, concrete claim about the exact situation, over a poetic image. A mistake/warning about something the viewer is likely doing right now, or a direct question, both still work — as long as it's stated plainly, not dressed up in metaphor.
+2. Quick relatable beat (next ~5 seconds MAX, roughly 10-15 words — this is intentionally short): just enough to confirm "yes, this is you" — do not re-describe or linger on the problem. The absolute latest point the actual trick/method/answer should start being named is around the 8-second mark total (hook + this beat combined) — describing the problem for much longer than that is the single most common way a Shorts script loses viewers before it ever pays off.
+3. Insight (remaining middle, the bulk of the runtime): the core reframe, trick, or unexpected angle, stated as a concrete, nameable thing — not just a slogan.
+4. Closing (final ~10-15 seconds): end with one specific, personal question tied directly to this video's topic, then explicitly invite viewers to answer in the comments (in the spirit of: "What's a memory you can't seem to shake? Tell me in the comments." — always reworded and specific to this video's actual topic, never a generic "what do you think?" — the easier it is to answer in just a few words, the better, since friction kills comments). Woven into that same closing breath (not a separate beat), add one quick, natural nudge toward subscribing — never the bare phrase "like and subscribe"; instead make the viewer feel they'd be missing something specific if they scrolled past, not that they'd be doing Maya a favor (e.g. hinting this is one piece of something ongoing). One clause is enough — it should feel like part of the goodbye, not an ad break. Additionally, land the very last few WORDS (not a whole restated sentence — half a beat, at most about one second of speech) on something that echoes the opening hook, so it loops back almost subliminally. Keep this genuinely subtle: if a viewer consciously notices "oh, this is looping me back to the start", it ran too long and too on-the-nose — it should work on a rewatch without announcing itself on a first watch.`
     : `Write a spoken narration script for a long-form video that MUST run past the 8-minute mark when read aloud — target 1200-1500 words, never fewer than 1200. Structure it around 3-4 deep sub-sections that each get real room to breathe (a few hundred words each, packed with concrete detail — this is a deep dive, not a quick overview):
 1. Hook + Root Cause: open with a question or short story that pulls the viewer in, then dig into WHY this problem actually happens — the real, underlying cause most people never examine. Within the first 30-45 seconds — before going deep into that root-cause explanation — briefly and explicitly preview what the viewer will walk away with by the end (one sentence, e.g. "By the end of this, you'll know exactly why this happens and the one thing that actually helps"), so they know what they're getting before the deep dive starts, even though the full answer comes later.
 2. Symptoms / How It Shows Up: describe, specifically and relatably, how this plays out in someone's actual daily life — enough detail that the viewer recognizes themselves in it.
@@ -83,7 +83,7 @@ Maya's personality: energetic and inspiring. She talks like she genuinely can't 
 Give her a few recurring verbal habits so she feels like a consistent host, not a generic narrator — but reword them fresh each time so nothing ever feels copy-pasted between videos:
 - Swinging into the big idea, in the spirit of (don't reuse verbatim): "Okay, here's the part that changes everything." / "But here's the thing nobody tells you." / "Ready? Because this one's good."
 - A short reactive aside here and there, in the spirit of: "I know, right?" / "Stay with me." / "Yes — really."
-- A brief personal self-disclosure right in the empathy beat, in the spirit of (don't reuse verbatim): "I've been exactly there." / "I used to feel this every single night." / "This one's personal for me too." — makes the empathy feel lived, not observed from the outside.
+- A brief personal self-disclosure right in the short-form relatable beat (or the "Symptoms / How It Shows Up" section of a long-form script), in the spirit of (don't reuse verbatim): "I've been exactly there." / "I used to feel this every single night." / "This one's personal for me too." — makes it feel lived, not observed from the outside. On Shorts specifically, that beat is only ~10-15 words total, so keep this to a handful of words, not a full extra sentence.
 - A punchy, energizing sign-off, in the spirit of: "Go be unstoppable, friend." — always reworded, never the same line twice.
 Use at most two of these habits in one script — enough to feel like her, not so many it feels gimmicky.
 ${feedbackContext}
@@ -99,6 +99,7 @@ Requirements:
 - Whatever the hook promises, the Insight section must concretely deliver it. If the hook implies an answer, a method, or a fix, state that specific thing plainly somewhere in the middle — not just related musing around it. A viewer should be able to say, in one plain sentence, exactly what they learned or walked away with; if they can't, the script hasn't actually delivered on its own opening.
 - Match the emotional weight of the delivery to the actual size of the idea. A small, simple, practical insight should sound warm and clear, not epic or heavy — save the bigger emotional swings (the "this changes everything" register) for ideas that genuinely earn it. Overplaying a small point reads as forced, not inspiring.
 - Use punctuation to shape how it sounds spoken aloud, not just how it reads: a comma or em dash for a short breath, an ellipsis or period-then-pause for a longer beat before a key line lands. This is the only reliable way to shape TTS pacing here (SSML pause tags are not supported reliably), so lean on natural sentence rhythm rather than long unbroken run-on sentences.
+- Prefer simple, common, everyday words over rare or idiomatic ones wherever a plainer word carries the same meaning just as well (e.g. "control" over "reins", "grip" over "helm") — this isn't about dumbing anything down, it's that the free TTS engine here occasionally mispronounces or glitches on less common words, and an audibly wrong or robotic-sounding word breaks a listener's attention far more than a slightly plainer word choice would have.
 - Introduce something new roughly every 20-30 seconds of spoken time — a new question, a real example, an impactful line, or a clear beat change — so the script never idles on one point too long.
 - Never use standalone generic motivational clichés ("just believe in yourself", "never give up", "you can do anything") without a story, reason, or concrete example behind them.
 - Do not repeat the same idea twice.
@@ -111,8 +112,9 @@ Respond with ONLY the narration text itself, nothing else.`;
     temperature: 1,
     // قبلاً ۴۰۰ بود — با مدلِ reasoning جدید (gpt-oss-120b، از ۲۰۲۶-۰۸-۱۸)
     // حتی با reasoning_effort="low" یه مقدار توکن صرفِ فکرکردنِ پنهان
-    // می‌شه؛ ۷۰۰ برای یک اسکریپتِ ۹۰-۱۳۰ کلمه‌ای (~۱۵۰-۲۰۰ توکن) حاشیه‌ی
-    // امنِ کافی می‌ذاره تا content خالی برنگرده.
+    // می‌شه؛ ۷۰۰ برای یک اسکریپتِ حالا ۷۰-۱۱۰ کلمه‌ای (~۱۰۰-۱۵۰ توکن،
+    // هدفِ تنگ‌ترشده‌ی ۲۰۲۶-۰۹-۰۸) حاشیه‌ی امنِ حتی بیشتری می‌ذاره تا
+    // content خالی برنگرده.
     maxTokens: isShort ? 700 : 3000,
   });
 
@@ -158,8 +160,8 @@ Respond with ONLY the narration text itself, nothing else.`;
     // اسکریپت هم می‌تونه به همون کلاس مشکل دامن بزنه، پس این‌جا هم آستانه‌ی
     // مناسبِ خودش رو گرفت.
     const wc = wordCount();
-    if (wc < 70) issues.push(`اسکریپتِ شورت خیلی کوتاهه (فقط ~${wc} کلمه، هدف ۹۰-۱۳۰ کلمه‌ست)`);
-    if (wc > 190) issues.push(`اسکریپتِ شورت احتمالاً خیلی بلنده (~${wc} کلمه) — ریسکِ رد شدن از سقفِ Shorts`);
+    if (wc < 70) issues.push(`اسکریپتِ شورت خیلی کوتاهه (فقط ~${wc} کلمه، هدف ۷۰-۱۱۰ کلمه‌ست)`);
+    if (wc > 150) issues.push(`اسکریپتِ شورت احتمالاً خیلی بلنده (~${wc} کلمه) — هدف ۷۰-۱۱۰ کلمه‌ست (۳۵-۴۵ ثانیه)، نه سقفِ ۶۰ ثانیه`);
   }
 
   // ۲۰۲۶-۰۸-۲۹ — چکِ کیفیِ جدید، AI-محور، هم برای شورت هم لانگ: چک‌های
@@ -205,7 +207,7 @@ Reply with ONLY a JSON object, no other text:
   if (issues.length > 0) {
     console.warn(`generateScript: اولین پیش‌نویس مشکل داشت (${issues.join("؛ ")}) — یک تلاشِ دومِ صریح‌تر`);
     const lengthReminder = isShort
-      ? "Target length is 90-130 words when read aloud (30-60 seconds) — not shorter, not longer."
+      ? "Target length is 70-110 words when read aloud (aim for 35-45 seconds — NOT the full 60-second ceiling, and NOT the old 90-130 word range)."
       : "The absolute length requirement is 1200+ words.";
     script = await generateText({
       prompt: `${prompt}\n\nIMPORTANT — your previous draft had these specific problems, fix ALL of them in this rewrite:\n${issues

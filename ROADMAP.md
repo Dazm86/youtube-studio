@@ -371,6 +371,48 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-09-08 (still later, same day) — Strict Shorts-pacing review from the user (via another AI's frame-by-frame critique of a real rendered video); retimed the short-form script structure
+User pasted a detailed critique (written from what reads as another AI's analysis of one specific rendered
+Short, about phones/sleep) covering 5 issues: (1) 22 seconds/35% of runtime spent describing the problem before
+the trick was ever named; (2) a TTS glitch — "puts the res back in your hands" instead of (presumably) "reins";
+(3) total runtime 64 seconds, longer than ideal for near-100%-watch-through virality; (4) the loop-callback at
+the end took a full 7 seconds and was obviously noticeable, not subtle; (5) the opening verbal hook was a soft
+metaphor ("felt like you hit the snooze button on your day") instead of blunt/direct. The document itself ended
+by asking whether to update the scriptwriting prompt to enforce these ratios automatically — treated that as
+the request, same as the "immediate actions" message earlier today.
+
+Went through all 5 against `lib/script/index.js`'s short-form prompt:
+- **(1) and (3), pacing/length** — fixed together: target word count dropped from 90-130 to 70-110 (aim
+  35-45s, not the 60s ceiling); the old ~10s "Empathy" beat is now a ~5s/10-15-word "Quick relatable beat"
+  with an explicit rule that the actual trick must start being named by roughly the 8-second mark (hook + that
+  beat combined) — not "eventually", a hard timing target.
+- **(4), loop-callback too long** — fixed: capped explicitly at "a few words, about 1 second", with a note
+  that a viewer consciously noticing the loop means it ran too long and too on-the-nose.
+- **(5), soft/metaphorical hook** — fixed: hook instruction now explicitly forbids soft metaphor / "have you
+  ever felt like" framing on Shorts specifically, in favor of a blunt imperative command or a plainly-stated
+  claim. (Left the shared, both-format Requirements-section hook rule and the long-form hook instruction alone
+  — a slower, more narrative opening is a legitimate, established technique for long-form, where there's no
+  3-second swipe-away pressure; this critique read as Shorts-specific.)
+- **(2), TTS glitch ("reins" → "res")** — treated differently: this isn't really a prompt-wording problem, it's
+  msedge-tts (the free/unofficial TTS engine already known for occasional synthesis quirks — see the existing
+  "Stream closed before the synthesis completed" handling) glitching mid-word on a real, common word, not a
+  rare one. Added a mild mitigation — a shared requirement to prefer simple/common words over rare ones when a
+  plainer synonym means the same thing — but explicitly did NOT claim this fixes the underlying issue. A real
+  fix would need an audio-level QA step (e.g. re-transcribe the synthesized audio and compare against the
+  script, re-synthesize on mismatch) — a meaningfully bigger feature, not attempted today.
+
+Also updated the self-review safety net further down the same file (word-count thresholds and the retry-prompt
+reminder text) to the new 70-110 target — the old text still said "90-130 words... not shorter, not longer",
+which would have silently un-done the retiming the very first time the retry path fired for an unrelated
+reason (a hook-delivery or tone flag, say).
+
+Verified with the same esbuild syntax+import-resolution pass (123 files, same single pre-existing
+`lib/index.js` gap). Not yet verified against a real render — next session should check an actual Short
+against the new ~35-45s / 8-second-to-trick targets, and separately keep an ear out for whether the
+plain-vocabulary nudge measurably reduces TTS glitches or not (it may not — see above).
+
+Files (modified): `lib/script/index.js`.
+
 ### 2026-09-08 (yet later, same day) — Root-caused why footage didn't match a phone/sleep video's script; replaced the local keyword extractor with an AI batch call
 User reported (from watching an actual rendered video about phones/sleep) that the footage didn't match the
 script's topic, and that the opening 1-3 seconds didn't visually establish the subject — asked for these as

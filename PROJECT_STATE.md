@@ -305,11 +305,39 @@ source. One pipeline implementation, three ways to trigger it.
   home for you, hit like") right after the biggest actionable-step
   payoff lands, kept deliberately separate from the existing subscribe-
   ask in the closing so they never collapse into one bare "like and
-  subscribe" line. Deliberately NOT added to the short-form structure —
-  shorts are already tightly word-budgeted (90-130 words, with a strict
-  self-review re-write loop on deviation) and adding a mandatory new
-  beat risked breaking that budget for one flag AI evaluators had not
-  actually asked to have on shorts specifically.
+  subscribe" line. Deliberately NOT added to the short-form structure at
+  the time — shorts were tightly word-budgeted (90-130 words then) and
+  adding a mandatory new beat risked breaking that budget for one flag
+  AI evaluators had not actually asked to have on shorts specifically.
+  *(2026-09-08, later — same day, second revision)* short-form
+  structure substantially retimed based on a user's own strict review of
+  a real rendered Short (problem-description ate 22s/35% of runtime
+  before the trick was ever named; the loop-callback took 7s and was
+  fully noticeable, not subtle; the verbal hook was a soft metaphor
+  ("felt like you hit the snooze button on your day") instead of blunt/
+  direct; total runtime was 64s, longer than needed for near-100%-watch
+  virality): target word count dropped from 90-130 to **70-110** (aim
+  35-45s, not the 60s ceiling); the old ~10s "Empathy" beat is now a
+  ~5s/10-15-word "Quick relatable beat" with an explicit hard rule that
+  the actual trick/answer must start being named by roughly the
+  **8-second mark** (hook + that beat combined); hook instruction now
+  explicitly forbids soft metaphor/"have you ever felt like" framing in
+  favor of a blunt imperative command or a plainly-stated claim; the
+  loop-callback at the very end is now capped at "a few words, ~1
+  second" instead of being open-ended, with an explicit note that a
+  viewer consciously noticing the loop means it ran too long. The
+  self-review word-count safety net (further down this file) and its
+  retry-prompt reminder text were both updated to the new 70-110 target
+  (warn threshold moved from >190 to >150) so a retry pass can't quietly
+  push a script back toward the old range. Also added a shared (both
+  formats) requirement to prefer simple/common words over rare ones
+  where a plainer synonym means the same thing — a mitigation, not a
+  fix, for a separate TTS-level glitch the same user report flagged
+  (msedge-tts audibly mangling one word, "reins" → "res", mid-render);
+  see that changelog entry for why this probably isn't fully fixable at
+  the prompt level. Not yet verified against a real render — next
+  session should check an actual Short against the new ~35-45s/8-second-
+  to-trick targets.
 - `script/timing.js` — `splitSentences`, `buildSentenceCaptions`,
   `distributeDurations`, `escapeDrawtext`, `buildSrt`, `validateSrt`,
   `regroupForSubtitles`, `wrapCaption`
