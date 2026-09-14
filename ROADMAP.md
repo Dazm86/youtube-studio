@@ -371,6 +371,45 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-09-10 — Another user report from Gemini's review, this time of a long-form video: a fully German script under an English title, plus the same "solution arrives too late" pacing problem seen in Shorts
+User shared a critique (same pattern as the Shorts one) of a specific long-form video, already made private after catching
+it: (1) the video's title/description/channel identity are all English, but the actual narration was entirely in German
+("Kennst du das Gefühl..." as the first line) — described as catastrophic for retention (an English-title click getting
+German audio closes in ~2 seconds) and for the algorithm; (2) even setting that aside, structurally: 5 full minutes
+(2:57-4:44) were spent on a personal story before "Step One" finally began at 4:48, when steps should start by roughly the
+1:30-2:00 mark — almost identical in kind to the Shorts pacing issue fixed two days ago, just at long-form's scale.
+
+**Investigated the language bug first, since it's the more severe one.** Traced every place `synthesizeSpeech` is called
+(`pipeline.js`) and confirmed: the main narration audio always uses the original English `script` variable directly — no
+code path anywhere selects a non-English voice or feeds translated text into the main audio. The only place German
+appears in the codebase at all is `CAPTION_LANGUAGES` (`pipeline.js`), which translates *subtitle/caption tracks* via
+`translateCaptions()` — a completely separate output (YouTube caption files, not the audio) uploaded after the main
+render. So this wasn't a caption/audio mix-up in the code. The most plausible explanation left is a rare language-drift
+glitch in the underlying script-generation call itself (`generateText` at `temperature: 1` in `script/index.js`) — LLMs
+occasionally, rarely, respond in an unexpected language, and nothing in the pipeline was checking for that before the
+(expensive, slow) TTS/render/upload steps ran on whatever came back.
+
+**Fixed** with a detection-and-retry safety net rather than a specific code-path fix (there wasn't one to make — see
+above): a new local, non-AI `looksLikeEnglish()` check in `script/index.js` (ratio of common English stopwords in the
+generated text, >12% threshold — cheap, fast, no extra API call) added to the existing soft-check-and-retry pipeline that
+already handles word-count/tone/hook issues, for both Shorts and long-form. If the *retry* still doesn't look English,
+escalates louder than every other check here — `console.error` plus a distinct `script_wrong_language_suspected`
+`logEvent()` (visible on `/activity`) — since a wrong-language script is a fully unusable video, not a minor quality
+miss, and this exact failure mode already slipped all the way to a live upload unnoticed once. Documented as an open,
+not-fully-root-caused item in `PROJECT_STATE.md`'s Known issues — this mitigates it, it doesn't guarantee it can't
+recur.
+
+**Fixed the pacing issue** the same way the Shorts one was fixed two days ago: long-form's "Real Story" step now has an
+explicit ~100-word/40-second cap ("a seasoning beat, not a section"), and "Actionable Steps" now has an explicit
+"must start by ~280-320 words in / the 2-minute mark" requirement. The existing AI self-review pass (which already
+checked `hookDelivered`/`toneAppropriate`) gained a third criterion, `pacingOk` (long-form only), checking both of these
+holistically — reuses the same existing review call, no extra API cost.
+
+Verified with the same esbuild syntax+import-resolution pass (123 files, same single pre-existing `lib/index.js` gap).
+Not yet verified against a real render for either fix.
+
+Files (modified): `lib/script/index.js`.
+
 ### 2026-09-08 (still later, same day) — Strict Shorts-pacing review from the user (via another AI's frame-by-frame critique of a real rendered video); retimed the short-form script structure
 User pasted a detailed critique (written from what reads as another AI's analysis of one specific rendered
 Short, about phones/sleep) covering 5 issues: (1) 22 seconds/35% of runtime spent describing the problem before

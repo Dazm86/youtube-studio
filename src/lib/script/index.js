@@ -33,8 +33,8 @@ export async function generateScript({ topic, mode, accessToken }) {
     : `Write a spoken narration script for a long-form video that MUST run past the 8-minute mark when read aloud — target 1200-1500 words, never fewer than 1200. Structure it around 3-4 deep sub-sections that each get real room to breathe (a few hundred words each, packed with concrete detail — this is a deep dive, not a quick overview):
 1. Hook + Root Cause: open with a question or short story that pulls the viewer in, then dig into WHY this problem actually happens — the real, underlying cause most people never examine. Within the first 30-45 seconds — before going deep into that root-cause explanation — briefly and explicitly preview what the viewer will walk away with by the end (one sentence, e.g. "By the end of this, you'll know exactly why this happens and the one thing that actually helps"), so they know what they're getting before the deep dive starts, even though the full answer comes later.
 2. Symptoms / How It Shows Up: describe, specifically and relatably, how this plays out in someone's actual daily life — enough detail that the viewer recognizes themselves in it.
-3. Real Story: one real-feeling story, experience, or scenario — a specific character or moment, not an abstraction — that makes it concrete.
-4. Actionable Steps: 3-5 concrete, specific steps the viewer can actually take, each explained enough to be genuinely useful, not just listed in passing. Right after the single most useful step lands — the one moment in the video where a viewer would most feel "yes, that's exactly my problem" — add ONE quick, natural line inviting a like, framed as agreement/relating rather than a favor (in the spirit of, always reworded fresh, never verbatim): "If that's hit home for you, hit like — it helps me know these are actually landing." This must feel like a spontaneous aside in Maya's voice, not a scripted ad-break, and it is separate from the subscribe moment below (never combine into one bare "like and subscribe" line).
+3. Real Story: one real-feeling story, experience, or scenario — a specific character or moment, not an abstraction — that makes it concrete. Keep this genuinely brief: **no more than ~100 words (about 40 seconds of speaking time)** — a vivid, specific detail or two, not a leisurely narrated scene with its own beginning/middle/end. This is a seasoning beat, not a section — if it runs long, it eats directly into the time a viewer expected to spend on the actual solution, which is the single most common reason a long-form video's retention collapses partway through.
+4. Actionable Steps: by roughly 280-320 words into the script — about the 2-minute mark when read aloud, not later — the first concrete, actionable step must have already started. A viewer clicked for the steps; every extra sentence spent before step one begins past that point directly costs retention. 3-5 concrete, specific steps the viewer can actually take, each explained enough to be genuinely useful, not just listed in passing. Right after the single most useful step lands — the one moment in the video where a viewer would most feel "yes, that's exactly my problem" — add ONE quick, natural line inviting a like, framed as agreement/relating rather than a favor (in the spirit of, always reworded fresh, never verbatim): "If that's hit home for you, hit like — it helps me know these are actually landing." This must feel like a spontaneous aside in Maya's voice, not a scripted ad-break, and it is separate from the subscribe moment below (never combine into one bare "like and subscribe" line).
 Close with a brief, inspiring wrap-up that invites reflection, then end with one specific, personal question tied directly to this video's topic, explicitly inviting viewers to share their answer in the comments (in the spirit of: "What's a memory you can't seem to shake? Let me know in the comments." — always reworded and specific to this video's actual topic, never a generic "what do you think?" — the easier it is to answer in a few words, the better). Somewhere in that same closing, weave in ONE reason to subscribe that makes the viewer feel it's for THEM, not a favor to the channel — pick whichever fits this video best, reworded fresh every time, never the bare phrase "like and subscribe":
   (a) tease something specific and concrete coming in a future video that this one sets up, so subscribing means not missing the next piece;
   (b) name the kind of person who needs this channel ("if you're someone who's tired of X, this is where you belong") so subscribing feels like joining something, not doing a favor;
@@ -143,8 +143,31 @@ Respond with ONLY the narration text itself, nothing else.`;
       /\b(for example|for instance|like the time|I remember when|one day|last (week|month|year))\b/i.test(text)
     );
   }
+  // ۲۰۲۶-۰۹-۱۰ — چکِ محلی/بدونِ AI، سریع و رایگان. دلیلِ وجودش: یک ویدیوی
+  // کاملاً انگلیسی (عنوان/دیسکریپشن/هویتِ کانال) یک بار با یک اسکریپتِ
+  // کاملاً آلمانی رندر و آپلود شد — هیچ‌جای کد صراحتاً زبانِ دیگه‌ای رو
+  // انتخاب نکرده بود (فقط caption ها به آلمانی ترجمه می‌شن، نه صدایِ
+  // اصلی)، پس محتمل‌ترین توضیح یک لغزشِ نادرِ خودِ مدلِ زبانی موقعِ تولیدِ
+  // اسکریپته (temperature=1، و مدل‌های زبانی گاهی، به‌ندرت، زبانِ خروجی
+  // رو عوض می‌کنن) — و تا وقتی کسی دستی ویدیو رو نگاه نکرد کشف نشد. یک
+  // چکِ زبان‌شناسیِ کامل لازم نیست: تو یک متنِ واقعاً انگلیسی، نسبتِ
+  // کلماتِ فوق‌رایجِ انگلیسی («the»، «you»، «is»، «to»، ...) همیشه بالاست؛
+  // تو هر زبانِ دیگه‌ای تقریباً صفره.
+  function looksLikeEnglish(text) {
+    const words = text.toLowerCase().match(/[a-z']+/g) || [];
+    if (words.length < 20) return true; // متنِ خیلی کوتاه، این چک بی‌معنیه
+    const commonEnglish = new Set([
+      "the", "a", "an", "and", "to", "of", "in", "is", "it", "you", "that",
+      "this", "for", "on", "with", "as", "are", "be", "your", "i", "not",
+      "but", "or", "was", "if", "at", "so", "what", "how", "have", "do",
+    ]);
+    const hits = words.filter((w) => commonEnglish.has(w)).length;
+    return hits / words.length > 0.12; // انگلیسیِ طبیعی معمولاً خیلی بالاتر از اینه؛ حاشیه‌ی امنِ زیادی داره
+  }
 
   const issues = [];
+  const isEnglish = looksLikeEnglish(script);
+  if (!isEnglish) issues.push("متن به انگلیسی نیست (یا نسبتِ کلماتِ انگلیسیش غیرِعادی پایینه) — باید کاملاً به زبانِ انگلیسی بازنویسی بشه");
   if (!isShort) {
     const starterShare = startsWithIOrYouShare(script);
     const hasExample = hasConcreteExample(script);
@@ -174,11 +197,16 @@ Respond with ONLY the narration text itself, nothing else.`;
   // «تولیدکننده + بازبین».) هزینه: یک فراخوانیِ AI اضافه به ازایِ هر
   // اسکریپت — قابلِ توجهه ولی سبک (maxTokens کم، jsonMode).
   try {
+    const pacingCriterion = !isShort
+      ? `\n3. pacingOk: does the "Real Story" section stay genuinely brief (roughly 100 words or less — a quick vivid detail, not a fully narrated scene), and do the actionable steps clearly begin within the first quarter or so of the script rather than being delayed by extended scene-setting or storytelling? Mark false if the story runs long or the steps start late — this is the single most common way a long-form script loses viewers partway through.`
+      : "";
     const reviewRaw = await generateText({
-      prompt: `Review this ${isShort ? "60-second Shorts" : "long-form"} spoken-narration script against two specific criteria:
+      prompt: `Review this ${isShort ? "60-second Shorts" : "long-form"} spoken-narration script against ${
+        isShort ? "two" : "three"
+      } specific criteria:
 
 1. hookDelivered: the script opens with a hook (a promise, a question, or a surprising claim). Does the rest of the script actually deliver on whatever that opening implies — a concrete answer, method, or payoff the listener can name in one sentence? Or does it just circle around related musing without ever landing on the thing it opened with?
-2. toneAppropriate: does the emotional weight/drama of the writing match how big the actual idea is? A small, simple, practical insight written with epic/heavy language should be marked false.
+2. toneAppropriate: does the emotional weight/drama of the writing match how big the actual idea is? A small, simple, practical insight written with epic/heavy language should be marked false.${pacingCriterion}
 
 Script:
 """
@@ -186,7 +214,9 @@ ${script}
 """
 
 Reply with ONLY a JSON object, no other text:
-{"hookDelivered": true or false, "toneAppropriate": true or false, "issues": ["short specific note in Persian for each problem found, empty array if none"]}`,
+{"hookDelivered": true or false, "toneAppropriate": true or false${
+        !isShort ? ', "pacingOk": true or false' : ""
+      }, "issues": ["short specific note in Persian for each problem found, empty array if none"]}`,
       jsonMode: true,
       maxTokens: 350,
       temperature: 0.3,
@@ -194,6 +224,8 @@ Reply with ONLY a JSON object, no other text:
     const parsed = JSON.parse(reviewRaw.replace(/```json|```/g, "").trim());
     if (parsed.hookDelivered === false) issues.push("هوکِ ابتدایی وعده‌ای می‌ده که وسطِ متن واقعاً ادا نمی‌شه");
     if (parsed.toneAppropriate === false) issues.push("وزنِ لحن با اندازه‌ی واقعیِ ایده هم‌خونی نداره (خیلی دراماتیک/سنگین)");
+    if (!isShort && parsed.pacingOk === false)
+      issues.push("بخشِ داستان خیلی طولانی شده یا گام‌هایِ عملی خیلی دیر شروع می‌شن — باید داستان کوتاه بمونه و راهکار زود شروع بشه");
     for (const extra of parsed.issues || []) {
       if (extra && typeof extra === "string") issues.push(extra);
     }
@@ -218,6 +250,20 @@ Reply with ONLY a JSON object, no other text:
     });
     if (!isShort && wordCount() < 1150) {
       console.warn(`generateScript: تلاشِ دوم هم کوتاه موند (~${wordCount()} کلمه) — با همین ادامه می‌دیم`);
+    }
+    if (!isEnglish && !looksLikeEnglish(script)) {
+      // برخلافِ بقیه‌ی چک‌های نرم، این یکی رو با صدایِ بلندتر لاگ می‌کنیم:
+      // یه اسکریپتِ کاملاً به زبانِ اشتباه یعنی کلِ ویدیو غیرِقابل‌استفاده‌ست
+      // (نه فقط یه ایرادِ کیفیِ جزئی)، و همون بارِ اول دقیقاً همین اتفاق
+      // افتاد و کسی متوجه نشد تا وقتی که ویدیو آپلود شده بود. پایپ‌لاین
+      // رو متوقف نمی‌کنیم (ممکنه یه false positive باشه)، ولی این باید
+      // واضح تو /activity دیده بشه.
+      console.error("generateScript: تلاشِ دوم هم به‌نظر انگلیسی نیست — لطفاً این ویدیو رو قبل از انتشار دستی چک کن");
+      logEvent({
+        type: "script_wrong_language_suspected",
+        message: `اسکریپتِ ${isShort ? "شورت" : "لانگ"} حتی بعدِ تلاشِ دوم هم به‌نظر انگلیسی نیست — قبل از انتشار حتماً دستی چک کن`,
+        metadata: { mode },
+      });
     }
     // بعد از تلاشِ دوم دوباره بازبینیِ AI رو صدا نمی‌زنیم (هزینه/تاخیرِ
     // اضافه) — فقط تو گزارشِ فعالیت مشخص می‌کنیم که تلاشِ اول این

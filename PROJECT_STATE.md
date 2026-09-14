@@ -338,6 +338,31 @@ source. One pipeline implementation, three ways to trigger it.
   the prompt level. Not yet verified against a real render — next
   session should check an actual Short against the new ~35-45s/8-second-
   to-trick targets.
+  *(2026-09-10)* two more additions, from a separate user report about a
+  specific long-form video (fully-English title/metadata, but the
+  actual voiced script came out entirely in German — see Known issues):
+  (1) a new local, non-AI `looksLikeEnglish()` check (common-English-
+  stopword ratio, >12% threshold) added to the existing soft-check
+  pipeline for BOTH formats — triggers the same retry-with-explicit-
+  feedback flow as every other check here, and if the retry *still*
+  doesn't look English, escalates to `console.error` + a distinct
+  `script_wrong_language_suspected` `logEvent()` (visible on `/activity`)
+  rather than just the generic flagged-issue log every other check gets
+  — deliberately louder, since a wrong-language script is a fully
+  unusable video, not a minor quality miss, and this exact failure mode
+  already slipped through unnoticed once. (2) long-form's "Real Story"
+  step now has an explicit ~100-word/40-second cap, and "Actionable
+  Steps" now has an explicit "must start by ~280-320 words in / the
+  2-minute mark" requirement — the AI review pass gained a third
+  criterion (`pacingOk`, long-form only) checking both of these
+  holistically. Root cause of the language issue itself was NOT found in
+  code — no code path anywhere selects a non-English voice/language for
+  the main audio (only `CAPTION_LANGUAGES` — separate subtitle tracks —
+  include German); the most likely explanation is a rare language-drift
+  glitch in the underlying script-generation model itself
+  (`temperature: 1`), which is why the fix is a detection/retry safety
+  net rather than a specific code-path correction. Not yet verified
+  against a real render.
 - `script/timing.js` — `splitSentences`, `buildSentenceCaptions`,
   `distributeDurations`, `escapeDrawtext`, `buildSrt`, `validateSrt`,
   `regroupForSubtitles`, `wrapCaption`
@@ -825,6 +850,21 @@ previously caused `invalid_client`/`deleted_client` confusion.
 
 ## Known issues (full detail: `youtube-studio-review-v2.md`)
 
+- 🟡 **A real published long-form video came out with a fully German
+  script** despite English title/description/channel identity —
+  reported 2026-09-10 (user caught it after the fact via manual review,
+  made it private). Root cause not found in code — no code path selects
+  a non-English voice/language for the main narration audio (only
+  `CAPTION_LANGUAGES` — separate YouTube subtitle tracks, not the audio
+  — includes German). Most likely a rare language-drift glitch in the
+  underlying script-generation model (`generateText` at `temperature:
+  1`). Mitigated, not root-caused: `script/index.js` gained a local,
+  non-AI `looksLikeEnglish()` check (see that file's entry above) that
+  triggers a retry, and escalates loudly (`logEvent`,
+  `script_wrong_language_suspected`) if the retry still doesn't look
+  English — but this is a safety net, not a guarantee. If it recurs,
+  check whether it's isolated to one specific mode/provider/time, which
+  would point to something more specific than a random model glitch.
 - ✅ ~~Worker callback credential expires before real jobs finish~~ —
   **fixed 2026-08-30.** `generateWorkerCredential()`'s default expiry
   raised from 5 minutes to 60 (only one call site used the default, so
