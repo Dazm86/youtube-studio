@@ -269,15 +269,39 @@ source. One pipeline implementation, three ways to trigger it.
   `WORKER_API_KEY` bearer auth); returns a fresh YouTube access token
   refreshed server-side from the DB `refresh_token`, so the worker never
   needs its own Google OAuth credentials
-- **`trends/scan/route.js`** *(new, 2026-08-27)* — cron-secret-gated
-  (`?secret=CRON_SECRET`, same pattern as `scheduler/run`), NDJSON-streams
-  `lib/trends/index.js: runTrendScan()`. Triggered every 6h by the new
-  `.github/workflows/trend-scan.yml`, not an external pinger.
-- **`trends/scan-now/route.js`** *(new, 2026-08-27)* — session-gated
-  twin of the above, for the `/trends` page's manual "Run scan now" button
-- **`trends/route.js`** *(new, 2026-08-27)* — GET: lists `trend_topics`
+- **`trends/scan/route.js`** — cron-secret-gated (`?secret=CRON_SECRET`,
+  same pattern as `scheduler/run`), calls `lib/trends/index.js:
+  runTrendScan()`. *(2026-09-12 — rewritten)* was a POST + NDJSON-
+  streaming endpoint triggered only by a separate `.github/workflows/
+  trend-scan.yml` GitHub Actions cron — a second external trigger with
+  its own separate secret management (GitHub Actions repo secrets,
+  distinct from Render's env vars; this mismatch once caused the
+  workflow to fail outright, `CRON_SECRET` present in one place but not
+  the other). Rewritten as a GET, fire-and-forget endpoint — exact same
+  shape as `scheduler/run` — so UptimeRobot (already used for the
+  upload scheduler) can trigger it directly, eliminating GitHub Actions
+  and its separate secret entirely. Since UptimeRobot's free plan has a
+  5-minute *minimum* interval (no way to configure a 6-hour interval
+  directly, unlike a real cron schedule) and only a 30-60s response
+  timeout (a real multi-source scan takes several minutes — hence the
+  streaming design originally), the route now self-gates: it checks
+  `trends/db.js: getLatestScan()`'s `started_at` and only actually
+  starts `runTrendScan()` (detached, unawaited) if at least
+  `TREND_SCAN_MIN_HOURS` (env var, default 6) has passed; otherwise it
+  responds immediately with `{skipped: true, reason}`. The old
+  `.github/workflows/trend-scan.yml` file is **not in this repo's `src/`
+  tree** (it wasn't part of the uploaded `src.zip` either) and needs to
+  be deleted from the repo separately — see this date's changelog entry
+  for the exact steps given to the user.
+- `trends/scan-now/route.js` — session-gated twin of the above, for the
+  `/trends` page's manual "Run scan now" button. **Deliberately left as
+  POST + NDJSON-streaming, unlike `scan/route.js` above** — this one is
+  called from the browser by a human actively watching the `/trends`
+  page for live progress, which is exactly the case where a streaming
+  response earns its keep; the cron-trigger rewrite doesn't apply here.
+- `trends/route.js` — GET: lists `trend_topics`
   (filterable by `status`/`minScore`) + the latest `trend_scans` row
-- **`trends/[id]/route.js`** *(new, 2026-08-27)* — PATCH: session-gated
+- `trends/[id]/route.js` — PATCH: session-gated
   approve/reject/reset on one trend topic
 - **`activity/route.js`** *(new, 2026-08-29)* — GET, session-gated:
   recent rows from `activity_log` (optional `type`/`limit` query params)
@@ -749,8 +773,10 @@ from the DB and tries providers top-down, retrying rate-limits and
 falling through to the next provider (or `public/fallback-media/` for
 images/clips) on failure.
 
-**6. Trend Finder** *(new, 2026-08-27)*. Every 6 hours (GitHub Actions
-schedule, `.github/workflows/trend-scan.yml`) or on-demand from `/trends`,
+**6. Trend Finder** *(new, 2026-08-27)*. Every 6 hours (self-gated —
+*(2026-09-12)* now UptimeRobot pinging `api/trends/scan` directly, same
+pattern as upload scheduling; see that route's entry above for why and
+how — no longer GitHub Actions) or on-demand from `/trends`,
 `lib/trends/index.js: runTrendScan()` runs: niche seed keywords → Google
 Trends related/rising queries + niche subreddit hot posts + per-seed
 Google News → dedup/rank → cap to `TREND_MAX_CANDIDATES` → per-candidate
@@ -830,6 +856,10 @@ YOUTUBE_API_KEY   # required for the YouTube competition/view-growth signal;
                   # Missing key = that signal degrades to neutral, doesn't
                   # break the scan.
 CRON_SECRET       # reused as-is — also authorizes /api/trends/scan
+TREND_SCAN_MIN_HOURS  # optional, default 6 — (new, 2026-09-12) self-gate
+                  # threshold in api/trends/scan/route.js now that
+                  # UptimeRobot (5-min min interval) triggers it instead
+                  # of a real 6-hour GitHub Actions cron
 TREND_MIN_SCORE           # default 75
 TREND_TOP_N                # default 20
 TREND_MAX_CANDIDATES       # default 25 — caps how many candidates get the

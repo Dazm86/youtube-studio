@@ -371,6 +371,55 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-09-12 — Moved Trend Finder's cron trigger off GitHub Actions, onto UptimeRobot (same pattern as upload scheduling)
+Right after debugging why `Trend Scan (every 6 hours)` was failing on GitHub Actions (turned out `CRON_SECRET` was set
+in Render but never added to the repo's GitHub Actions secrets — a second, separate place to manage the same secret),
+user asked whether trend-finding could just run from inside the site itself instead of depending on GitHub at all.
+
+Checked why GitHub Actions was used for this in the first place rather than the already-proven UptimeRobot pattern:
+`trends/scan/route.js` was a **POST**, NDJSON-**streaming** endpoint (`maxDuration=300`) — the connection stays open and
+actively streaming for the full multi-source scan (Google Trends, YouTube, Reddit, News, AI analysis), which can easily
+take several minutes. Confirmed via a fresh search that UptimeRobot's free-plan HTTP monitor times out after 30-60
+seconds max and defaults to GET — pointing it at the old streaming POST endpoint as-is would just produce constant
+false "down" alerts (or worse, abort the scan mid-way if the connection drop propagates to the stream controller).
+That's exactly why streaming + GitHub Actions (no such short timeout, and a script naturally waits out a long response)
+was the original design — not an arbitrary choice.
+
+**Fixed properly, not just switched blindly:** rewrote `trends/scan/route.js` from POST+streaming to a GET,
+fire-and-forget endpoint — the *exact* same shape as `scheduler/run/route.js`: responds in under a second, runs
+`runTrendScan()` detached in the background. This was low-risk because `runTrendScan()` already reports its own
+progress/result via `logEvent()` (visible on `/activity`) and `finishScanRow()` (visible on `/trends` itself)
+regardless of whether anyone's watching a live stream — the `emit` callback used for streaming was always optional,
+so nothing about visibility was lost by dropping it here.
+
+One more real wrinkle, caught before it became a second scheduling bug: UptimeRobot's free plan has a **5-minute
+minimum check interval** — there's no way to configure a real 6-hour interval on it, unlike an actual cron schedule.
+Pinging the endpoint every 5 minutes without any gating would mean a real trend scan (with all its API calls — Groq,
+YouTube Data API, etc.) firing every 5 minutes instead of every 6 hours, burning through provider quotas fast. Fixed
+by self-gating inside the route itself: it checks `trends/db.js: getLatestScan()`'s timestamp and only actually starts
+a scan if at least `TREND_SCAN_MIN_HOURS` (new env var, default 6) has passed since the last one — otherwise it just
+responds `{skipped: true}` immediately. Applied this same turn's earlier lesson (the scheduler due-check crash bug)
+here too: if the gating check itself fails (e.g. a DB hiccup), it proceeds with the scan anyway rather than silently
+never scanning again.
+
+`scan-now/route.js` (the `/trends` page's manual "Run scan now" button, used by a human actively watching the page)
+was deliberately left untouched — POST + streaming is the right shape there, this rewrite only applies to the
+unattended cron-trigger route.
+
+**User still needs to do, manually (not something this session can do from here):**
+1. Add a new UptimeRobot monitor: URL `https://youtube-studio-7bnw.onrender.com/api/trends/scan?secret=<CRON_SECRET>`
+   (same secret already in Render), method GET (UptimeRobot's default), any interval (5 min is fine — the route
+   self-gates to every 6h regardless).
+2. Delete `.github/workflows/trend-scan.yml` from the repo (not in `src/`, wasn't part of any `src.zip` upload this
+   whole conversation — has to be removed directly, e.g. via GitHub's web UI or `git rm` locally) so it stops trying
+   (and failing) to hit the old POST-shaped behavior expectations. Optionally also remove the now-unused
+   `CRON_SECRET` from GitHub Actions repo secrets.
+
+Verified with the same esbuild syntax+import-resolution pass (123 files, same single pre-existing `lib/index.js` gap).
+Not yet verified against a real UptimeRobot-triggered scan.
+
+Files (modified): `app/api/trends/scan/route.js`.
+
 ### 2026-09-10 — Another user report from Gemini's review, this time of a long-form video: a fully German script under an English title, plus the same "solution arrives too late" pacing problem seen in Shorts
 User shared a critique (same pattern as the Shorts one) of a specific long-form video, already made private after catching
 it: (1) the video's title/description/channel identity are all English, but the actual narration was entirely in German
