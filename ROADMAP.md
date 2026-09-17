@@ -371,6 +371,25 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-09-17 — Automated periodic health-check (user's #1 priority: catch breakage without manual testing)
+New `lib/health/index.js: runHealthCheck()` — actually exercises (not just checks presence of) every external
+dependency: DB, YouTube refresh-token renewal, TTS, Pexels media, Groq text, GitHub API. Each check independently
+try/caught and timeout-capped (15s) so one broken dependency can't hide/block the others — same lesson as the
+2026-09-08 scheduler fix. Failures logged via `logEvent()` (visible on `/activity`).
+
+New `api/health-check/run/route.js` — cron-secret-gated GET (same secret as scheduler/trend-scan), all checks awaited
+directly since they're fast. Returns HTTP 503 (not 200) on any critical failure — the idea: point a *second*
+UptimeRobot monitor (with an alert contact configured) at this URL, and UptimeRobot's own down/up detection becomes
+free proactive alerting, no separate notification system needed.
+
+User still needs to add that second UptimeRobot monitor manually (URL:
+`/api/health-check/run?secret=<CRON_SECRET>`, GET, any interval) — not something this session can do.
+
+Verified with the same esbuild syntax+import-resolution pass (129 files, same single pre-existing `lib/index.js`
+gap). Not yet run against the real deployed environment.
+
+Files (new): `lib/health/index.js`, `app/api/health-check/run/route.js`.
+
 ### 2026-09-16 — New feature: an in-app AI assistant on the Activity page, with real tool-calling against site data + GitHub
 User asked for an AI with access to all site data and GitHub, living in "بخشِ گزارش" (the Activity page), askable directly.
 

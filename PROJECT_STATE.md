@@ -305,6 +305,11 @@ source. One pipeline implementation, three ways to trigger it.
   approve/reject/reset on one trend topic
 - **`activity/route.js`** *(new, 2026-08-29)* — GET, session-gated:
   recent rows from `activity_log` (optional `type`/`limit` query params)
+- **`health-check/run/route.js`** *(new, 2026-09-17)* —
+  cron-secret-gated GET, wraps `lib/health/index.js: runHealthCheck()`.
+  Awaited directly (all checks are fast, unlike scheduler/trend-scan —
+  no fire-and-forget needed); returns 503 on any critical failure so a
+  second UptimeRobot monitor pointed here can alert on it.
 - **`assistant/chat/route.js`** *(new, 2026-09-16)* — session-gated POST,
   wraps `lib/assistant/index.js: runAssistantChat()`. Takes a full
   client-held conversation array each call (stateless server-side).
@@ -321,6 +326,20 @@ source. One pipeline implementation, three ways to trigger it.
   button's endpoint — see "Auto-produce" under Key flows below
 
 ### `lib/`
+- **`health/index.js`** *(new, 2026-09-17)* — `runHealthCheck()`:
+  actually exercises (not just checks key presence of) every external
+  dependency the pipeline relies on — DB query, YouTube refresh-token
+  renewal, TTS synthesis, Pexels media fetch, Groq text generation,
+  GitHub API — each independently try/caught (one broken check can't
+  block the others, same lesson as the 2026-09-08 scheduler fix) and
+  individually timeout-capped at 15s. Logs failures via `logEvent()`
+  (`health_check_failed`, visible on `/activity`) and returns
+  `{ok, results, failed}`. Triggered by `api/health-check/run/route.js`
+  (cron-secret-gated GET, same pattern as `scheduler/run`), which
+  returns HTTP 503 (not 200) if any *critical* check failed — pointing
+  a second UptimeRobot monitor (with an alert contact) at this URL gets
+  proactive email alerts for free, reusing UptimeRobot's own down/up
+  detection instead of building a separate notification system.
 - **`assistant/index.js` + `assistant/tools.js`** *(new, 2026-09-16)* —
   the site's in-app AI assistant ("بخشِ گزارش" chat panel). `tools.js`
   defines 6 read-only tools (Groq/OpenAI-compatible `tools` JSON schema
