@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useSession, signIn } from "next-auth/react";
+import AssistantChat from "./AssistantChat";
 
 const TYPE_META = {
   video_uploaded: { icon: "🎬", label: "آپلود ویدیو", color: "text-teal" },
@@ -87,6 +88,8 @@ export default function ActivityFeed() {
           به‌روزرسانی
         </button>
       </div>
+
+      <AssistantChat />
 
       <div className="flex items-center gap-1.5 overflow-x-auto mb-4 -mx-1 px-1">
         {FILTERS.map((f) => (

@@ -305,12 +305,41 @@ source. One pipeline implementation, three ways to trigger it.
   approve/reject/reset on one trend topic
 - **`activity/route.js`** *(new, 2026-08-29)* — GET, session-gated:
   recent rows from `activity_log` (optional `type`/`limit` query params)
+- **`assistant/chat/route.js`** *(new, 2026-09-16)* — session-gated POST,
+  wraps `lib/assistant/index.js: runAssistantChat()`. Takes a full
+  client-held conversation array each call (stateless server-side).
+  Groq-only (`openai/gpt-oss-120b`, confirmed to support tool calling) —
+  not routed through the generic multi-provider `providers/router.js:
+  generateText()`, since that's a single-prompt/no-tools abstraction and
+  tool schemas differ meaningfully across providers; if Groq isn't
+  configured under the user's "text" provider list, this throws a clear
+  error rather than silently falling back to a provider that can't do
+  tool calling the same way.
 - **`auto-produce/route.js`** *(new, 2026-08-28)* — session-gated,
   NDJSON-streaming, mirrors `generate-and-upload/route.js`'s heartbeat/
   self-ping/worker-dispatch pattern exactly. The "🚀 ساخت کاملاً خودکار"
   button's endpoint — see "Auto-produce" under Key flows below
 
 ### `lib/`
+- **`assistant/index.js` + `assistant/tools.js`** *(new, 2026-09-16)* —
+  the site's in-app AI assistant ("بخشِ گزارش" chat panel). `tools.js`
+  defines 6 read-only tools (Groq/OpenAI-compatible `tools` JSON schema
+  + executor): `get_recent_videos`, `get_schedule_status`,
+  `get_trend_topics`, `get_activity_log` (all reading the exact same DB
+  functions the rest of the site already uses — no new queries), plus
+  `get_github_workflow_runs`/`get_github_recent_commits` (new read-only
+  GitHub API calls, reusing the existing `GITHUB_TOKEN`/
+  `GITHUB_REPOSITORY_OWNER`/`GITHUB_REPOSITORY_NAME` env vars already
+  used for worker dispatch in `jobs/index.js`). `index.js:
+  runAssistantChat(conversationHistory)` runs the actual tool-calling
+  loop directly against Groq (`openai/gpt-oss-120b`, up to
+  `MAX_TOOL_ROUNDS=5` rounds) — calls Groq's chat-completions endpoint
+  itself (not through `providers/router.js: generateText()`) since that
+  function's single-prompt/no-tools shape doesn't fit; if the user
+  hasn't configured Groq under "text" providers, throws a clear error
+  rather than silently trying a different provider. No conversation
+  history is persisted server-side — the client resends the full
+  message array each turn.
 - `pipeline.js` — the full TTS→media→render→upload→thumbnail→captions→
   community-post sequence (`runPipeline(params, {emit})`); also
   `runQuickTest()` (fast connectivity smoke test) and a 25-minute
@@ -628,6 +657,10 @@ source. One pipeline implementation, three ways to trigger it.
 - `analytics/ThemedCommunityPosts.js` *(new, 2026-09-08)* — free-text
   theme input → calls `api/community/theme`, displays the 3 returned
   drafts (poll/discussion/teaser) for copy-paste; nothing persisted.
+- `activity/AssistantChat.js` *(new, 2026-09-16)* — collapsible chat
+  panel mounted at the top of `/activity` ("بخشِ گزارش"). Sends the full
+  message array each turn to `api/assistant/chat`, stateless client-side
+  history only (nothing persisted server-side).
 - `api-status/ApiStatus.js` — legacy env-var connectivity checks
 - `layout/NavBar.js` — nav, auto-signs-out on unrecoverable refresh
   failure

@@ -371,6 +371,36 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-09-16 — New feature: an in-app AI assistant on the Activity page, with real tool-calling against site data + GitHub
+User asked for an AI with access to all site data and GitHub, living in "بخشِ گزارش" (the Activity page), askable directly.
+
+Built a real tool-calling assistant, not a canned/keyword-based Q&A:
+- `lib/assistant/tools.js` — 6 read-only tools: 4 reuse the site's own existing DB functions as-is (recent videos + stats,
+  schedule status + recent runs, trend topics + latest scan, activity log), and 2 are new read-only GitHub API calls
+  (recent workflow runs, recent commits) — reusing the `GITHUB_TOKEN`/`GITHUB_REPOSITORY_OWNER`/`GITHUB_REPOSITORY_NAME`
+  env vars already set up for worker dispatch in `jobs/index.js`, no new secret needed.
+- `lib/assistant/index.js` — the actual agent loop: sends the conversation + tool schemas to Groq, executes whatever
+  tools it asks for, feeds results back, repeats (capped at 5 rounds), returns the final answer. Confirmed via Groq's
+  own docs that `openai/gpt-oss-120b` (the model already used for everything else on this site) genuinely supports
+  tool calling — this isn't routed through the existing `providers/router.js: generateText()` (that's a single-
+  prompt/no-tools/multi-provider-fallback abstraction; tool schemas aren't portable across providers the same way
+  plain text prompts are), so this calls Groq directly and just tells the user plainly if Groq isn't configured,
+  rather than silently trying a different provider that wouldn't support tools the same way.
+- `api/assistant/chat/route.js` + `components/activity/AssistantChat.js` — a collapsible chat panel mounted at the top
+  of `/activity`. Fully stateless server-side: the client resends the whole conversation array each turn, nothing is
+  persisted in the DB.
+
+System prompt explicitly instructs the model to always call a tool for anything answerable from real data, never
+guess numbers/statuses, and say plainly when a tool fails or returns nothing.
+
+Verified with the same esbuild syntax+import-resolution pass (127 files, same single pre-existing `lib/index.js` gap).
+Not yet verified against a real conversation/tool call — next session should sanity-check that Groq actually returns
+`tool_calls` in the expected shape for a few real questions, and that the GitHub calls succeed with the existing token.
+
+Files (new): `lib/assistant/index.js`, `lib/assistant/tools.js`, `app/api/assistant/chat/route.js`,
+`components/activity/AssistantChat.js`.
+Files (modified): `components/activity/ActivityFeed.js`.
+
 ### 2026-09-12 — Moved Trend Finder's cron trigger off GitHub Actions, onto UptimeRobot (same pattern as upload scheduling)
 Right after debugging why `Trend Scan (every 6 hours)` was failing on GitHub Actions (turned out `CRON_SECRET` was set
 in Render but never added to the repo's GitHub Actions secrets — a second, separate place to manage the same secret),
