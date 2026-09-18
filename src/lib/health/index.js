@@ -58,7 +58,14 @@ async function checkMedia() {
 }
 
 async function checkAiText() {
-  const text = await generateText({ prompt: "Reply with exactly the word OK, nothing else.", maxTokens: 10, temperature: 0 });
+  // ۲۰۲۶-۰۹-۱۸ — قبلاً اینجا maxTokens=10 بود؛ خودِ همین باعثِ یک false
+  // alarm شد. gpt-oss-120b مدلِ reasoning‌ه — حتی با reasoning_effort=
+  // "low" (که تو groqTextRaw همیشه ست می‌شه)، یه مقدار از همون بودجه‌ی
+  // toolken صرفِ فکرکردنِ پنهان می‌شه؛ با فقط ۱۰ توکن هیچی برایِ جوابِ
+  // واقعی نمی‌مونه → "پاسخ خالی از هوش مصنوعی دریافت شد" → false failure
+  // با اینکه Groq کاملاً سالم بود. ۵۰ توکن حاشیه‌ی امنِ کافی می‌ذاره
+  // (هزینه‌ش هم ناچیزه، این فقط دوره‌ای اجرا می‌شه، نه به‌ازای هر ویدیو).
+  const text = await generateText({ prompt: "Reply with exactly the word OK, nothing else.", maxTokens: 50, temperature: 0 });
   if (!text || text.trim().length === 0) throw new Error("متنی برنگشت");
   return {};
 }

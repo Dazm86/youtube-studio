@@ -371,6 +371,17 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-09-18 — Health-check's first real run flagged a false alarm on the Groq text check — fixed the check itself
+First real deployment of the 2026-09-17 health-check immediately caught something — but it was a bug in the health
+check itself, not the site: `checkAiText()` called `generateText()` with `maxTokens: 10`. `gpt-oss-120b` is a
+reasoning model — even with `reasoning_effort: "low"` (already always set in `groqTextRaw`), some of that tiny
+10-token budget gets spent on hidden reasoning before any visible answer, so it returned empty content →
+"پاسخ خالی از هوش مصنوعی دریافت شد" → a false "AI text generation broken" alarm (as a 503) even though Groq was
+completely fine. Fixed by raising it to `maxTokens: 50` — cheap either way since this only runs periodically, not
+per-video. Every other check (DB, YouTube auth, TTS, Pexels, GitHub) passed on this same real run.
+
+Files (modified): `lib/health/index.js`.
+
 ### 2026-09-17 — Automated periodic health-check (user's #1 priority: catch breakage without manual testing)
 New `lib/health/index.js: runHealthCheck()` — actually exercises (not just checks presence of) every external
 dependency: DB, YouTube refresh-token renewal, TTS, Pexels media, Groq text, GitHub API. Each check independently
