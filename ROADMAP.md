@@ -371,6 +371,57 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-09-21 — Audited a large batch of uncommitted Codex changes; cleaned up leftovers, kept the good parts
+User ran Codex on the repo ("کار زیادی تغییر دادم... بررسی کن") and asked for a bug audit + a check for any fixes.
+Found: **nothing Codex touched was actually committed** — a new branch (`fix/build-and-test-baseline`) existed but
+pointed at the exact same commit as `main` (the previous session's last commit, the health-check maxTokens fix); all
+of Codex's work was sitting as uncommitted working-tree changes, nothing on GitHub, nothing deployed.
+
+Reviewed everything via the same esbuild syntax+import-resolution pass (129 files, only the same pre-existing
+`lib/index.js` gap) plus manual review, and actually ran the new test files against real Node:
+
+**Kept (genuinely good additions):**
+- `components/dashboard/DashboardSummary.js` + wiring into `app/page.js` — a home-page summary card (pending trend
+  count + latest scan time, enabled-schedule count + last run status, last 4 activity-log events). Verified against
+  the real `api/trends`/`api/schedules`/`api/activity` response shapes — no mismatch, no bug.
+- `tests/scriptTiming.test.mjs`, `tests/trends-scoring.test.js`, `tests/pipelineChecks.test.mjs` — real unit tests
+  using Node's built-in `assert`/test runner, zero new dependencies, run directly against the actual source files
+  (not copies). Ran the first two myself: `scriptTiming` 13/13 pass, `trends-scoring` all pass. `pipelineChecks`
+  couldn't be run in the review sandbox (no `node_modules` there — it imports `pipeline.js` → `googleapis`), but
+  there's no reason to expect it to fail in a real environment with dependencies installed.
+- Public/Maya assets: confirmed the user separately finished all 32 animation image variants (8 poses × 4 states)
+  since the last session — the blink/mouth-flap system built 2026-08-22 is now fully live, not just code-ready.
+
+**Removed:**
+- `tests/autoproduce-orchestration.test.js` — its own header comment says it's "not runnable standalone" (written
+  against mock modules that were never committed alongside it); its import (`./src/lib/autoProduce.js`, missing a
+  `../`) would fail immediately even if someone tried. Kept as a template it isn't — deleted rather than left to
+  confuse anyone running `node tests/*.test.js` expecting all 4 to pass.
+- `.github/workflows/trend-scan.yml` — the 2026-09-12 rewrite of `api/trends/scan/route.js` (POST→GET, self-gated)
+  already made this obsolete; it was never actually deleted as that session's changelog entry asked, so it had been
+  failing every 6 hours since (POST to a route with no POST handler = 405).
+- `REORGANIZATION_PLAN.md` — a Codex-authored plan whose own "Current Structure Analysis" describes `src/lib/` and
+  `src/components/` as still flat (`db.js`, `pipeline.js`, `VideoStudio.js` at the top level, etc.) — that reorg
+  already happened long ago; every file it claims doesn't exist yet (`lib/db/index.js`, `components/studio/
+  VideoStudio.js`, ...) already does. The plan was never executed (confirmed `lib/pipeline/`, `lib/scheduling/` are
+  still the same empty placeholder dirs noted in this file's "Known constraints" section), so nothing broke — but
+  it was working from stale/wrong information and would have caused real damage (duplicate structure, broken
+  imports) if anyone had followed it. Deleted rather than fixed, since a correct version isn't needed — the reorg
+  it's proposing has no gap left to fill.
+- ~15 stale delivery `.zip` files and ~45 `apply_*.sh` scripts that had accumulated at the repo root over many past
+  sessions (all already applied, none referenced by any current code or docs) — pure clutter, no functional risk
+  either way, removed for repo hygiene.
+
+`components/ui/index.js` (an empty barrel with only commented-out example exports — Phase 2 of the reorg plan above,
+started but never followed through) was left in place: harmless, nothing imports from it, and deleting an empty
+placeholder folder isn't worth a separate step.
+
+Files (new, kept): `components/dashboard/DashboardSummary.js`, `tests/scriptTiming.test.mjs`,
+`tests/trends-scoring.test.js`, `tests/pipelineChecks.test.mjs`.
+Files (deleted): `tests/autoproduce-orchestration.test.js`, `.github/workflows/trend-scan.yml`,
+`REORGANIZATION_PLAN.md`, assorted stale root-level `.zip`/`apply_*.sh` files.
+Files (modified): `src/app/page.js` (DashboardSummary wiring, from Codex).
+
 ### 2026-09-18 — Health-check's first real run flagged a false alarm on the Groq text check — fixed the check itself
 First real deployment of the 2026-09-17 health-check immediately caught something — but it was a bug in the health
 check itself, not the site: `checkAiText()` called `generateText()` with `maxTokens: 10`. `gpt-oss-120b` is a

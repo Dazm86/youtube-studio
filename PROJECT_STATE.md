@@ -569,7 +569,21 @@ source. One pipeline implementation, three ways to trigger it.
   call 2026-08-29 — was fully built and exported but never called
   anywhere, so BGM was silently off; graceful no-op today since
   `public/audio/bgm/` has no mp3 files yet — activates automatically
-  once files matching its naming scheme are added there)
+  once files matching its naming scheme are added there). Also builds
+  Maya's per-frame blink+mouth-flap overlay (`buildMayaAnimationFilter`,
+  since 2026-08-22): mouth toggles every 0.28s, blinks every ~3.2s
+  (±jitter), by swapping between 4 pre-made PNGs per pose
+  (`{pose}.png`/`{pose}-blink.png`/`{pose}-talk.png`/
+  `{pose}-talk-blink.png`) via FFmpeg `overlay`+`enable` expressions —
+  no AI/API involved, pure local compositing. Gracefully falls back to
+  the old single static image if any of the 4 files is missing
+  (`fs.existsSync` check) — which is exactly what silently happened for
+  weeks: the code was ready since 2026-08-22 but the actual image
+  assets weren't. *(Confirmed 2026-09-21 — all 32 files now exist in
+  `public/maya/` (8 poses × 4 states), created manually to preserve
+  Maya's exact illustrated art style/brand details, which an AI
+  regeneration risked breaking. The animation system is now fully live,
+  not just code-ready.)*
 - `rendering/mayaThumbnail.js` — `buildMayaThumbnail()`/
   `buildMayaThumbnailVariants()` (Maya + blurred background photo +
   title text via `sharp`), mood-based pose picker,
@@ -663,6 +677,13 @@ source. One pipeline implementation, three ways to trigger it.
   Known issues).
 
 ### `components/`
+- **`dashboard/DashboardSummary.js`** *(new, 2026-09-21, via Codex)* —
+  home-page summary card, mounted in `app/page.js`. Client-side fetches
+  `api/activity?limit=4` + `api/trends?status=pending&limit=50` +
+  `api/schedules` in parallel; shows pending-trend count + latest scan
+  time, enabled-schedule count + last run status, and the 4 most recent
+  activity events. Fails silently (renders nothing extra) if any fetch
+  errors — the rest of the home page stays usable either way.
 - `studio/VideoStudio.js` — long/short creation UI; when
   `USE_RENDER_WORKER=true`, dispatches then polls `/api/jobs/status`
   every 10s for up to 40 minutes. *(2026-09-08)* thumbnail preview area
@@ -763,10 +784,21 @@ source. One pipeline implementation, three ways to trigger it.
   ffmpeg binary, runs the worker, uploads logs as an artifact on failure
 
 ### `tests/`
-- `scriptTiming.test.mjs` — no dependencies, runs standalone
-- `pipelineChecks.test.mjs` — imports real modules, needs
-  `npm install` first
+- `scriptTiming.test.mjs` — no dependencies, runs standalone. Verified
+  2026-09-21: 13/13 pass.
+- `trends-scoring.test.js` — no dependencies, runs standalone. Verified
+  2026-09-21: all pass.
+- `pipelineChecks.test.mjs` — imports real modules (pulls in
+  `pipeline.js` → `googleapis`), needs `npm install` first — couldn't be
+  run in a review sandbox without `node_modules`, no reason to expect
+  failure with deps installed.
 - No test runner installed — run directly with `node tests/x.test.mjs`
+  (all three use Node's built-in `assert`, zero new dependencies needed)
+- *(2026-09-21)* a 4th file, `autoproduce-orchestration.test.js`, was
+  removed — its own header comment said it wasn't runnable standalone
+  (written against mock modules never committed alongside it) and its
+  import path was broken besides; kept as dead weight would have made
+  someone think 4/4 tests should pass when only 3 ever could.
 
 ### Root docs
 - `ROADMAP.md` — full historical changelog, single source of truth for
@@ -778,8 +810,6 @@ source. One pipeline implementation, three ways to trigger it.
   exist in `worker/index.js`, and lists `YOUTUBE_CLIENT_ID`/
   `YOUTUBE_CLIENT_SECRET` as required secrets even though nothing in the
   code reads them anymore
-- `REORGANIZATION_PLAN.md` — the plan behind the current
-  `src/lib/<domain>/index.js` folder structure
 - `youtube-studio-review-v2.md` — latest full bug audit (Persian);
   supersedes `youtube-studio-review.md`
 - `AGENTS.md` / `CLAUDE.md` — one-liner pointing AI coding agents at
