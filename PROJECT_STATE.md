@@ -588,7 +588,12 @@ source. One pipeline implementation, three ways to trigger it.
   `buildMayaThumbnailVariants()` (Maya + blurred background photo +
   title text via `sharp`), mood-based pose picker,
   `escapeDrawtextForShort`/`capThumbnailWords` (shared with
-  `rendering/index.js`'s short-render path)
+  `rendering/index.js`'s short-render path). *(2026-09-22)*
+  `assertSafeExternalUrl()` guards the `bgImageUrl` fetch (blocks
+  non-http(s) schemes and localhost/private/link-local hostnames, adds
+  a 10s timeout + 15MB cap) — this path is user-reachable via
+  `api/upload/route.js`'s form data, confirmed exploitable as an SSRF
+  before this fix (see 2026-09-22 changelog entry).
 - `providers/registry.js` — `REGISTRY` of known services (groq/openai/
   anthropic/elevenlabs/stability/pexels/msedge-tts) with capabilities +
   `detect()` probe + adapters; `detectService(apiKey)` auto-fingerprints
@@ -962,6 +967,29 @@ previously caused `invalid_client`/`deleted_client` confusion.
 
 ## Known issues (full detail: `youtube-studio-review-v2.md`)
 
+- 🟠 **`session.accessToken` is exposed to the client** (`lib/auth/
+  authOptions.js`'s `session` callback) — confirmed 2026-09-22 (ChatGPT
+  audit, verified by this session) that no client component actually
+  reads it, so it's pure unnecessary exposure (a browser-side XSS or
+  malicious extension could steal a live YouTube OAuth token). **Not
+  fixed** — the naive fix (delete the line) would break 11 server-side
+  API routes that read `session.accessToken` via `getServerSession()`,
+  since NextAuth's `session` callback populates the exact same object
+  shape for both server and client; there's no separate "server-only"
+  session. The real fix: refactor those 11 routes to read the token via
+  `getToken()` from `next-auth/jwt` (server-only, never touches the
+  client-facing session shape) instead of `getServerSession().
+  accessToken`, *then* drop it from the session callback. Scoped
+  deliberately as a future session's task rather than a rushed
+  multi-file change bundled into an unrelated audit response.
+- 🟡 **`.env.local` (real `GOOGLE_CLIENT_SECRET`/`NEXTAUTH_SECRET`/
+  `PEXELS_API_KEY`) was included in a `youtube-studio.zip` upload for
+  review** — 2026-09-22. Not git-tracked (`.gitignore` is correct), but
+  must be treated as compromised since it left the machine in that zip.
+  Credential rotation needed — see that date's changelog entry for the
+  exact steps (`NEXTAUTH_SECRET` rotation is non-trivial: it's also the
+  AES-256-GCM key encrypting every provider API key already stored in
+  Postgres).
 - 🟡 **A real published long-form video came out with a fully German
   script** despite English title/description/channel identity —
   reported 2026-09-10 (user caught it after the fact via manual review,

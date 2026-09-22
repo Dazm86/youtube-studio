@@ -47,7 +47,12 @@ export async function GET(request) {
   }
 
   const { searchParams } = new URL(request.url);
-  const secret = searchParams.get("secret");
+  // ۲۰۲۶-۰۹-۲۲ — دقیقاً همون الگویِ scheduler/run: header رو هم قبول
+  // می‌کنیم، چون secret تو query string ممکنه تو لاگ/history/proxy ثبت
+  // بشه. اگه UptimeRobot پلنت custom header رو ساپورت می‌کنه، بهتره
+  // ازش استفاده کنی؛ query string هنوز کار می‌کنه تا مجبور نشی همه‌چی
+  // رو هم‌زمان عوض کنی.
+  const secret = searchParams.get("secret") || request.headers.get("x-cron-secret");
   if (secret !== process.env.CRON_SECRET) {
     return NextResponse.json({ error: "دسترسی غیرمجاز" }, { status: 401 });
   }

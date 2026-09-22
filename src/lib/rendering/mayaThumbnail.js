@@ -105,6 +105,47 @@ const VARIANT_GRADES = {
   B: { gradientFrom: "#0f6e8c", gradientTo: "#0fb59e", hue: 200, saturation: 1.15 },
 };
 
+// ۲۰۲۶-۰۹-۲۲ — SSRF guard: bgImageUrl معمولاً داخلی/امنه (یک URL از
+// Pexels/OpenAI/Stability که خودِ پایپ‌لاین تولید کرده)، اما
+// api/upload/route.js همینو مستقیم از فرمِ کاربر هم می‌گیره و بدونِ چک
+// به این تابع می‌ده — یعنی یک کاربرِ authenticated نظری می‌تونست هر URLی
+// (حتی 127.0.0.1 یا آدرسِ داخلیِ شبکه‌ی Render) بده و سرور مجبور بشه
+// fetchش کنه. این چک جلویِ ساده‌ترین/رایج‌ترین حالت‌ها رو می‌گیره
+// (اسکیمِ غیرِ http/https، لوکال‌هاست، رنج‌هایِ IP خصوصی/link-local که
+// مستقیم تو خودِ URL نوشته شده باشن) — یک محافظتِ کامل در برابرِ DNS
+// rebinding (دامنه‌ای که resolve می‌شه به IP داخلی) نیست، چون اون به
+// resolve واقعیِ DNS قبل از fetch نیاز داره؛ برایِ تهدیدِ توصیف‌شده (یک
+// URL مستقیم به IP داخلی) کافیه.
+const BLOCKED_HOSTNAME_PATTERNS = [
+  /^localhost$/i,
+  /\.local$/i,
+  /^127\./,
+  /^10\./,
+  /^172\.(1[6-9]|2\d|3[0-1])\./,
+  /^192\.168\./,
+  /^169\.254\./,
+  /^0\.0\.0\.0$/,
+  /^::1$/,
+  /^\[::1\]$/,
+];
+
+function assertSafeExternalUrl(rawUrl) {
+  let parsed;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new Error("bgImageUrl معتبر نیست");
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("bgImageUrl باید http یا https باشه");
+  }
+  const hostname = parsed.hostname;
+  if (BLOCKED_HOSTNAME_PATTERNS.some((re) => re.test(hostname))) {
+    throw new Error("bgImageUrl به یک آدرسِ داخلی/محلی اشاره می‌کنه — مجاز نیست");
+  }
+  return parsed;
+}
+
 export async function buildMayaThumbnail({
   title,
   thumbnailText,
@@ -137,8 +178,11 @@ export async function buildMayaThumbnail({
         arrBuf = bgImageUrl.buffer;
       } else {
         const url = typeof bgImageUrl === "object" ? bgImageUrl.path : bgImageUrl;
-        const res = await fetch(url);
+        assertSafeExternalUrl(url);
+        const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+        if (!res.ok) throw new Error(`دانلودِ bgImageUrl خطای ${res.status} داد`);
         arrBuf = await res.arrayBuffer();
+        if (arrBuf.byteLength > 15 * 1024 * 1024) throw new Error("bgImageUrl خیلی بزرگه");
       }
       bg = await sharp(Buffer.from(arrBuf))
         .resize(CANVAS_W, CANVAS_H, { fit: "cover" })

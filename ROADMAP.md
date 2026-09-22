@@ -371,6 +371,62 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-09-22 — ChatGPT security audit of the same repo; verified all 3 critical findings, fixed what's safe, flagged what isn't
+User separately sent the `youtube-studio.zip` to ChatGPT for review; it returned a structured audit (3 🔴 critical, 5
+🟠 moderate, several 🟡 minor). Rather than trust it blindly, verified each critical claim directly against the code:
+
+1. **`.env.local` was inside the zip with real credentials** (`GOOGLE_CLIENT_SECRET`, `NEXTAUTH_SECRET`,
+   `PEXELS_API_KEY`) — confirmed true. Not tracked by git (`.gitignore` is correct), but present in this zip, so
+   must be treated as compromised. **User action required — see below, this is not a code fix.**
+2. **`session.accessToken` exposed to the client** (`authOptions.js`) — confirmed true, and confirmed via search
+   that no client component actually reads it. **But** — ChatGPT's suggested fix (just remove it from the session
+   callback) would have broken 11 server-side API routes that read `session.accessToken` via `getServerSession()`
+   (the same callback populates both server and client session shapes in NextAuth; there's no free lunch here).
+   **Not fixed yet** — the correct fix is refactoring those 11 routes to read the token via `getToken()` from
+   `next-auth/jwt` instead (server-only, never touches the client-facing session), then removing it from the
+   session callback. Left as a deliberate, scoped follow-up rather than risking a rushed multi-file refactor.
+3. **SSRF via `bgImageUrl`** (`rendering/mayaThumbnail.js`, reachable through `api/upload/route.js`'s form data) —
+   confirmed true, no validation existed before `fetch(url)`. **Fixed**: `assertSafeExternalUrl()` — http/https
+   only, blocks localhost/`.local`/private (`10.*`, `172.16-31.*`, `192.168.*`)/link-local (`169.254.*`) hostnames
+   written directly in the URL, plus a 10s fetch timeout and 15MB size cap. Explicitly **not** a full DNS-rebinding
+   defense (a domain that *resolves* to an internal IP would need actual DNS resolution checked before fetching,
+   not just string-matching the hostname) — good enough for the literal threat described, not a complete SSRF
+   framework.
+
+Also fixed, lower-severity but quick: `trends/scan` and `health-check/run` now accept the cron secret via
+`x-cron-secret` header (matching `scheduler/run`'s existing dual query-string/header support) instead of only the
+query string — secrets in URLs can end up in logs/proxy history/monitoring tools. Query string still works, so
+nothing needs to change in UptimeRobot unless the user wants to switch.
+
+**Pushed back on one finding**: ChatGPT flagged the fire-and-forget pattern (`runTrendScan().catch(...)`,
+`runScheduledPipeline(...).catch(...)`, no `await`) in `scheduler/run`/`trends/scan` as fragile, reasoning that
+"if the deployment stops the request lifecycle after the response, the job could get killed mid-way." That caveat
+describes serverless platforms (Lambda, Vercel functions, Cloudflare Workers) that suspend/kill the process once
+the HTTP response is sent. This app runs on Render's free tier as a **persistent, always-running Node process** —
+not serverless — so a detached promise keeps executing normally after the response returns; this is the same
+reasoning that made the trend-scan GET rewrite (2026-09-12) work correctly, and is by design, not an oversight.
+
+Everything else in the audit was accurate but not urgent: `TikTok` trend source is a stub (already known),
+`The Mindful Path`/`Maya`/`Asia/Tehran` are hardcoded throughout (expected for a single-channel project — a
+config-driven multi-channel layer is a real, large future feature, not a bug), A/B testing is sequential not a
+real YouTube split test (already documented as such), README is stale boilerplate (cosmetic), and the build/test
+failures ChatGPT hit were its own sandbox missing a working `node_modules` — same limitation this session's own
+review sandbox hit, not a real app bug (ChatGPT correctly self-attributed most of these already).
+
+Verified with the same esbuild syntax+import-resolution pass (129 files, same single pre-existing `lib/index.js`
+gap). Not yet verified against a real render/upload flow.
+
+**Still needed — user action, not a code fix:**
+1. Rotate `GOOGLE_CLIENT_SECRET` (Google Cloud Console), `PEXELS_API_KEY` (Pexels dashboard), and `NEXTAUTH_SECRET`.
+2. `NEXTAUTH_SECRET` rotation is **not a simple swap** — it's also the AES-256-GCM key encrypting every provider
+   API key already stored in Postgres. Rotating it without a plan makes those undecryptable. Practical approach for
+   a single-user project: note down current provider keys from the Settings page first, rotate all three secrets
+   together in Render, then re-enter provider keys (which re-encrypts them under the new secret automatically),
+   then sign out and back in for a fresh YouTube session.
+
+Files (modified): `lib/rendering/mayaThumbnail.js`, `app/api/trends/scan/route.js`,
+`app/api/health-check/run/route.js`.
+
 ### 2026-09-21 — Audited a large batch of uncommitted Codex changes; cleaned up leftovers, kept the good parts
 User ran Codex on the repo ("کار زیادی تغییر دادم... بررسی کن") and asked for a bug audit + a check for any fixes.
 Found: **nothing Codex touched was actually committed** — a new branch (`fix/build-and-test-baseline`) existed but
