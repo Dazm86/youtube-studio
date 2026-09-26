@@ -74,6 +74,7 @@ const TYPE_EMOJI = {
   community_post_created: "💬",
   comment_replies_drafted: "💬",
   playlist_assigned: "🗂️",
+  daily_digest: "🔔",
   script_review_flagged: "📝",
 };
 
