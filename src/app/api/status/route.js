@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth/authOptions";
+import { getToken } from "next-auth/jwt";
 import { getDbStatus } from "@/lib/db";
 
-export async function GET() {
-  const session = await getServerSession(authOptions);
-  if (!session) {
+export async function GET(req) {
+  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+  if (!token) {
     return NextResponse.json({ error: "وارد نشده‌اید" }, { status: 401 });
   }
 
@@ -14,9 +13,9 @@ export async function GET() {
   return NextResponse.json({
     auth: {
       signedIn: true,
-      user: session.user?.name || session.user?.email || null,
-      hasAccessToken: !!session.accessToken,
-      tokenError: session.error || null,
+      user: token.name || token.email || null,
+      hasAccessToken: !!token.accessToken,
+      tokenError: token.error || null,
       googleClientConfigured: !!(
         process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
       ),

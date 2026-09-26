@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth/authOptions";
+import { getToken } from "next-auth/jwt";
 import { getVideoByVideoId } from "@/lib/db";
 import { logEvent } from "@/lib/activityLog.js";
 
@@ -17,8 +16,8 @@ async function getCommentsLib() {
 // می‌کنه. مثلِ پستِ کامیونیتی، هیچ‌وقت خودکار پابلیش نمی‌شه — فقط متنِ
 // آماده برمی‌گرده تا کاربر با یک کپی سریع خودش تو یوتیوب پیستش کنه.
 export async function POST(req) {
-  const session = await getServerSession(authOptions);
-  if (!session) {
+  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+  if (!token) {
     return NextResponse.json({ error: "وارد نشده‌اید" }, { status: 401 });
   }
 
@@ -39,7 +38,7 @@ export async function POST(req) {
 
     const { generateCommentReplyDrafts } = await getCommentsLib();
     const drafted = await generateCommentReplyDrafts({
-      accessToken: session.accessToken,
+      accessToken: token.accessToken,
       videoId,
       videoTitle,
     });
@@ -65,8 +64,8 @@ export async function POST(req) {
 // GET ?videoId=... → همه‌ی پیش‌نویس‌هایِ ذخیره‌شده برایِ یک ویدیو (چه
 // همین الان ساخته شده باشن، چه از قبل)
 export async function GET(req) {
-  const session = await getServerSession(authOptions);
-  if (!session) {
+  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+  if (!token) {
     return NextResponse.json({ error: "وارد نشده‌اید" }, { status: 401 });
   }
 

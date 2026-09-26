@@ -1,6 +1,5 @@
-import { getServerSession } from "next-auth";
 import { getToken } from "next-auth/jwt";
-import { authOptions, refreshAccessToken } from "@/lib/auth/authOptions";
+import { refreshAccessToken } from "@/lib/auth/authOptions";
 import { NextResponse } from "next/server";
 import { dispatchAndTrackJob, JOB_TYPES } from "@/lib/jobs";
 
@@ -13,9 +12,9 @@ async function getAutoProduce() {
 }
 
 export async function POST(req) {
-  const session = await getServerSession(authOptions);
+  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
 
-  if (!session || !session.accessToken) {
+  if (!token || !token.accessToken) {
     return NextResponse.json({ error: "وارد نشده‌اید" }, { status: 401 });
   }
 
@@ -26,7 +25,7 @@ export async function POST(req) {
     return NextResponse.json({ error: 'mode باید "long" یا "short" باشه' }, { status: 400 });
   }
 
-  const accessToken = session.accessToken;
+  const accessToken = token.accessToken;
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({

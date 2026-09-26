@@ -90,7 +90,10 @@ export const authOptions = {
       return refreshAccessToken(token);
     },
     async session({ session, token }) {
-      session.accessToken = token.accessToken;
+      // امنیتی (۲۰۲۶-۰۹) — accessToken اینجا گذاشته نمی‌شه چون session از
+      // طریق useSession() در کلاینت هم قابل‌خوندنه. توکنِ OAuth یوتیوب فقط
+      // سمتِ سرور، از طریق getToken() (از next-auth/jwt) روی JWT رمزنگاری‌شده
+      // خونده می‌شه — نه از این session.
       session.error = token.error;
       return session;
     },

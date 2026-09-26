@@ -1,15 +1,14 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth/authOptions";
+import { getToken } from "next-auth/jwt";
 import { google } from "googleapis";
 
-export async function POST() {
-  const session = await getServerSession(authOptions);
-  if (!session) {
+export async function POST(req) {
+  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+  if (!token) {
     return NextResponse.json({ error: "وارد نشده‌اید" }, { status: 401 });
   }
 
-  if (!session.accessToken) {
+  if (!token.accessToken) {
     return NextResponse.json({
       ok: false,
       error: "توکن دسترسی گوگل موجود نیست، یک‌بار خارج و دوباره وارد شو",
@@ -18,7 +17,7 @@ export async function POST() {
 
   try {
     const oauth2Client = new google.auth.OAuth2();
-    oauth2Client.setCredentials({ access_token: session.accessToken });
+    oauth2Client.setCredentials({ access_token: token.accessToken });
     const youtube = google.youtube({ version: "v3", auth: oauth2Client });
 
     const res = await youtube.channels.list({ mine: true, part: ["snippet"] });

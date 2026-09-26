@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth/authOptions";
+import { getToken } from "next-auth/jwt";
 import { google } from "googleapis";
 import { Readable } from "stream";
 
@@ -17,9 +16,9 @@ async function getBuildMayaThumbnail() {
 }
 
 export async function POST(req) {
-  const session = await getServerSession(authOptions);
+  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
 
-  if (!session || !session.accessToken) {
+  if (!token || !token.accessToken) {
     return NextResponse.json({ error: "وارد نشده‌اید" }, { status: 401 });
   }
 
@@ -46,7 +45,7 @@ export async function POST(req) {
   const stream = Readable.from(buffer);
 
   const oauth2Client = new google.auth.OAuth2();
-  oauth2Client.setCredentials({ access_token: session.accessToken });
+  oauth2Client.setCredentials({ access_token: token.accessToken });
 
   const youtube = google.youtube({ version: "v3", auth: oauth2Client });
 

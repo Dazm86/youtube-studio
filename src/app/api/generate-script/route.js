@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth/authOptions";
+import { getToken } from "next-auth/jwt";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -11,8 +10,8 @@ async function getGenerateScript() {
 }
 
 export async function POST(req) {
-  const session = await getServerSession(authOptions);
-  if (!session) {
+  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+  if (!token) {
     return NextResponse.json({ error: "وارد نشده‌اید" }, { status: 401 });
   }
 
@@ -20,7 +19,7 @@ export async function POST(req) {
 
   try {
     const generateScript = await getGenerateScript();
-    const result = await generateScript({ topic, mode, accessToken: session.accessToken });
+    const result = await generateScript({ topic, mode, accessToken: token.accessToken });
     return NextResponse.json(result);
   } catch (err) {
     console.error(err);
