@@ -371,6 +371,33 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-09-22 (b) — Finished the `session.accessToken` exposure fix (Codex's attempt claimed success but changed nothing)
+Gave Codex a prompt for the 11-route `getToken()` refactor; it reported success (commit `dcabd09`, `node --check`
+green). Reviewing the real code showed otherwise: `authOptions.js` still had `session.accessToken = token.accessToken`,
+9 of 11 routes never imported `getToken`, and the 2 that did (`generate-and-upload`, `auto-produce`) only used it in
+the pre-existing mid-stream refresh fallback, still gating on `session.accessToken`. Syntax checks can't catch that.
+
+Done properly this time:
+- `lib/auth/authOptions.js` — `session` callback no longer copies `accessToken` (keeps `error`).
+- NEW `lib/auth/requestToken.js` — `getAccessTokenFromRequest(req)` (JWT via `getToken()`, refreshes if expired or
+  within 60s of expiry, returns null on failure) and `getTokenIdentity(req)` (name/email/hasAccessToken/tokenError).
+  Raw `getToken()` does not re-run the `jwt` callback, so without the explicit refresh every route would have started
+  handing out stale tokens after ~1h — the subtle part a naive "swap the call" refactor misses. Kept out of
+  `authOptions.js` so the worker's pure-ESM load path never imports `next-auth/jwt`.
+- 11 routes switched: `generate-and-upload`, `upload`, `repurpose`, `sync-stats`, `generate-script`, `comments`
+  (POST+GET), `auto-produce`, `status`, `status/youtube`, `ab-test`, `ab-test/results`. Three had no `req` parameter
+  (`sync-stats`, `status`, `status/youtube`) — added. `status/youtube` keeps its two-stage behavior (401 if not
+  signed in vs friendly "sign in again" if no token); `status` would otherwise have silently reported
+  `hasAccessToken: false` forever, so it reads via `getTokenIdentity`.
+- Small behavior change: `generate-script`/`comments` previously only required *a session*; now they require a
+  usable token (login always provides one, so in practice only a failed-refresh session differs — it now gets 401).
+
+Verified: esbuild import/syntax pass (130 files, same lone `lib/index.js` gap); grep confirms nothing reads
+`session.accessToken` anymore. NOT verified at runtime — test after deploy: sign in → API-status page → quick test →
+a real upload.
+
+Files (new): `lib/auth/requestToken.js`. Files (modified): `lib/auth/authOptions.js` + the 11 routes above.
+
 ### 2026-09-22 — ChatGPT security audit of the same repo; verified all 3 critical findings, fixed what's safe, flagged what isn't
 User separately sent the `youtube-studio.zip` to ChatGPT for review; it returned a structured audit (3 🔴 critical, 5
 🟠 moderate, several 🟡 minor). Rather than trust it blindly, verified each critical claim directly against the code:

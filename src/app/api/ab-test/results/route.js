@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getToken } from "next-auth/jwt";
+import { getAccessTokenFromRequest } from "@/lib/auth/requestToken";
 import { getVideoByVideoId } from "@/lib/db";
 import { fetchStatsForVideoInRange } from "@/lib/analytics";
 
@@ -21,8 +21,8 @@ function addDays(dateStr, days) {
 }
 
 export async function GET(req) {
-  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
-  if (!token || !token.accessToken) {
+  const sessionAccessToken = await getAccessTokenFromRequest(req);
+  if (!sessionAccessToken) {
     return NextResponse.json({ error: "وارد نشده‌اید" }, { status: 401 });
   }
 
@@ -71,8 +71,8 @@ export async function GET(req) {
     }
 
     const [before, after] = await Promise.all([
-      fetchStatsForVideoInRange(token.accessToken, videoId, uploadDate, beforeEnd),
-      fetchStatsForVideoInRange(token.accessToken, videoId, afterStart, today),
+      fetchStatsForVideoInRange(sessionAccessToken, videoId, uploadDate, beforeEnd),
+      fetchStatsForVideoInRange(sessionAccessToken, videoId, afterStart, today),
     ]);
 
     const beforeViewsPerDay = before.views / beforeDays;

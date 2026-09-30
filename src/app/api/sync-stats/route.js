@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
-import { getToken } from "next-auth/jwt";
+import { getAccessTokenFromRequest } from "@/lib/auth/requestToken";
 import { getAllVideoIds, updateVideoStats } from "@/lib/db";
 import { fetchStatsForVideos } from "@/lib/analytics";
 
 export async function POST(req) {
-  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
-  if (!token || !token.accessToken) {
+  const sessionAccessToken = await getAccessTokenFromRequest(req);
+  if (!sessionAccessToken) {
     return NextResponse.json({ error: "وارد نشده‌اید" }, { status: 401 });
   }
 
@@ -15,7 +15,7 @@ export async function POST(req) {
       return NextResponse.json({ updated: 0, message: "هنوز ویدیویی ثبت نشده" });
     }
 
-    const stats = await fetchStatsForVideos(token.accessToken, videoIds);
+    const stats = await fetchStatsForVideos(sessionAccessToken, videoIds);
 
     let updated = 0;
     for (const videoId of videoIds) {

@@ -1,5 +1,4 @@
-import { getToken } from "next-auth/jwt";
-import { refreshAccessToken } from "@/lib/auth/authOptions";
+import { getAccessTokenFromRequest } from "@/lib/auth/requestToken";
 import { NextResponse } from "next/server";
 import { dispatchAndTrackJob, JOB_TYPES } from "@/lib/jobs";
 
@@ -12,9 +11,9 @@ async function getAutoProduce() {
 }
 
 export async function POST(req) {
-  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+  const sessionAccessToken = await getAccessTokenFromRequest(req);
 
-  if (!token || !token.accessToken) {
+  if (!sessionAccessToken) {
     return NextResponse.json({ error: "وارد نشده‌اید" }, { status: 401 });
   }
 
@@ -25,7 +24,7 @@ export async function POST(req) {
     return NextResponse.json({ error: 'mode باید "long" یا "short" باشه' }, { status: 400 });
   }
 
-  const accessToken = token.accessToken;
+  const accessToken = sessionAccessToken;
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
@@ -130,11 +129,8 @@ export async function POST(req) {
               accessToken,
               getUploadAccessToken: async () => {
                 try {
-                  const rawToken = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
-                  if (rawToken && rawToken.refreshToken) {
-                    const refreshed = await refreshAccessToken(rawToken);
-                    if (refreshed.accessToken) return refreshed.accessToken;
-                  }
+                  const fresh = await getAccessTokenFromRequest(req);
+                  if (fresh) return fresh;
                 } catch (refreshErr) {
                   console.error("token refresh before upload failed:", refreshErr.message);
                 }

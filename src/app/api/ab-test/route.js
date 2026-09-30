@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getToken } from "next-auth/jwt";
+import { getAccessTokenFromRequest } from "@/lib/auth/requestToken";
 import { google } from "googleapis";
 import { Readable } from "stream";
 import { getVideoByVideoId, setActiveVariant } from "@/lib/db";
@@ -28,8 +28,8 @@ async function getBuildMayaThumbnail() {
 // سوییچ رو ثبت می‌کنه، تا کاربر بتونه CTR قبل/بعدِ سوییچ رو تو
 // آنالیتیکس کانال مقایسه کنه (یعنی A/B ترتیبی، نه هم‌زمان).
 export async function POST(req) {
-  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
-  if (!token || !token.accessToken) {
+  const sessionAccessToken = await getAccessTokenFromRequest(req);
+  if (!sessionAccessToken) {
     return NextResponse.json({ error: "وارد نشده‌اید" }, { status: 401 });
   }
 
@@ -57,7 +57,7 @@ export async function POST(req) {
     }
 
     const oauth2Client = new google.auth.OAuth2();
-    oauth2Client.setCredentials({ access_token: token.accessToken });
+    oauth2Client.setCredentials({ access_token: sessionAccessToken });
     const youtube = google.youtube({ version: "v3", auth: oauth2Client });
 
     // برای update باید snippet فعلی رو هم بفرستیم (یوتیوب snippet رو

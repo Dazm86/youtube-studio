@@ -326,6 +326,9 @@ source. One pipeline implementation, three ways to trigger it.
   button's endpoint — see "Auto-produce" under Key flows below
 
 ### `lib/`
+- **`auth/requestToken.js`** *(new, 2026-09-22)* — `getAccessTokenFromRequest(req)`
+  / `getTokenIdentity(req)`; the only supported way for route handlers to
+  get the Google access token (see Known issues, 2026-09-22).
 - **`health/index.js`** *(new, 2026-09-17)* — `runHealthCheck()`:
   actually exercises (not just checks key presence of) every external
   dependency the pipeline relies on — DB query, YouTube refresh-token
@@ -967,21 +970,22 @@ previously caused `invalid_client`/`deleted_client` confusion.
 
 ## Known issues (full detail: `youtube-studio-review-v2.md`)
 
-- 🟠 **`session.accessToken` is exposed to the client** (`lib/auth/
-  authOptions.js`'s `session` callback) — confirmed 2026-09-22 (ChatGPT
-  audit, verified by this session) that no client component actually
-  reads it, so it's pure unnecessary exposure (a browser-side XSS or
-  malicious extension could steal a live YouTube OAuth token). **Not
-  fixed** — the naive fix (delete the line) would break 11 server-side
-  API routes that read `session.accessToken` via `getServerSession()`,
-  since NextAuth's `session` callback populates the exact same object
-  shape for both server and client; there's no separate "server-only"
-  session. The real fix: refactor those 11 routes to read the token via
-  `getToken()` from `next-auth/jwt` (server-only, never touches the
-  client-facing session shape) instead of `getServerSession().
-  accessToken`, *then* drop it from the session callback. Scoped
-  deliberately as a future session's task rather than a rushed
-  multi-file change bundled into an unrelated audit response.
+- ✅ **`session.accessToken` was exposed to the client** — fixed
+  2026-09-22. `session` callback in `lib/auth/authOptions.js` no longer
+  copies it; all 11 server routes that used it now call
+  `lib/auth/requestToken.js: getAccessTokenFromRequest(req)` (reads the
+  JWT via `getToken()`, server-only, and refreshes it if expired — raw
+  `getToken()` does NOT re-run the `jwt` callback, so the refresh logic
+  is explicit there). `getTokenIdentity(req)` covers routes that only
+  need name/email/"has token?" (`api/status`). Kept in a separate file
+  from `authOptions.js` on purpose so the worker (pure Node ESM) never
+  pulls in `next-auth/jwt`. **Not yet verified against a real
+  login/upload/scheduler run** — first thing to check after deploy:
+  sign in, open the API-status page (token shown as present), run a
+  quick test/upload. Note: the first attempt at this refactor (Codex,
+  commit `dcabd09`) claimed success but had changed nothing material
+  (line still present, 9/11 routes untouched) — `node --check` passing
+  only proves syntax, not that the goal was met.
 - 🟡 **`.env.local` (real `GOOGLE_CLIENT_SECRET`/`NEXTAUTH_SECRET`/
   `PEXELS_API_KEY`) was included in a `youtube-studio.zip` upload for
   review** — 2026-09-22. Not git-tracked (`.gitignore` is correct), but

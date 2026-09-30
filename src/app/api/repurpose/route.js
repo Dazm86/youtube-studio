@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getToken } from "next-auth/jwt";
+import { getAccessTokenFromRequest } from "@/lib/auth/requestToken";
 import { google } from "googleapis";
 import { Readable } from "stream";
 import { getRetentionCurve, findBestRetentionWindow } from "@/lib/repurpose";
@@ -25,8 +25,8 @@ async function getRenderVerticalShortFromSource() {
 // شکل multipart می‌گیره، نه این‌که با videoId بره سراغ خودِ یوتیوب برای
 // گرفتن فایل. videoId فقط برای خوندن منحنیِ نگه‌داشت (Analytics) لازمه.
 export async function POST(req) {
-  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
-  if (!token || !token.accessToken) {
+  const sessionAccessToken = await getAccessTokenFromRequest(req);
+  if (!sessionAccessToken) {
     return NextResponse.json({ error: "وارد نشده‌اید" }, { status: 401 });
   }
 
@@ -72,7 +72,7 @@ export async function POST(req) {
     // findBestRetentionWindow این حالت رو مدیریت می‌کنه).
     let curve = [];
     try {
-      curve = await getRetentionCurve(token.accessToken, sourceVideoId);
+      curve = await getRetentionCurve(sessionAccessToken, sourceVideoId);
     } catch (err) {
       console.error("retention curve fetch failed, using heuristic window:", err.message);
     }
@@ -139,7 +139,7 @@ export async function POST(req) {
 
     // آپلود خودکار به یوتیوب به‌عنوان Short
     const oauth2Client = new google.auth.OAuth2();
-    oauth2Client.setCredentials({ access_token: token.accessToken });
+    oauth2Client.setCredentials({ access_token: sessionAccessToken });
     const youtube = google.youtube({ version: "v3", auth: oauth2Client });
 
     const uploadRes = await youtube.videos.insert({

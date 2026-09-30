@@ -90,10 +90,14 @@ export const authOptions = {
       return refreshAccessToken(token);
     },
     async session({ session, token }) {
-      // امنیتی (۲۰۲۶-۰۹) — accessToken اینجا گذاشته نمی‌شه چون session از
-      // طریق useSession() در کلاینت هم قابل‌خوندنه. توکنِ OAuth یوتیوب فقط
-      // سمتِ سرور، از طریق getToken() (از next-auth/jwt) روی JWT رمزنگاری‌شده
-      // خونده می‌شه — نه از این session.
+      // ۲۰۲۶-۰۹-۲۲ — accessToken دیگه اینجا نمی‌ره: این callback همون
+      // شکلی رو که به کلاینت (مرورگر) می‌ره پر می‌کنه، نه فقط سرور —
+      // یعنی گذاشتنِ accessToken اینجا یعنی توکنِ زنده‌ی یوتیوب از طریقِ
+      // useSession()/کلاینت هم قابلِ‌خوندن بود، بدونِ اینکه هیچ
+      // کامپوننتِ کلاینتی واقعاً بهش نیاز داشته باشه. مسیرهایِ سرور
+      // (route.js ها) به‌جایِ getServerSession().accessToken، حالا از
+      // getToken() از next-auth/jwt استفاده می‌کنن — اون فقط سمتِ سرور
+      // قابلِ‌خوندنه و هیچ‌وقت به کلاینت فرستاده نمی‌شه.
       session.error = token.error;
       return session;
     },
