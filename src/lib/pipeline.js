@@ -9,6 +9,13 @@ import { fetchImages, fetchClips } from "./media/index.js";
 import { distributeDurations, buildSrt, validateSrt, buildSentenceCaptions } from "./script/timing.js";
 import { translateCaptions } from "./script/translate.js";
 import { extractVisualKeywordsForSegments } from "./script/visualKeywords.js";
+import { mediaKey, pickUnused } from "./media/dedupe.js";
+import { checkRiskyKeywords, checkMispronunciationRisks, needsHealthDisclaimer, HEALTH_DISCLAIMER } from "./script/safetyText.js";
+import { hasPronunciation } from "./providers/pronunciation.js";
+
+// checkRiskyKeywords به safetyText.js منتقل شد (قابلِ تست بدونِ node_modules)؛
+// اینجا re-export می‌شه تا importهایِ قبلی (تست‌ها و ...) بدونِ تغییر کار کنن.
+export { checkRiskyKeywords, checkMispronunciationRisks };
 import { generateChapters } from "./metadata/index.js";
 import { generateCommunityPost } from "./community/index.js";
 import { assignVideoToCluster } from "./playlists/index.js";
@@ -26,13 +33,14 @@ async function downloadMedia(url) {
 async function getRendering() {
   const {
     renderVideo,
+    checkRenderedVideo,
     probeDurationSec,
     estimateAudioDurationSec,
     trimSilenceFromAudio,
     detectLongSilences,
     pickBgmPath,
   } = await import("./rendering/index.js");
-  return { renderVideo, probeDurationSec, estimateAudioDurationSec, trimSilenceFromAudio, detectLongSilences, pickBgmPath };
+  return { renderVideo, checkRenderedVideo, probeDurationSec, estimateAudioDurationSec, trimSilenceFromAudio, detectLongSilences, pickBgmPath };
 }
 
 async function getMayaThumbnail() {
@@ -128,40 +136,6 @@ function buildChapterBlock(script, chapters, audioDurationSec) {
 // تشخیصِ این الگوها باعثِ رد یا توقفِ رندر *نمی‌شه* — فقط لاگ می‌شه و
 // ویدیو با privacyStatus خصوصی آپلود می‌شه (پایین‌تر) تا قبل از عمومی‌شدن
 // یک بازبینیِ دستی بشه.
-const RISKY_CLAIM_PATTERNS = [
-  /\bcures?\s+(your\s+)?(depression|anxiety|trauma|ptsd)\b/i,
-  /\btreats?\s+(your\s+)?(depression|anxiety|trauma|ptsd)\b/i,
-  /\breplaces?\s+(your\s+)?(therapy|medication|therapist)\b/i,
-  /\bstop\s+taking\s+(your\s+)?medication\b/i,
-  /\bguaranteed?\s+to\s+(cure|heal|fix)\b/i,
-  /\bdiagnos(e|ed|is|ing)\b/i,
-];
-
-export function checkRiskyKeywords(script) {
-  const hits = [];
-  for (const pattern of RISKY_CLAIM_PATTERNS) {
-    const m = script.match(pattern);
-    if (m) hits.push(m[0]);
-  }
-  return hits;
-}
-
-// کلماتِ تماماً بزرگ (به‌جز خیلی کوتاه‌های رایج مثلِ "I") یا مخفف‌های
-// چندحرفی که TTS ممکنه اشتباه تلفظ کنه — فقط تشخیص/لاگ، نه اصلاحِ خودکار
-// (msedge-tts از طریقِ متنِ ساده صدا زده می‌شه، نه SSML با phoneme hint
-// که بشه دقیقاً کنترلش کرد).
-export function checkMispronunciationRisks(script) {
-  const words = script.split(/\s+/);
-  const suspicious = new Set();
-  for (const w of words) {
-    const clean = w.replace(/[^A-Za-z']/g, "");
-    if (clean.length >= 2 && clean === clean.toUpperCase() && /[A-Z]/.test(clean) && clean !== "I") {
-      suspicious.add(clean);
-    }
-  }
-  return [...suspicious];
-}
-
 // اطلاع‌رسانیِ شکست به یک webhook عمومی (تلگرام/Slack/Discord/هرچیزی که
 // POST ساده قبول کنه) — فقط وقتی ALERT_WEBHOOK_URL تنظیم شده باشه، وگرنه
 // بی‌صدا هیچ‌کاری نمی‌کنه (نه خطا، نه لاگِ اضافه). خودِ این تابع هیچ‌وقت
@@ -297,6 +271,12 @@ async function runQuickTest({ script, videoMode, useVideoClips, imageKeyword }, 
   const { buffer: audioBuffer } = await synthesizeSpeech({ text: shortScript });
   emit({ status: "تستِ سریع: صدا OK ✅ — در حال گرفتنِ یک عکس/کلیپ نمونه...", progress: 40 });
   const isShort = videoMode === "short";
+  // ۲۰۲۶-۱۰-۰۱ — برایِ موضوع‌هایِ سلامتِ روان (اضطراب، افسردگی، تراما،
+  // دارو، ...) یک خطِ disclaimer به انتهایِ توضیحات اضافه می‌شه.
+  if (needsHealthDisclaimer(script)) {
+    finalDescription = `${finalDescription}\n\n${HEALTH_DISCLAIMER}`.trim();
+  }
+
   const orientation = isShort ? "portrait" : "landscape";
   const mediaResult = useVideoClips
     ? await fetchClips({ text: shortScript, keyword: imageKeyword, count: 1, orientation })
@@ -338,7 +318,9 @@ async function runPipelineCore(
     runLog.warnings.push(`کلیدواژه‌ی حساس/ادعای درمانی: ${riskyHits.join("، ")}`);
     runLog.flags.riskyContent = true;
   }
-  const mispronunciationRisks = checkMispronunciationRisks(script);
+  // کلماتی که دیکشنریِ تلفظ (providers/pronunciation.js) خودش درست می‌کنه
+  // دیگه هشدار نمی‌خوان.
+  const mispronunciationRisks = checkMispronunciationRisks(script).filter((w) => !hasPronunciation(w));
   if (mispronunciationRisks.length > 0) {
     runLog.warnings.push(`کلماتِ مستعدِ بدتلفظی توسطِ TTS: ${mispronunciationRisks.join("، ")}`);
   }
@@ -466,6 +448,13 @@ async function runPipelineCore(
       );
     }
 
+    // ۲۰۲۶-۱۰-۰۱ — جلوگیری از تکرارِ یک کلیپ تو یک ویدیو: دو بخشِ نزدیک به
+    // هم اغلب کلیدواژه‌ی مشابه می‌گیرن و Pexels (و کشِ media) هر دو رو به
+    // یک نتیجه می‌رسونه. اگه آیتمِ گرفته‌شده قبلاً تو همین ویدیو بوده، فقط
+    // همون یک بار با تعدادِ بیشترِ کاندید دوباره می‌گیریم (نه همیشه — هزینه‌ی
+    // اضافه‌ای برایِ provider هایِ پولی نداشته باشه) و اولین مورد استفاده‌نشده
+    // رو برمی‌داریم؛ اگه همه تکراری بودن، همون تکراری می‌مونه (بهتر از خالی).
+    const usedMediaKeys = new Set(mediaItems.map(mediaKey).filter(Boolean));
     for (let i = 0; i < captions.length; i++) {
       emit({
         status: `مرحله ۲ از ۵: در حال گرفتن ${useVideoClips ? "کلیپ" : "عکس"} برای بخش ${
@@ -474,15 +463,29 @@ async function runPipelineCore(
         progress: 10 + (i / captions.length) * 5,
       });
       const segmentKeyword = visualKeywords?.[i] && visualKeywords[i].trim();
-      const mediaResult = segmentKeyword
-        ? useVideoClips
-          ? await fetchClips({ keyword: segmentKeyword, count: 1, orientation })
-          : await fetchImages({ keyword: segmentKeyword, count: 1, orientation })
-        : useVideoClips
-          ? await fetchClips({ text: captions[i], count: 1, orientation })
-          : await fetchImages({ text: captions[i], count: 1, orientation });
-      const item = useVideoClips ? mediaResult.clips?.[0] : mediaResult.images?.[0];
-      if (item) mediaItems.push(item);
+      const fetchSegment = (count) => {
+        const args = segmentKeyword
+          ? { keyword: segmentKeyword, count, orientation }
+          : { text: captions[i], count, orientation };
+        return useVideoClips ? fetchClips(args) : fetchImages(args);
+      };
+      const pickFrom = (r) => (useVideoClips ? r.clips : r.images);
+      const mediaResult = await fetchSegment(1);
+      let item = pickFrom(mediaResult)?.[0];
+      const key = mediaKey(item);
+      if (key && usedMediaKeys.has(key)) {
+        try {
+          const alt = pickUnused(pickFrom(await fetchSegment(6)), usedMediaKeys);
+          if (alt) item = alt;
+        } catch (dupErr) {
+          console.warn(`dedupe: دریافتِ جایگزین برایِ بخش ${i + 1} شکست خورد (${dupErr.message}) — همون آیتمِ تکراری می‌مونه`);
+        }
+      }
+      if (item) {
+        mediaItems.push(item);
+        const k = mediaKey(item);
+        if (k) usedMediaKeys.add(k);
+      }
     }
   }
 
@@ -506,7 +509,7 @@ async function runPipelineCore(
   // --- ۳. رندر ویدیو ---
   beginStage("render");
   emit({ status: "مرحله ۳ از ۵: در حال رندر ویدیو...", progress: 16 });
-  const { renderVideo } = await getRendering();
+  const { renderVideo, checkRenderedVideo } = await getRendering();
 
   const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), "pipeline-render-"));
   const outputPath = path.join(tmpDir, "output.mp4");
@@ -641,6 +644,28 @@ async function runPipelineCore(
           audioDurationSec
         )} ثانیه) هم‌خونی نداره — احتمالِ قطع‌شدنِ ویدیو یا صدا`
       );
+    }
+
+    // ۲۰۲۶-۱۰-۰۱ — بررسیِ کیفیتِ خودکار قبل از آپلود: صدایِ ساکت/بدونِ
+    // تصویر/خیلی کوتاه → توقفِ کاملِ آپلود (ویدیوی بی‌فایده نباید منتشر
+    // بشه)؛ بخشِ سیاهِ طولانی → فقط علامتِ «نیازمندِ بازبینی». اگه خودِ
+    // چک نتونه اجرا بشه (null)، رد می‌شیم و تولید ادامه پیدا می‌کنه.
+    try {
+      const quality = await checkRenderedVideo(outputPath, { durationSec });
+      if (quality) {
+        for (const w of quality.warnings) needsReviewReasons.push(w);
+        if (!quality.ok) {
+          logEvent({
+            type: "video_quality_failed",
+            message: `بررسیِ کیفیتِ ویدیو شکست خورد: ${quality.fatal.join(" | ")}`,
+            metadata: { fatal: quality.fatal, durationSec },
+          });
+          throw new Error(`بررسیِ کیفیتِ ویدیو قبل از آپلود رد شد: ${quality.fatal.join("، ")}`);
+        }
+      }
+    } catch (qErr) {
+      if (String(qErr.message).startsWith("بررسیِ کیفیتِ ویدیو قبل از آپلود رد شد")) throw qErr;
+      console.error("quality check اجرا نشد (رد شد):", qErr.message);
     }
 
     emit({ status: "ویدیو رندر شد ✅", progress: 80 });

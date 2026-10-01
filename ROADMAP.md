@@ -371,6 +371,61 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-10-01 — Batch of 10 small quality/safety improvements (+ "never re-make a produced trend topic")
+User picked 10 items from a 100-idea list; plus one extra request: once a video is made from a trend topic, never make
+a video about that topic again. Each piece is a small, separately testable module with its own test file; all 7 test
+files pass (`for f in tests/*.test.*; do node $f; done`), and the audio/quality pieces were run through a real ffmpeg
+(6.1 here; production's static ffmpeg is much older — see fallbacks below). **None of the render-side changes have been
+run through a real full render on the deployed site yet — build one Short and one long video and watch/listen first.**
+
+Video:
+- **Loudness normalization** (`rendering/audioFilter.js`) — final mix goes through `loudnorm` (-16 LUFS) + `aresample`
+  (loudnorm otherwise upsamples to 192kHz). Measured: output lands at -15.5 LUFS. Safety nets: if the deployed (old)
+  ffmpeg rejects it, `renderVideo` retries once without it; `DISABLE_LOUDNORM=true` turns it off entirely.
+- **BGM fade in/out** — 2s in, 3s out (out only when the video is long enough and its duration is known). Still a no-op
+  until mp3s exist in `public/audio/bgm/`.
+- **No greeting in Shorts** — prompt rule + local check (`script/greeting.js`) that feeds the existing
+  retry-with-issues loop ("Hey…", "Welcome…", "I'm Maya…", "Today we're…", "In this video…").
+- **No repeated clip within one video** (`media/dedupe.js`, used in `pipeline.js`'s per-segment loop) — on a repeat it
+  re-fetches 6 candidates once and takes the first unused; if all are used it keeps the repeat (better than empty).
+- **Automated pre-upload quality check** (`rendering/qualityCheck.js` + `checkRenderedVideo`) — one ffmpeg pass
+  (volumedetect + blackdetect). Fatal → upload is stopped and a `video_quality_failed` event logged: no audio/video
+  stream, near-silent audio (mean ≤ -50 dB), < 3s, empty file. Warnings only (→ needs-review): black segment > 3s, or
+  > 15% black. If the check itself can't run (timeout/crash/no stream info) it's skipped, never fatal.
+
+Site / text:
+- **Duplicate-topic detection** (`utils/topicSimilarity.js`) — word-overlap coefficient (≥2 shared meaningful words
+  and ≥60% of the smaller side), no AI/embeddings. Used by auto-produce topic selection (skips approved topics that
+  resemble existing video titles; warns instead of blocking for manually chosen topics).
+- **Health-claim check** (`script/safetyText.js`) — 6 more risky-claim patterns (instead of therapy, heals your
+  anxiety, no need for a doctor, quit your meds, cure-all, clinically proven to cure). Existing behavior unchanged:
+  hit → uploaded private + needs-review. NEW: mental-health topics (anxiety, depression, trauma, burnout, therapy,
+  medication, …) get a one-line disclaimer appended to the video description. Expect most videos on this channel to get it.
+- **Pronunciation dictionary** (`providers/pronunciation.js`, applied in `synthesizeSpeech`) — ADHD/PTSD/OCD/CBT/DBT/
+  MBSR/HRV/ASMR read letter by letter, e.g./i.e./vs./etc. spelled out. Only the TTS input changes (script, captions,
+  description untouched). Extend without code: `PRONUNCIATION_OVERRIDES='{"GAD":"G A D"}'` env var. Words it covers no
+  longer trigger the mispronunciation warning.
+- **GitHub Action for tests** (`.github/workflows/tests.yml`) — runs every `tests/*.test.*` on push to main and on PRs;
+  no `npm install` needed. `pipelineChecks.test.mjs` now imports from `script/safetyText.js` (functions moved there,
+  `pipeline.js` re-exports them) so it too runs without `node_modules`.
+
+Extra request — **a produced trend topic is never suggested again**: `saveTrendTopics` was a plain INSERT, so a later
+scan could re-add an already-produced topic as a fresh "pending" row. `trends/index.js` now filters candidates (before
+`slice(TOP_N)`, so the slots fill with fresh topics) against produced + pending + approved trend topics and all existing
+video titles (`trends/dedupe.js`, `listTopicsForDedupe()`); two similar candidates in one scan keep only the top-scored.
+Explicitly choosing an already-produced topic still works but emits a warning. `rejected` topics are intentionally not
+blocked. Any failure in the lookup means "scan without the filter" — it can never break a scan.
+
+**Not done (asked "if TTS supports it"): speech-rate and pause control.** `msedge-tts`'s prosody/SSML options couldn't be
+verified here (package not installed in the review sandbox) and the adapter currently sends plain text; guessing the API
+risks silently breaking every narration. Needs a look at the installed package's `toStream` options first.
+
+Files (new): `rendering/audioFilter.js`, `rendering/qualityCheck.js`, `media/dedupe.js`, `script/safetyText.js`,
+`script/greeting.js`, `providers/pronunciation.js`, `utils/topicSimilarity.js`, `trends/dedupe.js`,
+`tests/{audioFilter,qualityCheck,textSafety,topicDedupe}.test.mjs`, `.github/workflows/tests.yml`.
+Files (modified): `rendering/index.js`, `pipeline.js`, `providers/router.js`, `autoProduce.js`, `trends/db.js`,
+`trends/index.js`, `script/index.js`, `tests/pipelineChecks.test.mjs`.
+
 ### 2026-09-22 (b) — Finished the `session.accessToken` exposure fix (Codex's attempt claimed success but changed nothing)
 Gave Codex a prompt for the 11-route `getToken()` refactor; it reported success (commit `dcabd09`, `node --check`
 green). Reviewing the real code showed otherwise: `authOptions.js` still had `session.accessToken = token.accessToken`,

@@ -148,6 +148,18 @@ export async function getLatestScan() {
   return rows[0] || null;
 }
 
+// موضوع‌هایی که نباید دوباره پیشنهاد بشن: ساخته‌شده + هنوز تو صفِ تأیید.
+// (rejected عمداً نیست — کاربر ردش کرده، ولی بلاکِ همیشگی هم نمی‌خوایم.)
+export async function listTopicsForDedupe(limit = 600) {
+  const { rows } = await getPool().query(
+    `SELECT topic, status FROM trend_topics
+     WHERE status IN ('produced', 'approved', 'pending')
+     ORDER BY created_at DESC LIMIT $1`,
+    [limit]
+  );
+  return rows;
+}
+
 export async function updateTrendTopicStatus(id, status) {
   const { rows } = await getPool().query(
     `UPDATE trend_topics SET status = $2, updated_at = now() WHERE id = $1 RETURNING *`,

@@ -1,0 +1,42 @@
+# ۲۰۲۶-۱۰-۰۱ — اجرایِ خودکارِ تست‌ها روی هر push به main و هر pull request.
+# همه‌ی تست‌ها بدونِ npm install اجرا می‌شن (فقط Node و assertِ داخلی) — پس
+# سریعه و به node_modules/وابستگیِ بیرونی گیر نمی‌کنه. تستِ اجرایِ واقعیِ
+# ffmpeg (audioFilter/qualityCheck) اگه ffmpeg نصب نباشه خودش رد می‌شه.
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # اختیاری: برایِ تست‌هایِ اجرایِ واقعیِ فیلترهایِ صدا. اگه نصب نشد، تست‌ها
+      # همون بخش رو رد می‌کنن و بقیه اجرا می‌شن.
+      - name: Install ffmpeg
+        continue-on-error: true
+        run: sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Run tests
+        run: |
+          status=0
+          for f in tests/*.test.mjs tests/*.test.js; do
+            [ -e "$f" ] || continue
+            echo "::group::$f"
+            node "$f" || status=1
+            echo "::endgroup::"
+          done
+          exit $status

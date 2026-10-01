@@ -1,4 +1,6 @@
 import { spawn } from "child_process";
+import { buildFinalAudioFilter } from "./audioFilter.js";
+import { parseQualityOutput, evaluateQuality } from "./qualityCheck.js";
 import fs from "fs";
 import fsp from "fs/promises";
 import os from "os";
@@ -544,7 +546,6 @@ async function renderVideo({
       "-i",
       ttsPath,
     ];
-    let audioFilter;
     // ۲۰۲۶-۰۹-۰۷ — اگه فریمِ کاور اضافه شده، ویدیو الان coverDurationSec
     // ثانیه بلندتر از قبله؛ روایت (نه BGM — BGM از t=0 پخش می‌مونه، حتی
     // زیرِ خودِ فریمِ کاور) باید به همون اندازه دیر شروع بشه، وگرنه صدا
@@ -558,31 +559,33 @@ async function renderVideo({
     // می‌شه، نه ارور — هردو حالت با ffmpegِ واقعی تست شد.
     const coverActive = coverImageBuffer && coverDurationSec > 0;
     const delayMs = coverActive ? Math.round(coverDurationSec * 1000) : 0;
-    if (bgmPath && fs.existsSync(bgmPath)) {
-      finalArgs.push("-i", bgmPath);
-      audioFilter = coverActive
-        ? `[1:a]adelay=${delayMs}|${delayMs}[narr];[2:a]volume=${bgmVolume}[bgm];[narr][bgm]amix=inputs=2:duration=first[a]`
-        : `[2:a]volume=${bgmVolume}[bgm];[1:a][bgm]amix=inputs=2:duration=first[a]`;
-    } else {
-      audioFilter = coverActive ? `[1:a]adelay=${delayMs}|${delayMs}[a]` : "[1:a]anull[a]";
-    }
-    finalArgs.push(
+    const hasBgm = !!(bgmPath && fs.existsSync(bgmPath));
+    if (hasBgm) finalArgs.push("-i", bgmPath);
+    // ۲۰۲۶-۱۰-۰۱ — نرمال‌سازیِ بلندیِ صدا (loudnorm) + fade in/out رویِ BGM،
+    // با fallback: اگه ffmpegِ دیپلوی‌شده (قدیمی) با loudnorm شکست بخوره،
+    // یک‌بار بدونِ اون دوباره تلاش می‌کنیم — تا هیچ رندری به‌خاطرِ این
+    // قابلیتِ اضافی کلاً خراب نشه. DISABLE_LOUDNORM=true هم خاموشش می‌کنه.
+    const totalDurationSec = hasBgm ? await probeDurationSec(concatOut) : 0;
+    const buildArgs = (normalize) => [
+      ...finalArgs,
       "-filter_complex",
-      audioFilter,
-      "-map",
-      "0:v",
-      "-map",
-      "[a]",
-      "-c:v",
-      "copy",
-      "-c:a",
-      "aac",
-      "-b:a",
-      "128k",
+      buildFinalAudioFilter({ hasBgm, bgmVolume, delayMs, totalDurationSec, normalize }),
+      "-map", "0:v",
+      "-map", "[a]",
+      "-c:v", "copy",
+      "-c:a", "aac",
+      "-b:a", "128k",
       "-shortest",
-      outputPath
-    );
-    await runFfmpeg(finalArgs);
+      outputPath,
+    ];
+    const wantNormalize = process.env.DISABLE_LOUDNORM !== "true";
+    try {
+      await runFfmpeg(buildArgs(wantNormalize));
+    } catch (err) {
+      if (!wantNormalize) throw err;
+      console.error("render: loudnorm شکست خورد، بدونِ نرمال‌سازی دوباره تلاش می‌شه:", err.message);
+      await runFfmpeg(buildArgs(false));
+    }
 
     // محاسبه مدت زمان نهایی — probeDurationSec همین پایین‌تر تو همین
     // فایل تعریف شده (hoisted)، نیازی به import (خودارجاعِ بی‌فایده و
@@ -593,6 +596,32 @@ async function renderVideo({
   } finally {
     await fsp.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
   }
+}
+
+// ---------- checkRenderedVideo ----------
+// ۲۰۲۶-۱۰-۰۱ — بعد از رندر، قبل از آپلود: ffmpeg یک‌بار کلِ فایل رو
+// decode می‌کنه (volumedetect + blackdetect) و evaluateQuality نتیجه رو
+// قضاوت می‌کنه. اگه خودِ ffmpeg اینجا تایم‌اوت/کرش کنه، چک رد می‌شه
+// (null) — یک ابزارِ کنترلِ کیفیت نباید خودش باعثِ شکستِ تولید بشه.
+async function checkRenderedVideo(filePath, { durationSec = 0 } = {}) {
+  const stat = await fsp.stat(filePath).catch(() => null);
+  const fileBytes = stat ? stat.size : 0;
+  const stderr = await new Promise((resolve) => {
+    const proc = spawn(
+      ffmpegPath,
+      ["-hide_banner", "-i", filePath, "-vf", "blackdetect=d=1:pic_th=0.98", "-af", "volumedetect", "-f", "null", "-"],
+      { stdio: ["ignore", "ignore", "pipe"] }
+    );
+    let buf = "";
+    proc.stderr.on("data", (d) => { buf += d.toString(); });
+    const timer = setTimeout(() => { proc.kill("SIGKILL"); resolve(null); }, 180000);
+    proc.on("close", () => { clearTimeout(timer); resolve(buf); });
+    proc.on("error", () => { clearTimeout(timer); resolve(null); });
+  });
+  // خروجیِ بدونِ هیچ خطِ Stream یعنی خودِ ابزارِ چک کرش کرده، نه اینکه ویدیو
+  // خراب باشه — نتیجه «نامعلوم»ه، نباید جلوی آپلود رو بگیره.
+  if (stderr === null || !/Stream #/.test(stderr)) return null;
+  return evaluateQuality(parseQualityOutput(stderr), { durationSec, fileBytes });
 }
 
 // ---------- probeDurationSec ----------
@@ -910,6 +939,7 @@ export async function renderVerticalShortFromSource({
 
 export {
   renderVideo,
+  checkRenderedVideo,
   probeDurationSec,
   estimateAudioDurationSec,
   trimSilenceFromAudio,

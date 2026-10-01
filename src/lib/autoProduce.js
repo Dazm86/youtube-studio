@@ -10,6 +10,8 @@ import { generateScript } from './script/index.js';
 import { generateMetadata } from './metadata/index.js';
 import { runPipeline } from './pipeline.js';
 import { getTrendTopicById, listTrendTopics, markTrendTopicProduced } from './trends/db.js';
+import { getAllVideos } from './db/index.js';
+import { findSimilarTitles } from './utils/topicSimilarity.js';
 
 /**
  * Steps 1-3 only (topic selection, script, metadata) — split out so the
@@ -18,6 +20,17 @@ import { getTrendTopicById, listTrendTopics, markTrendTopicProduced } from './tr
  * generate-and-upload/route.js already generates the script up front,
  * then only hands the render+upload part to the worker).
  */
+// عنوانِ ویدیوهایِ قبلیِ کانال برایِ تشخیصِ تکراری. هر شکستی (DB و...) یعنی
+// «بدونِ تشخیصِ تکراری ادامه بده» — این چک هیچ‌وقت نباید تولید رو بگیره.
+async function existingVideoTitles() {
+  try {
+    return (await getAllVideos()).map((v) => v.title).filter(Boolean);
+  } catch (err) {
+    console.error("existingVideoTitles failed (duplicate check skipped):", err.message);
+    return [];
+  }
+}
+
 export async function prepareAutoProduceScript({ mode, topicId, topic, accessToken }, { emit = () => {} } = {}) {
   emit({ status: "در حال انتخاب موضوع...", progress: 1 });
   let trendTopicRow = null;
@@ -26,6 +39,9 @@ export async function prepareAutoProduceScript({ mode, topicId, topic, accessTok
     trendTopicRow = await getTrendTopicById(topicId);
     if (!trendTopicRow) throw new Error(`موضوع ترند با id=${topicId} پیدا نشد`);
     topicText = trendTopicRow.topic;
+    if (trendTopicRow.status === 'produced') {
+      emit({ status: `⚠️ از این موضوع قبلاً ویدیو ساخته شده${trendTopicRow.video_id ? ` (${trendTopicRow.video_id})` : ''} — دوباره ساخته می‌شه چون صراحتاً انتخابش کردی`, progress: 2 });
+    }
   } else if (topic && topic.trim()) {
     // موضوعی که کاربر خودش تو فیلدِ استودیو تایپ کرده (یا از لینکِ
     // «باز کردن دستی» یک موضوعِ تأییدشده پر شده) — اولویتش از
@@ -33,10 +49,27 @@ export async function prepareAutoProduceScript({ mode, topicId, topic, accessTok
     // (پس در پایان چیزی به‌عنوانِ «produced» علامت زده نمی‌شه).
     topicText = topic.trim();
   } else {
-    const approved = await listTrendTopics({ status: "approved", limit: 1 });
+    // ۲۰۲۶-۱۰-۰۱ — انتخابِ خودکار: بینِ چند موضوعِ تأییدشده، اولین موضوعی که
+    // شبیهِ ویدیوهایِ قبلیِ کانال نیست. اگه همه شبیه بودن، بهترین امتیاز
+    // همچنان انتخاب می‌شه (تولید نباید متوقف بشه) ولی هشدار می‌دیم.
+    const approved = await listTrendTopics({ status: "approved", limit: 8 });
     if (approved.length > 0) {
-      trendTopicRow = approved[0];
+      const titles = await existingVideoTitles();
+      const fresh = approved.find((t) => findSimilarTitles(t.topic, titles).length === 0);
+      trendTopicRow = fresh || approved[0];
       topicText = trendTopicRow.topic;
+      if (!fresh && titles.length > 0) {
+        emit({ status: "⚠️ همه‌ی موضوع‌هایِ تأییدشده شبیهِ ویدیوهایِ قبلی‌ان — بهترین امتیاز انتخاب شد", progress: 2 });
+      } else if (fresh && fresh !== approved[0]) {
+        emit({ status: "موضوعِ بالاتر شبیهِ یک ویدیوی قبلی بود — موضوعِ بعدی انتخاب شد", progress: 2 });
+      }
+    }
+  }
+  // موضوعِ دستی/انتخاب‌شده توسطِ کاربر هرگز بلاک نمی‌شه، فقط هشدار.
+  if (topicText && (topicId || (topic && topic.trim()))) {
+    const similar = findSimilarTitles(topicText, await existingVideoTitles());
+    if (similar.length > 0) {
+      emit({ status: `⚠️ این موضوع شبیهِ ویدیوی قبلیه: «${similar[0].title}»`, progress: 2 });
     }
   }
   emit({

@@ -11,7 +11,9 @@
 
 import { collectInitialCandidates, enrichCandidatesWithDeepSignals } from './candidates.js';
 import { analyzeTopics } from './analyzer.js';
-import { ensureTrendsSchema, createScanRow, finishScanRow, saveTrendTopics } from './db.js';
+import { ensureTrendsSchema, createScanRow, finishScanRow, saveTrendTopics, listTopicsForDedupe } from './db.js';
+import { getAllVideos } from '../db/index.js';
+import { filterNewTopics } from './dedupe.js';
 import { logEvent } from '../activityLog.js';
 
 const MIN_SCORE = Number(process.env.TREND_MIN_SCORE || 75);
@@ -52,7 +54,23 @@ export async function runTrendScan({ emit = () => {} } = {}) {
       .map((t) => ({ ...t, scoreTotal: computeTotal(t) }))
       .sort((a, b) => b.scoreTotal - a.scoreTotal);
 
-    const qualifying = scored.filter((t) => t.scoreTotal >= MIN_SCORE).slice(0, TOP_N);
+    // ۲۰۲۶-۱۰-۰۱ — حذفِ موضوع‌هایِ تکراری قبل از slice(TOP_N) (تا جایِ
+    // خالی با موضوعِ تازه پر بشه): موضوعِ ساخته‌شده/تو صف/شبیهِ عنوانِ
+    // ویدیوهایِ قبلی دوباره پیشنهاد نمی‌شه. هر شکستی تو این چک (DB و...)
+    // یعنی «بدونِ فیلتر ادامه بده» — نباید اسکن رو بگیره.
+    let existingTexts = [];
+    try {
+      const [topicRows, videos] = await Promise.all([listTopicsForDedupe(), getAllVideos()]);
+      existingTexts = [...topicRows.map((r) => r.topic), ...videos.map((v) => v.title)];
+    } catch (dedupeErr) {
+      console.error('trend dedupe lookup failed (continuing without it):', dedupeErr.message);
+    }
+    const aboveMin = scored.filter((t) => t.scoreTotal >= MIN_SCORE);
+    const { kept, skipped } = filterNewTopics(aboveMin, existingTexts);
+    if (skipped.length > 0) {
+      console.log(`trend scan: ${skipped.length} موضوعِ تکراری حذف شد:`, skipped.map((s) => `«${s.topic}» ≈ «${s.matched}»`).join(' | '));
+    }
+    const qualifying = kept.slice(0, TOP_N);
 
     await saveTrendTopics(scanId, qualifying);
     await finishScanRow(scanId, {

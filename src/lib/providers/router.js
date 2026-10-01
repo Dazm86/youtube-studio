@@ -14,6 +14,7 @@
 // زیرنویس به ۵ زبان) به‌محض برخورد اول به سقف TPM همه‌شون زنجیره‌ای fail
 // می‌شدن.
 
+import { applyPronunciations } from "./pronunciation.js";
 import fs from "fs";
 import path from "path";
 import { getProvidersForCapability } from "../db/index.js";
@@ -264,5 +265,8 @@ export async function fetchClips({ text, keyword, count, orientation }) {
 }
 
 export async function synthesizeSpeech({ text, voice }) {
-  return tryProviders("audio", (entry, apiKey) => entry.adapters.audio({ apiKey, text, voice }));
+  // ۲۰۲۶-۱۰-۰۱ — دیکشنریِ تلفظ: فقط ورودیِ TTS اصلاح می‌شه (مخفف‌ها حرف‌به‌حرف)؛
+  // هر دو مسیرِ لانگ و شورت از همین تابع رد می‌شن.
+  const spoken = applyPronunciations(text);
+  return tryProviders("audio", (entry, apiKey) => entry.adapters.audio({ apiKey, text: spoken, voice }));
 }

@@ -326,6 +326,23 @@ source. One pipeline implementation, three ways to trigger it.
   button's endpoint — see "Auto-produce" under Key flows below
 
 ### `lib/`
+- **2026-10-01 additions (all small, each with a test in `tests/`):**
+  `rendering/audioFilter.js` (`buildFinalAudioFilter`: loudnorm + BGM
+  fades; `renderVideo` retries without loudnorm if ffmpeg rejects it,
+  `DISABLE_LOUDNORM=true` disables), `rendering/qualityCheck.js`
+  (+ `checkRenderedVideo()` in `rendering/index.js`, called by
+  `pipeline.js` after render: fatal → upload aborted + `video_quality_failed`
+  event; warnings → needs-review), `media/dedupe.js` (no repeated clip
+  per video), `script/safetyText.js` (risky-claim patterns, mispronunciation
+  check, `needsHealthDisclaimer`/`HEALTH_DISCLAIMER` appended to the
+  description — `pipeline.js` re-exports the checks), `script/greeting.js`
+  (Shorts must not open with a greeting), `providers/pronunciation.js`
+  (TTS-input-only acronym dictionary; env `PRONUNCIATION_OVERRIDES` JSON),
+  `utils/topicSimilarity.js` + `trends/dedupe.js` (duplicate-topic
+  detection; the trend scan no longer re-suggests produced/queued topics or
+  topics matching existing video titles; auto-produce prefers a non-duplicate
+  approved topic). **Not implemented:** TTS speech-rate/pause control
+  (msedge-tts options unverified). See the 2026-10-01 changelog entry.
 - **`auth/requestToken.js`** *(new, 2026-09-22)* — `getAccessTokenFromRequest(req)`
   / `getTokenIdentity(req)`; the only supported way for route handlers to
   get the Google access token (see Known issues, 2026-09-22).
@@ -785,6 +802,7 @@ source. One pipeline implementation, three ways to trigger it.
   imports the component file directly instead
 
 ### `.github/workflows/`
+- `tests.yml` *(new, 2026-10-01)* — runs `tests/*.test.*` on push to main and PRs (no npm install; ffmpeg optional).
 - `render-worker.yml` — `workflow_dispatch`/`repository_dispatch`
   trigger; `job_id`/`job_type`/`payload` are set at **job-level `env:`**
   (not interpolated into `run:`) specifically to avoid YAML/shell
@@ -800,6 +818,12 @@ source. One pipeline implementation, three ways to trigger it.
   `pipeline.js` → `googleapis`), needs `npm install` first — couldn't be
   run in a review sandbox without `node_modules`, no reason to expect
   failure with deps installed.
+- *(2026-10-01)* added `audioFilter.test.mjs`, `qualityCheck.test.mjs`
+  (both also exercise real ffmpeg when installed, otherwise skip that
+  part), `textSafety.test.mjs`, `topicDedupe.test.mjs`. All 7 files now
+  run with plain `node` and no `node_modules` (`pipelineChecks` imports
+  `script/safetyText.js` directly). `.github/workflows/tests.yml` runs
+  them all on every push to main / PR.
 - No test runner installed — run directly with `node tests/x.test.mjs`
   (all three use Node's built-in `assert`, zero new dependencies needed)
 - *(2026-09-21)* a 4th file, `autoproduce-orchestration.test.js`, was

@@ -8,7 +8,7 @@
 //   node tests/pipelineChecks.test.mjs
 
 import assert from "node:assert/strict";
-import { checkRiskyKeywords, checkMispronunciationRisks } from "../src/lib/pipeline.js";
+import { checkRiskyKeywords, checkMispronunciationRisks } from "../src/lib/script/safetyText.js";
 
 let passed = 0;
 let failed = 0;
