@@ -1,3 +1,4 @@
+import { releaseIdea } from "@/lib/ideas/db.js";
 import { getAccessTokenFromRequest } from "@/lib/auth/requestToken";
 import { NextResponse } from "next/server";
 import { dispatchAndTrackJob, JOB_TYPES } from "@/lib/jobs";
@@ -59,7 +60,7 @@ export async function POST(req) {
           // می‌شه — دقیقاً همون کاری که api/generate-and-upload هم برای
           // مسیرِ worker انجام می‌ده؛ فقط بخشِ سنگین (رندر+آپلود) به
           // worker سپرده می‌شه.
-          const { script, meta, trendTopicRow } = await prepareAutoProduceScript(
+          const { script, meta, trendTopicRow, ideaRow } = await prepareAutoProduceScript(
             { mode, topicId, topic, accessToken },
             { emit: send }
           );
@@ -67,10 +68,14 @@ export async function POST(req) {
           send({ status: "در صف پردازش ویدیو (Worker)...", progress: 20 });
           const githubToken = process.env.GITHUB_TOKEN || process.env.GITHUB_PAT;
           if (!githubToken) {
+            if (ideaRow) await releaseIdea(ideaRow.id).catch((e) => console.error("releaseIdea failed:", e.message));
             throw new Error("Worker dispatch not configured (missing GITHUB_TOKEN)");
           }
 
-          const { jobId } = await dispatchAndTrackJob(
+          // ۲۰۲۶-۱۰-۰۱ — اگه dispatch شکست بخوره، ایده‌ی ادعاشده به صف برمی‌گرده.
+          let jobId;
+          try {
+          ({ jobId } = await dispatchAndTrackJob(
             JOB_TYPES.RENDER_VIDEO,
             {
               script,
@@ -91,13 +96,20 @@ export async function POST(req) {
               // صریحه، نه spread به SQL/جای دیگه)، پس اضافه‌کردنش این‌جا
               // بی‌خطره حتی با اینکه همین input عیناً به worker هم می‌ره.
               trendTopicId: trendTopicRow?.id || null,
+              // ایده‌ی کاربر (صفحه‌ی /ideas) — api/jobs/callback بعدِ موفقیت
+              // «used» و بعدِ شکست دوباره «pending» علامتش می‌زنه.
+              ideaId: ideaRow?.id || null,
             },
             {
               githubToken,
               callbackUrl: `${process.env.NEXT_PUBLIC_APP_URL}/api/jobs/callback`,
               webhookUrl: process.env.ALERT_WEBHOOK_URL,
             }
-          );
+          ));
+          } catch (dispatchErr) {
+            if (ideaRow) await releaseIdea(ideaRow.id).catch((e) => console.error("releaseIdea failed:", e.message));
+            throw dispatchErr;
+          }
 
           // ۲۰۲۶-۰۹-۰۵ — قبلاً این‌جا videoId در دسترس نبود (آپلود
           // async و دقیقه‌ها بعد، از طریقِ callback انجام می‌شه)، پس
@@ -118,6 +130,7 @@ export async function POST(req) {
             tags: (meta.tags || []).join(", "),
             topic: trendTopicRow?.topic || topic || "",
             trendTopicId: trendTopicRow?.id || null,
+            ideaId: ideaRow?.id || null,
             message: `ویدیو به worker سپرده شد (Job: ${jobId}) — رندر/آپلود ممکنه چند دقیقه طول بکشه؛ از صفحه‌ی ویدیوی ${mode === "short" ? "شورت" : "لانگ"} قابل پیگیریه.`,
           });
         } else {

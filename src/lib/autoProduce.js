@@ -12,6 +12,8 @@ import { runPipeline } from './pipeline.js';
 import { getTrendTopicById, listTrendTopics, markTrendTopicProduced } from './trends/db.js';
 import { getAllVideos } from './db/index.js';
 import { findSimilarTitles } from './utils/topicSimilarity.js';
+import { claimNextIdea, markIdeaUsed, releaseIdea } from './ideas/db.js';
+import { buildIdeaTopic } from './ideas/pick.js';
 
 /**
  * Steps 1-3 only (topic selection, script, metadata) — split out so the
@@ -34,6 +36,7 @@ async function existingVideoTitles() {
 export async function prepareAutoProduceScript({ mode, topicId, topic, accessToken }, { emit = () => {} } = {}) {
   emit({ status: "در حال انتخاب موضوع...", progress: 1 });
   let trendTopicRow = null;
+  let ideaRow = null;
   let topicText = "";
   if (topicId) {
     trendTopicRow = await getTrendTopicById(topicId);
@@ -49,6 +52,22 @@ export async function prepareAutoProduceScript({ mode, topicId, topic, accessTok
     // (پس در پایان چیزی به‌عنوانِ «produced» علامت زده نمی‌شه).
     topicText = topic.trim();
   } else {
+    // ۲۰۲۶-۱۰-۰۱ — اولویتِ اول: «ایده‌هایِ من» (صفی که صاحبِ کانال دستی پر
+    // می‌کنه، صفحه‌ی /ideas). ایده اتمیک «ادعا» می‌شه (in_progress) تا هیچ
+    // اجرایِ هم‌زمانِ دیگه‌ای برش نداره؛ شکستِ بعدی ایده رو به صف برمی‌گردونه
+    // (releaseIdea) و موفقیت «used» علامتش می‌زنه. هر خطایِ DB اینجا یعنی «بدونِ
+    // ایده ادامه بده» — صفِ ایده‌ها نباید تولید رو بگیره.
+    try {
+      ideaRow = await claimNextIdea(mode);
+    } catch (ideaErr) {
+      console.error("claimNextIdea failed (continuing without user ideas):", ideaErr.message);
+    }
+    if (ideaRow) {
+      topicText = buildIdeaTopic(ideaRow);
+      emit({ status: `💡 از ایده‌های شما: «${ideaRow.idea}»`, progress: 2 });
+    }
+  }
+  if (!topicId && !(topic && topic.trim()) && !ideaRow) {
     // ۲۰۲۶-۱۰-۰۱ — انتخابِ خودکار: بینِ چند موضوعِ تأییدشده، اولین موضوعی که
     // شبیهِ ویدیوهایِ قبلیِ کانال نیست. اگه همه شبیه بودن، بهترین امتیاز
     // همچنان انتخاب می‌شه (تولید نباید متوقف بشه) ولی هشدار می‌دیم.
@@ -74,29 +93,37 @@ export async function prepareAutoProduceScript({ mode, topicId, topic, accessTok
   }
   emit({
     status: topicText
-      ? `موضوع: «${topicText}»${trendTopicRow ? " (از Trend Finder)" : ""} ✅`
+      ? `موضوع: «${ideaRow ? ideaRow.idea : topicText}»${trendTopicRow ? " (از Trend Finder)" : ""}${ideaRow ? " (از ایده‌های شما)" : ""} ✅`
       : "موضوع مشخصی تعیین نشده — خودِ هوش‌مصنوعی یک موضوع تازه انتخاب می‌کنه",
     progress: 3,
   });
 
-  emit({ status: "در حال نوشتن سناریو...", progress: 5 });
-  const { script } = await generateScript({ topic: topicText, mode, accessToken });
-  emit({ status: "سناریو نوشته شد ✅", progress: 12 });
+  // اگه نوشتنِ سناریو/متادیتا شکست بخوره، ایده‌ی ادعاشده به صف برمی‌گرده.
+  let script, meta;
+  try {
+    emit({ status: "در حال نوشتن سناریو...", progress: 5 });
+    ({ script } = await generateScript({ topic: topicText, mode, accessToken }));
+    emit({ status: "سناریو نوشته شد ✅", progress: 12 });
 
-  emit({ status: "در حال نوشتن عنوان و تگ‌ها...", progress: 14 });
-  const meta = await generateMetadata(script);
-  // این مسیر برخلافِ فرمِ دستی، هیچ انسانی قبل از رندر+آپلود عنوان رو
-  // نمی‌بینه — پس این‌جا زودتر (قبل از صرفِ چند دقیقه رندر) fail
-  // می‌کنیم به‌جای این‌که یوتیوب موقعِ آپلود با یک خطای گنگ ردش کنه.
-  // generateMetadata() خودش هم دیگه (۲۰۲۶-۰۸-۲۸) این حالت رو به
-  // heuristicMetadata برمی‌گردونه، این فقط یک لایه‌ی محافظِ اضافه‌ست.
-  const resolvedTitle = meta.titleA || meta.title || "";
-  if (!resolvedTitle.trim()) {
-    throw new Error("هوش‌مصنوعی نتونست عنوانی برای این ویدیو تولید کنه — دوباره امتحان کن.");
+    emit({ status: "در حال نوشتن عنوان و تگ‌ها...", progress: 14 });
+    meta = await generateMetadata(script);
+    // این مسیر برخلافِ فرمِ دستی، هیچ انسانی قبل از رندر+آپلود عنوان رو
+    // نمی‌بینه — پس این‌جا زودتر (قبل از صرفِ چند دقیقه رندر) fail
+    // می‌کنیم به‌جای این‌که یوتیوب موقعِ آپلود با یک خطای گنگ ردش کنه.
+    // generateMetadata() خودش هم دیگه (۲۰۲۶-۰۸-۲۸) این حالت رو به
+    // heuristicMetadata برمی‌گردونه، این فقط یک لایه‌ی محافظِ اضافه‌ست.
+    const resolvedTitle = meta.titleA || meta.title || "";
+    if (!resolvedTitle.trim()) {
+      throw new Error("هوش‌مصنوعی نتونست عنوانی برای این ویدیو تولید کنه — دوباره امتحان کن.");
+    }
+    emit({ status: "متادیتا آماده شد ✅", progress: 18 });
+
+  } catch (prepErr) {
+    if (ideaRow) await releaseIdea(ideaRow.id).catch((e) => console.error("releaseIdea failed:", e.message));
+    throw prepErr;
   }
-  emit({ status: "متادیتا آماده شد ✅", progress: 18 });
 
-  return { script, meta, trendTopicRow };
+  return { script, meta, trendTopicRow, ideaRow };
 }
 
 /**
@@ -125,12 +152,14 @@ export async function autoProduceVideo(
   { mode, topicId, topic, accessToken, getUploadAccessToken, privacyStatus, publishAt, useVideoClips },
   { emit = () => {} } = {}
 ) {
-  const { script, meta, trendTopicRow } = await prepareAutoProduceScript(
+  const { script, meta, trendTopicRow, ideaRow } = await prepareAutoProduceScript(
     { mode, topicId, topic, accessToken },
     { emit }
   );
 
-  const result = await runPipeline(
+  let result;
+  try {
+  result = await runPipeline(
     {
       script,
       title: meta.titleA || meta.title,
@@ -159,6 +188,17 @@ export async function autoProduceVideo(
     }
   );
 
+  } catch (pipeErr) {
+    if (ideaRow) await releaseIdea(ideaRow.id).catch((e) => console.error("releaseIdea failed:", e.message));
+    throw pipeErr;
+  }
+
+  if (ideaRow) {
+    await markIdeaUsed(ideaRow.id, result?.videoId).catch((err) => {
+      console.error("markIdeaUsed failed (video already uploaded fine):", err.message);
+    });
+  }
+
   if (trendTopicRow && result?.videoId) {
     await markTrendTopicProduced(trendTopicRow.id, result.videoId).catch((err) => {
       console.error("markTrendTopicProduced failed (video already uploaded fine):", err.message);
@@ -174,5 +214,6 @@ export async function autoProduceVideo(
     tags: (meta.tags || []).join(", "),
     topic: trendTopicRow?.topic || topic || "",
     trendTopicId: trendTopicRow?.id || null,
+    ideaId: ideaRow?.id || null,
   };
 }

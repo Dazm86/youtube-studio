@@ -3,6 +3,7 @@ import { verifyWorkerCredential, verifyJobPayload } from "@/lib/jobs";
 import { updateWorkerJob, getWorkerJob } from "@/lib/db/index.js";
 import { logEvent } from "@/lib/activityLog.js";
 import { markTrendTopicProduced } from "@/lib/trends/db.js";
+import { markIdeaUsed, releaseIdea } from "@/lib/ideas/db.js";
 
 // ۲۰۲۶-۰۸-۱۸ — قبلاً یک Map درون‌حافظه‌ای بود که با هر ری‌استارتِ سرور
 // (رایج تو Render free tier) پاک می‌شد؛ الان تو دیتابیس ماندگاره.
@@ -62,6 +63,11 @@ export async function POST(request) {
         if (trendTopicId) {
           await markTrendTopicProduced(trendTopicId, result.videoId);
         }
+        // ۲۰۲۶-۱۰-۰۱ — ایده‌ی کاربر (/ideas) هم همین‌جا «used» می‌شه.
+        const ideaId = jobRow?.input?.ideaId;
+        if (ideaId) {
+          await markIdeaUsed(ideaId, result.videoId);
+        }
       } catch (markErr) {
         console.error(
           "markTrendTopicProduced (worker callback) failed (video already uploaded fine):",
@@ -74,6 +80,13 @@ export async function POST(request) {
         message: `ساختِ ویدیو (Worker، Job ${jobId}) شکست خورد: ${error}`,
         metadata: { jobId, error, viaWorker: true },
       });
+      // ایده‌ی ادعاشده برمی‌گرده به صف تا دوباره نوبتش بشه.
+      try {
+        const failedJob = await getWorkerJob(jobId);
+        if (failedJob?.input?.ideaId) await releaseIdea(failedJob.input.ideaId);
+      } catch (releaseErr) {
+        console.error("releaseIdea (worker callback) failed:", releaseErr.message);
+      }
     }
 
     return NextResponse.json({ success: true, jobId });

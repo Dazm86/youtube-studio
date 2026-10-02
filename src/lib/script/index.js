@@ -13,7 +13,13 @@ export async function generateScript({ topic, mode, accessToken }) {
 
   let topicInstruction;
   if (topic && topic.trim()) {
-    topicInstruction = `The topic/theme for this video is: "${topic.trim()}"`;
+    // ۲۰۲۶-۱۰-۰۱ — «ایده‌هایِ من» ممکنه به فارسی نوشته شده باشه؛ مدل باید
+    // معنیش رو بفهمه ولی کلِ اسکریپت انگلیسی بمونه (چکِ زبانِ پایین‌تر هم
+    // همین رو verify می‌کنه).
+    const nonEnglishNote = /[^\x00-\x7F]/.test(topic)
+      ? " (The topic may be written in another language, e.g. Persian — understand its meaning, but write the ENTIRE script in English.)"
+      : "";
+    topicInstruction = `The topic/theme for this video is: \"${topic.trim()}\"${nonEnglishNote}`;
   } else {
     const recentTitles = await getRecentVideoTitles(accessToken, 15);
     const avoidList =

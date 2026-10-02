@@ -326,6 +326,29 @@ source. One pipeline implementation, three ways to trigger it.
   button's endpoint — see "Auto-produce" under Key flows below
 
 ### `lib/`
+- **`ideas/` — "ایده‌های من" queue** *(new, 2026-10-01)* — the owner types
+  video ideas on `/ideas` (`components/ideas/IdeasManager.js`, API
+  `api/ideas` + `api/ideas/[id]`, nav link added). **Topic priority for any
+  automatic production is now: explicit topic/topicId → next pending user
+  idea → approved Trend Finder topic → AI picks.** Used by BOTH
+  `scheduler/run` (the unattended uploader — which, note, never used Trend
+  Finder at all before; it called `generateScript({mode})` with no topic) and
+  `autoProduce.js: prepareAutoProduceScript()` (the one-click "ساخت کاملاً
+  خودکار", in-process and worker paths). `ideas/db.js: claimNextIdea(mode)`
+  atomically flips the oldest matching `pending` idea (format `both` or
+  equal to the video mode) to `in_progress` (`FOR UPDATE SKIP LOCKED`, so a
+  Short and a Long schedule firing together can't take the same idea);
+  success → `markIdeaUsed(id, videoId)` (`used`); any failure after the claim
+  → `releaseIdea(id)` (back to `pending`, nothing lost); an `in_progress`
+  idea older than 2h is auto-released (server restarted mid-run). For the
+  worker path the idea id travels in the job `input.ideaId` and
+  `api/jobs/callback` marks it used/released (same mechanism as
+  `trendTopicId`). Ideas may be written in Persian — `generateScript` adds a
+  note that the topic can be non-English but the script must be English.
+  Optional per-idea "notes" are appended as "extra direction from the channel
+  owner". `ideas/pick.js` holds the pure logic (validation, format matching,
+  `buildIdeaTopic`). Any DB error in the claim means "continue without an
+  idea" — the idea queue can never block production.
 - **2026-10-01 additions (all small, each with a test in `tests/`):**
   `rendering/audioFilter.js` (`buildFinalAudioFilter`: loudnorm + BGM
   fades; `renderVideo` retries without loudnorm if ffmpeg rejects it,
@@ -824,6 +847,7 @@ source. One pipeline implementation, three ways to trigger it.
   run with plain `node` and no `node_modules` (`pipelineChecks` imports
   `script/safetyText.js` directly). `.github/workflows/tests.yml` runs
   them all on every push to main / PR.
+- *(2026-10-01)* `ideas.test.mjs` — pure logic of the /ideas queue (validation, format matching, topic building); the DB layer isn't covered.
 - No test runner installed — run directly with `node tests/x.test.mjs`
   (all three use Node's built-in `assert`, zero new dependencies needed)
 - *(2026-09-21)* a 4th file, `autoproduce-orchestration.test.js`, was
@@ -929,6 +953,7 @@ back by `api/jobs/callback/route.js` (see Known issues history).
 | `trend_scans` *(new, 2026-08-27)* | `started_at`/`finished_at`, `status`, `topics_found`, `candidates_considered`, `error` — one row per 6-hourly (or manual) scan run |
 | `trend_topics` *(new, 2026-08-27)* | `scan_id` FK, `topic`, `angle`, `suggested_format`, six `score_*` columns + `score_total`, `reasoning`, `source_signals` (jsonb — raw Trends/Reddit/News/YouTube data kept for audit), `status` (`pending`/`approved`/`rejected`/`produced`), `video_id` |
 | `activity_log` *(new, 2026-08-29)* | `type`, `message` (Persian, display-ready), `metadata` (jsonb), `created_at` — one row per site event (video upload/failure, trend scan, schedule trigger, repurpose, community-post draft); own small `pg` pool in `lib/activityLog.js` |
+| `user_ideas` *(new, 2026-10-01; own pool in `lib/ideas/db.js`, created lazily)* | `id` (serial PK), `idea`, `notes`, `format` (`both`/`long`/`short`), `status` (`pending` → `in_progress` → `used`; or `skipped`), `video_id`, `created_at`, `used_at`, `claimed_at` — the owner's own video-idea queue (`/ideas`) |
 | `playlist_clusters` *(new, 2026-08-31)* | `cluster_key` (PK, e.g. `"anxiety"`), `youtube_playlist_id`, `title`, `created_at` — one row per topic cluster, created the first time a video matches that cluster |
 | `studio_activity` *(new, 2026-09-06)* | `id` (serial), `tool` (`text`/`image`/`video`/`audio`), `provider_service`, `ok`, `summary`, `input_tokens`/`output_tokens` (only ever populated for `text` — no adapter for image/video/audio returns a token count), `duration_ms`, `created_at` — one row per real AI Studio generation; backs the Resource Monitor and Version History panels. No `user_email` column (not scoped per-user — see that entry's own note on why) and no dollar-cost column (no adapter returns pricing) |
 
@@ -994,6 +1019,13 @@ previously caused `invalid_client`/`deleted_client` confusion.
 
 ## Known issues (full detail: `youtube-studio-review-v2.md`)
 
+- 🟡 **"ایده‌های من" (`/ideas`) has never run against a real database or a
+  real scheduled run** (2026-10-01) — the SQL in `lib/ideas/db.js` was
+  reviewed by hand (explicit `::text` casts added) but no Postgres was
+  available to execute it; only `ideas/pick.js` is unit-tested
+  (`tests/ideas.test.mjs`). First check after deploy: add an idea on `/ideas`,
+  trigger the scheduler (or "ساخت کاملاً خودکار") and confirm it moves
+  `در صف → ⏳ در حال ساخت → ساخته شده` with a video link.
 - ✅ **`session.accessToken` was exposed to the client** — fixed
   2026-09-22. `session` callback in `lib/auth/authOptions.js` no longer
   copies it; all 11 server routes that used it now call

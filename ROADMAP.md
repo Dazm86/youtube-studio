@@ -371,6 +371,41 @@ git push
 
 Newest first. Add new entries above the top one — date, what, why, files.
 
+### 2026-10-01 (b) — New: "ایده‌های من" (/ideas) — a queue of the owner's own video ideas that automatic production draws from
+Request: "a place to put my ideas, so when the site uploads videos by itself it makes them from those ideas."
+
+Key finding while wiring it: the unattended uploader (`scheduler/run`) never used topics from anywhere — it called
+`generateScript({ mode })` with no topic, so the AI picked every scheduled video's subject itself (Trend Finder only fed
+the manual one-click "ساخت کاملاً خودکار" path). So ideas are wired into **both**:
+topic priority is now **explicit topic/topicId → next pending idea → approved Trend Finder topic → AI picks**.
+
+- New page `/ideas` (nav: 💡 ایده‌های من): add an idea (Persian or English, ≤300 chars), optional notes (angle / must-say,
+  ≤600), format (both / long only / short only). Tabs: in queue / produced (with a link to the video) / skipped. Actions:
+  skip, restore to queue, delete. Order is first-in-first-out.
+- DB: new table `user_ideas` (own small pool like `lib/trends/db.js`, created lazily). Lifecycle: `pending →
+  in_progress → used` (+ `skipped`). `claimNextIdea(mode)` is atomic (`FOR UPDATE SKIP LOCKED`) so a Short schedule and
+  a Long schedule firing together can't grab the same idea. Success → `used` + `video_id`; any failure after the claim →
+  back to `pending` (nothing lost); `in_progress` older than 2h → auto-released (server restarted mid-run).
+- Wired: `scheduler/run` (claim before script; mark used + `idea_used` activity event on success; release on failure),
+  `autoProduce.js` (in-process path) and `api/auto-produce` worker path (idea id rides in job `input.ideaId`;
+  `api/jobs/callback` marks used / releases, same pattern as `trendTopicId`). An explicit topic/topicId still wins and
+  never touches the queue. Any DB error in the claim → "continue without an idea" (the queue can never block production).
+- `generateScript`: if the topic contains non-ASCII text (e.g. Persian) the prompt now says the script must still be
+  entirely English (the existing language soft-check verifies it). Idea notes are appended as "extra direction from the
+  channel owner"; double quotes in ideas are converted to single quotes (the topic is embedded in a quoted prompt line).
+- Unrelated to the earlier "never re-make a produced trend topic" rule: user ideas are used exactly once by design and
+  aren't similarity-filtered (the owner chose them), but a used idea stays in the "produced" tab.
+
+Verified: esbuild import/syntax pass (144 files, same lone `lib/index.js` gap), all 8 test files pass (new
+`ideas.test.mjs`: 14 checks on validation / format matching / topic building). **NOT verified:** the SQL (no Postgres
+available in the review sandbox — reviewed by hand, explicit `::text` casts added) and the real end-to-end flow. After
+deploy: add an idea, trigger the scheduler or "ساخت کاملاً خودکار", watch it go در صف → در حال ساخت → ساخته شده.
+
+Files (new): `lib/ideas/{db,pick}.js`, `app/api/ideas/route.js`, `app/api/ideas/[id]/route.js`, `app/ideas/page.js`,
+`components/ideas/IdeasManager.js`, `tests/ideas.test.mjs`.
+Files (modified): `app/api/scheduler/run/route.js`, `lib/autoProduce.js`, `app/api/auto-produce/route.js`,
+`app/api/jobs/callback/route.js`, `lib/script/index.js`, `components/layout/NavBar.js`.
+
 ### 2026-10-01 — Batch of 10 small quality/safety improvements (+ "never re-make a produced trend topic")
 User picked 10 items from a 100-idea list; plus one extra request: once a video is made from a trend topic, never make
 a video about that topic again. Each piece is a small, separately testable module with its own test file; all 7 test

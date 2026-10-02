@@ -10,6 +10,8 @@ import {
   finishScheduleRun,
   getRefreshToken,
 } from "@/lib/db";
+import { claimNextIdea, markIdeaUsed, releaseIdea } from "@/lib/ideas/db.js";
+import { buildIdeaTopic } from "@/lib/ideas/pick.js";
 import { logEvent } from "@/lib/activityLog.js";
 
 export const dynamic = "force-dynamic";
@@ -82,6 +84,7 @@ async function runScheduledPipeline(schedule) {
       }, 5 * 60 * 1000)
     : null;
 
+  let idea = null; // ایده‌ی ادعاشده از صفحه‌ی /ideas (اگه صف خالی نباشه)
   try {
     const refreshToken = await getRefreshToken();
     if (!refreshToken) {
@@ -98,7 +101,20 @@ async function runScheduledPipeline(schedule) {
     const accessToken = await getFreshAccessToken();
 
     console.log(`[scheduler] run ${runId}: در حال ساخت اسکریپت (${schedule.video_mode})...`);
-    const { script } = await generateScript({ mode: schedule.video_mode, accessToken });
+    // ۲۰۲۶-۱۰-۰۱ — اول از «ایده‌هایِ من» (صفحه‌ی /ideas) برمی‌داریم؛ اگه صف
+    // خالیه (یا DB خطا داد) مثلِ قبل خودِ AI موضوع انتخاب می‌کنه. ایده اتمیک
+    // «ادعا» می‌شه تا زمان‌بندیِ شورت و لانگ (یا دو ping) یک ایده رو برندارن.
+    try {
+      idea = await claimNextIdea(schedule.video_mode);
+    } catch (ideaErr) {
+      console.error(`[scheduler] run ${runId}: claimNextIdea failed (بدونِ ایده ادامه می‌دیم):`, ideaErr.message);
+    }
+    if (idea) console.log(`[scheduler] run ${runId}: از ایده‌ی کاربر #${idea.id}: «${idea.idea}»`);
+    const { script } = await generateScript({
+      topic: idea ? buildIdeaTopic(idea) : undefined,
+      mode: schedule.video_mode,
+      accessToken,
+    });
 
     console.log(`[scheduler] run ${runId}: در حال ساخت متادیتا...`);
     const metadata = await generateMetadata(script);
@@ -123,10 +139,24 @@ async function runScheduledPipeline(schedule) {
       { emit: (obj) => obj.status && console.log(`[scheduler] run ${runId}: ${obj.status}`) }
     );
 
+    if (idea) {
+      await markIdeaUsed(idea.id, result.videoId).catch((e) =>
+        console.error(`[scheduler] run ${runId}: markIdeaUsed failed (ویدیو آپلود شده):`, e.message)
+      );
+      logEvent({
+        type: "idea_used",
+        message: `از ایده‌ی شما ویدیو ساخته شد: «${idea.idea}»`,
+        metadata: { ideaId: idea.id, videoId: result.videoId, scheduleId: schedule.id },
+      });
+      idea = null; // دیگه نباید تو catch/finally برگردونده بشه
+    }
     await finishScheduleRun(runId, { status: "ok", videoId: result.videoId });
     console.log(`[scheduler] run ${runId}: تمام شد ✅ videoId=${result.videoId}`);
   } catch (err) {
     console.error(`[scheduler] run ${runId} failed:`, err.message);
+    if (idea) {
+      await releaseIdea(idea.id).catch((e) => console.error(`[scheduler] run ${runId}: releaseIdea failed:`, e.message));
+    }
     await finishScheduleRun(runId, { status: "failed", error: err.message });
   } finally {
     if (selfPing) clearInterval(selfPing);
