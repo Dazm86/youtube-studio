@@ -9,6 +9,8 @@ const VOICES = {
     { id: "en-US-GuyNeural", label: "Guy (US, Male)" },
     { id: "en-GB-LibbyNeural", label: "Libby (UK, Female)" },
     { id: "en-AU-NatashaNeural", label: "Natasha (AU, Female)" },
+    { id: "fa-IR-DilaraNeural", label: "دیلارا (فارسی، زن)" },
+    { id: "fa-IR-FaridNeural", label: "فرید (فارسی، مرد)" },
   ],
   openai: [
     { id: "alloy", label: "Alloy" },

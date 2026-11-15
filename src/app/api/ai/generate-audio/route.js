@@ -39,7 +39,15 @@ export async function POST(req) {
       if (!entry.noKeyNeeded && !apiKey) {
         return NextResponse.json({ error: "کلید API در دسترس نیست" }, { status: 400 });
       }
-      result = await entry.adapters.audio({ apiKey, text, voice });
+      try {
+        result = await entry.adapters.audio({ apiKey, text, voice });
+      } catch (chosenErr) {
+        // ارائه‌دهنده‌ی انتخابی شکست خورد (مثلاً Edge با ۴۰۳)؛ بقیه‌ی ارائه‌دهنده‌ها رو امتحان کن.
+        // صدای انتخابی برای سرویس دیگه معتبر نیست، پس voice حذف می‌شه تا پیش‌فرضِ هر سرویس استفاده بشه.
+        console.warn(`audio provider ${provider.service} failed, falling back:`, chosenErr.message);
+        result = await synthesizeSpeech({ text, voice: undefined });
+        providerService = null; // لاگ نکنه که ارائه‌دهنده‌ی شکست‌خورده موفق بوده
+      }
     } else {
       result = await synthesizeSpeech({ text, voice });
     }
