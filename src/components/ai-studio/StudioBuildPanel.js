@@ -4,15 +4,9 @@ import { useState } from "react";
 import { Icon } from "./StudioIcons";
 import { METHODS } from "./StudioMethodBoard";
 import { TextGenerator } from "./TextGenerator";
-import { ImageGenerator } from "./ImageGenerator";
-import { VideoGenerator } from "./VideoGenerator";
-import { AudioGenerator } from "./AudioGenerator";
 
 const TOOL_TABS = [
   { id: "text", icon: "text", label: "متن" },
-  { id: "image", icon: "image", label: "عکس" },
-  { id: "video", icon: "video", label: "ویدیو" },
-  { id: "audio", icon: "audio", label: "صدا" },
 ];
 
 const CONTRIBUTION_BY_METHOD = {
@@ -128,24 +122,6 @@ export default function StudioBuildPanel({
                     <TextGenerator
                       providers={providers.text}
                       onActivity={(a) => onActivity?.({ tool: "text", ...a })}
-                    />
-                  )}
-                  {selectedTool === "image" && (
-                    <ImageGenerator
-                      providers={providers.image}
-                      onActivity={(a) => onActivity?.({ tool: "image", ...a })}
-                    />
-                  )}
-                  {selectedTool === "video" && (
-                    <VideoGenerator
-                      providers={providers.video}
-                      onActivity={(a) => onActivity?.({ tool: "video", ...a })}
-                    />
-                  )}
-                  {selectedTool === "audio" && (
-                    <AudioGenerator
-                      providers={providers.audio}
-                      onActivity={(a) => onActivity?.({ tool: "audio", ...a })}
                     />
                   )}
 
